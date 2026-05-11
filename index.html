@@ -276,15 +276,27 @@ async function fetchVolDivergencesLive(watchlist) {
 // Attempt live fetch for a single ticker, merge with baseline structure
 async function fetchTickerLive(ticker, idx) {
   const base = genTicker(ticker, idx); // baseline structure for fields not in API
-  const [faGex, faLevels, polySnap, polyChain] = await Promise.all([
+  const [faGex, faLevels, faQuote, polySnap, polyChain] = await Promise.all([
     fetchFA("gex", ticker),
     fetchFA("levels", ticker),
+    fetchFA("stockquote", ticker),
     fetchPoly("snapshot", ticker),
     fetchPoly("chain", ticker),
   ]);
   let d = mergeFAData(base, faGex, faLevels);
+  // Spot price: prefer FlashAlpha quote, then Polygon snapshot, then GEX underlying_price
+  if (faQuote && faQuote.lastPrice) {
+    d.spot = faQuote.lastPrice;
+  } else if (faQuote && faQuote.mid) {
+    d.spot = faQuote.mid;
+  } else if (faGex && faGex.underlying_price) {
+    d.spot = faGex.underlying_price;
+  }
   d = mergePolySnapshot(d, polySnap);
   d = mergePolyChain(d, polyChain);
+  // Recalculate derived fields with final spot
+  if (d.gammaFlip) d.flipDist = ((d.spot - d.gammaFlip) / d.spot) * 100;
+  if (d.netGex) d.dspct = Math.abs(d.netGex) / d.spot;
   return d;
 }
 
@@ -316,7 +328,7 @@ function assetType(t) {
   if (["SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLB","XLC","XLI","XLP","XLRE","XLU","XLV","XLY","ARKK","SOXL","TQQQ","SQQQ","UVXY","TLT","HYG","GLD","SLV","USO"].includes(t)) return "ETF";
   return "Stock";
 }
-const BP = {SPY:595,QQQ:520,IWM:225,AAPL:195,MSFT:450,NVDA:140,TSLA:280,META:520,AMZN:200,GOOGL:175,AMD:165,NFLX:750,JPM:245,GS:520};
+const BP = {SPY:590,QQQ:520,IWM:225,AAPL:210,MSFT:460,NVDA:140,TSLA:340,META:580,AMZN:210,GOOGL:180,AMD:165,NFLX:1100,JPM:270,GS:580,MU:800,COIN:280,GME:35,MARA:25,SMCI:45,ARM:190,PLTR:130,SOFI:17,RIVN:18,XLF:52,XLK:240,XLE:90,AVGO:230,QCOM:200,CRM:330,BA:200,V:330,MA:540,UNH:580,LLY:950,ABBV:210};
 
 function genTicker(ticker, idx) {
   const seed = ticker.split("").reduce((s,c) => s + c.charCodeAt(0), 0) * 997 + idx;
