@@ -1,7 +1,7 @@
-// Wave 3 of 3 — tickers 96–143 at 3:57 PM ET
+// Wave 3 of 6 — ~24 tickers at 3:49 PM ET
 export default async (request) => {
   const siteUrl = Netlify.env.get("URL") || "https://0ptions-agent.netlify.app";
-  console.log(`[${new Date().toISOString()}] Triggering wave 3/3...`);
+  console.log(`[${new Date().toISOString()}] Triggering wave 3/6...`);
   try {
     await fetch(`${siteUrl}/.netlify/functions/capture-background`, {
       method: "POST",
@@ -14,4 +14,4 @@ export default async (request) => {
   }
 };
 
-export const config = { schedule: "57 19 * * 1-5" };
+export const config = { schedule: "49 19 * * 1-5" };

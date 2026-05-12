@@ -18,11 +18,10 @@ const TICKERS = [
 ];
 
 // ─── CONCURRENCY & RATE CONTROL ────────────────────────────────────
-const BATCH_SIZE = 10;          // tickers processed concurrently per batch
-const INTER_BATCH_DELAY = 500;  // ms pause between batches
+const BATCH_SIZE = 2;           // tickers processed concurrently per batch
+const INTER_BATCH_DELAY = 2000; // ms pause between batches
 const MAX_RETRIES = 3;          // retry count for rate-limited / failed requests
-const INITIAL_BACKOFF = 1000;   // ms backoff for first retry (doubles each time)
-const SAVE_EVERY = 50;          // progressive-save after this many tickers
+const INITIAL_BACKOFF = 2000;   // ms backoff for first retry (doubles each time)
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -252,9 +251,9 @@ async function processBatch(batch, apiKey) {
 }
 
 // ─── WAVE CONFIGURATION ────────────────────────────────────────────
-// 144 tickers split into 3 waves of ~48, triggered at 3:53, 3:55, 3:57 ET.
+// 144 tickers split into 6 waves of ~24, triggered 2 minutes apart.
 // Each wave merges its results into the existing daily snapshot blob.
-const WAVE_COUNT = 3;
+const WAVE_COUNT = 6;
 function getWaveSlice(wave) {
   const size = Math.ceil(TICKERS.length / WAVE_COUNT);
   return TICKERS.slice(wave * size, (wave + 1) * size);

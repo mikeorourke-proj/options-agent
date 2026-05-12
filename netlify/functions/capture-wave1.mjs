@@ -1,7 +1,7 @@
-// Wave 1 of 3 — tickers 0–47 at 3:53 PM ET
+// Wave 1 of 6 — ~24 tickers at 3:45 PM ET
 export default async (request) => {
   const siteUrl = Netlify.env.get("URL") || "https://0ptions-agent.netlify.app";
-  console.log(`[${new Date().toISOString()}] Triggering wave 1/3...`);
+  console.log(`[${new Date().toISOString()}] Triggering wave 1/6...`);
   try {
     await fetch(`${siteUrl}/.netlify/functions/capture-background`, {
       method: "POST",
@@ -14,4 +14,4 @@ export default async (request) => {
   }
 };
 
-export const config = { schedule: "53 19 * * 1-5" };
+export const config = { schedule: "45 19 * * 1-5" };
