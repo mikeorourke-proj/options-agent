@@ -1,6 +1,6 @@
 import { getStore } from "@netlify/blobs";
 
-// ─── 144-TICKER UNIVERSE ───────────────────────────────────────────
+// ─── 112-TICKER UNIVERSE (100 stocks + 12 ETFs) ───────────────────
 const TICKERS = [
   "NVDA","GOOGL","AAPL","MSFT","AMZN","AVGO","TSLA","META","BRK.B","WMT",
   "LLY","MU","JPM","AMD","INTC","V","XOM","ORCL","JNJ","COST","MA","CAT",
@@ -10,18 +10,15 @@ const TICKERS = [
   "STX","DIS","GLW","AMGN","WDC","BLK","PANW","T","ANET","TMO","GILD",
   "TJX","ETN","APP","DELL","DE","SCHW","UNP","UBER","WELL","APH","BX",
   "ISRG","PFE","CRM","IBKR","ABT","VRT","COP","HON","CRWD","PLD","NEM",
-  "SPGI","LOW","CB","BKNG","SBUX","LMT","DHR","CVS","PWR","PGR","MO",
-  "COF","BMY","VRTX","PH","HWM","INTU","CEG","SYK","EQIX","ACN","TT",
-  "SO","CME","CDNS","ADBE","SNPS","DUK","CMI","MDT","HCA","NOW","MAR",
-  "GD","FCX","BK","WMB","FDX","CMCSA","KKR","ICE","MCK",
+  "SPGI","LOW","CB","BKNG","SBUX","LMT","DHR","CVS","PWR","PGR","MO","COF",
   "SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLV","XLI","XLP","RSP","XBI"
 ];
 
 // ─── CONCURRENCY & RATE CONTROL ────────────────────────────────────
-const BATCH_SIZE = 2;           // tickers processed concurrently per batch
-const INTER_BATCH_DELAY = 2000; // ms pause between batches
+const BATCH_SIZE = 1;           // one ticker at a time — fully sequential
+const INTER_BATCH_DELAY = 5000; // 5s pause between tickers (≈5 calls/min safe)
 const MAX_RETRIES = 3;          // retry count for rate-limited / failed requests
-const INITIAL_BACKOFF = 2000;   // ms backoff for first retry (doubles each time)
+const INITIAL_BACKOFF = 3000;   // ms backoff for first retry (doubles each time)
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -251,9 +248,9 @@ async function processBatch(batch, apiKey) {
 }
 
 // ─── WAVE CONFIGURATION ────────────────────────────────────────────
-// 144 tickers split into 6 waves of ~24, triggered 2 minutes apart.
+// 112 tickers split into 4 waves of ~28, triggered 2 minutes apart.
 // Each wave merges its results into the existing daily snapshot blob.
-const WAVE_COUNT = 6;
+const WAVE_COUNT = 4;
 function getWaveSlice(wave) {
   const size = Math.ceil(TICKERS.length / WAVE_COUNT);
   return TICKERS.slice(wave * size, (wave + 1) * size);
