@@ -55,17 +55,18 @@ async function polyFetch(url, retries = MAX_RETRIES) {
 }
 
 async function getQuote(ticker, apiKey) {
-  // 1. Try prev-day aggs (requires stocks tier)
-  const prev = await polyFetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${apiKey}`);
-  if (prev && prev.results && prev.results.length > 0) return prev;
-
-  // 2. Fallback: stock snapshot (available on options tier)
+  // 1. Try stock snapshot first — gives current/15-min delayed price + volume
   const snap = await polyFetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`);
   if (snap && snap.ticker) {
     const s = snap.ticker;
-    const price = s.lastTrade?.p || s.prevDay?.c || s.day?.c || s.min?.c || 0;
-    if (price > 0) return { results: [{ c: price, vw: s.day?.vw || price }] };
+    const price = s.day?.c || s.lastTrade?.p || s.min?.c || 0;
+    const volume = s.day?.v || 0;
+    if (price > 0) return { results: [{ c: price, vw: s.day?.vw || price, v: volume }] };
   }
+
+  // 2. Fallback: prev-day aggs (yesterday's close)
+  const prev = await polyFetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${apiKey}`);
+  if (prev && prev.results && prev.results.length > 0) return prev;
 
   // 3. Fallback: derive spot from options chain underlying asset
   const probe = await polyFetch(`https://api.polygon.io/v3/snapshot/options/${ticker}?limit=1&apiKey=${apiKey}`);

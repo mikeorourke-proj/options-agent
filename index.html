@@ -314,12 +314,10 @@ function computeFromChain(d, chainData) {
   if (atmContracts.length > 0) {
     d.iv = (atmContracts.reduce((s, c) => s + c.implied_volatility, 0) / atmContracts.length) * 100;
   }
-  // RV: approximate from spot and day data — use contract day ranges as proxy
-  const dayRanges = valid.filter(c => c.day && c.day.high > 0 && c.day.low > 0).map(c => (c.day.high - c.day.low) / Math.max(c.day.low, 0.01));
-  if (dayRanges.length > 5) {
-    d.rv = (dayRanges.reduce((s, v) => s + v, 0) / dayRanges.length) * 100 * Math.sqrt(252);
-  } else if (d.iv > 0) {
-    d.rv = d.iv * 0.85; // rough estimate when no range data
+  // RV: approximate from IV until we accumulate historical spot data for proper calculation
+  // Typical VRP is 2-5 points positive, so RV ≈ IV * 0.90 is a reasonable interim estimate
+  if (d.iv > 0) {
+    d.rv = d.iv * 0.90;
   }
   d.vrp = d.iv - d.rv;
 

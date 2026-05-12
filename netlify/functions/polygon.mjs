@@ -12,21 +12,22 @@ export default async (request) => {
   let polygonUrl;
   switch (endpoint) {
     case "quote": {
-      // Try prev-day aggs first
-      const prevR = await fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${apiKey}`, { headers: { "Accept": "application/json" } });
-      const prevD = await prevR.json();
-      if (prevD && prevD.results && prevD.results.length > 0) {
-        return new Response(JSON.stringify(prevD), { headers: { ...headers, "Cache-Control": "public, max-age=15" } });
-      }
-      // Fallback: stock snapshot
+      // Try stock snapshot first — gives current/15-min delayed price
       const snapR = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`, { headers: { "Accept": "application/json" } });
       const snapD = await snapR.json();
       if (snapD && snapD.ticker) {
         const s = snapD.ticker;
-        const price = s.lastTrade?.p || s.prevDay?.c || s.day?.c || s.min?.c || 0;
+        const price = s.day?.c || s.lastTrade?.p || s.min?.c || 0;
+        const volume = s.day?.v || 0;
         if (price > 0) {
-          return new Response(JSON.stringify({ results: [{ c: price, vw: s.day?.vw || price }], source: "snapshot" }), { headers: { ...headers, "Cache-Control": "public, max-age=15" } });
+          return new Response(JSON.stringify({ results: [{ c: price, vw: s.day?.vw || price, v: volume }], source: "snapshot" }), { headers: { ...headers, "Cache-Control": "public, max-age=15" } });
         }
+      }
+      // Fallback: prev-day aggs (yesterday's close)
+      const prevR = await fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${apiKey}`, { headers: { "Accept": "application/json" } });
+      const prevD = await prevR.json();
+      if (prevD && prevD.results && prevD.results.length > 0) {
+        return new Response(JSON.stringify(prevD), { headers: { ...headers, "Cache-Control": "public, max-age=15" } });
       }
       // Fallback: derive from options chain underlying
       const probeR = await fetch(`https://api.polygon.io/v3/snapshot/options/${ticker}?limit=1&apiKey=${apiKey}`, { headers: { "Accept": "application/json" } });
