@@ -53,6 +53,7 @@ async function fetchPoly(endpoint, ticker) {
 
 function computeFromChain(d, chainData) {
   if (!chainData || !chainData.results || !chainData.results.length) return d;
+  if (!d._live) return d; // Don't compute positioning without a verified spot price
   const contracts = chainData.results;
   const now = new Date();
   const spot = d.spot;
@@ -61,18 +62,8 @@ function computeFromChain(d, chainData) {
   const valid = contracts.filter(c => c.details && c.greeks && c.details.expiration_date && c.details.strike_price);
   if (valid.length === 0) return d;
 
-  // ── Spot price: derive from ATM call where delta ≈ 0.5
-  const atmCalls = valid.filter(c =>
-    c.details.contract_type === "call" && c.greeks.delta && Math.abs(c.greeks.delta - 0.5) < 0.15
-  );
-  if (atmCalls.length > 0) {
-    atmCalls.sort((a, b) => Math.abs((a.greeks.delta || 0) - 0.5) - Math.abs((b.greeks.delta || 0) - 0.5));
-    const bestATM = atmCalls[0];
-    let derivedSpot = bestATM.details.strike_price;
-    const mid = bestATM.day ? (bestATM.day.close || 0) : 0;
-    if (mid > 0) derivedSpot = bestATM.details.strike_price + mid * 0.5;
-    if (derivedSpot > 0) d.spot = derivedSpot;
-  }
+  // ── Spot price: ONLY use Polygon quote price set upstream. Never derive from ATM delta.
+  // Bad data is worse than no data.
 
   // ── Separate near-term (7-45 DTE) for GEX/walls/max pain vs broader for flow
   const MIN_DTE = 7, MAX_DTE = 45;
@@ -387,7 +378,62 @@ async function fetchVolDivergencesLive(watchlist) {
 // Fetch live data for a single ticker — all from Polygon
 async function fetchTickerLive(ticker, idx) {
   const base = genTicker(ticker, idx);
-  const chain = await fetchPoly("chain", ticker);
+  const [polyQuote, chain] = await Promise.all([
+    fetchPoly("quote", ticker),
+    fetchPoly("chain", ticker),
+  ]);
+
+  // Determine if market is open (rough check: Mon-Fri 9:30-16:00 ET)
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = et.getDay();
+  const hours = et.getHours() + et.getMinutes() / 60;
+  const marketOpen = day >= 1 && day <= 5 && hours >= 9.5 && hours < 16;
+
+  if (marketOpen && chain && chain.results && chain.results.length > 5) {
+    // INTRADAY: derive spot from put-call parity on 0-7 DTE ATM calls
+    // stock price ≈ strike + call last trade price
+    const nowMs = now.getTime();
+    const nearCalls = chain.results.filter(c => {
+      if (!c.details || c.details.contract_type !== "call") return false;
+      if (!c.day || !c.day.close || c.day.close <= 0) return false;
+      if (!c.day.volume || c.day.volume < 10) return false;
+      const exp = c.details.expiration_date;
+      if (!exp) return false;
+      const dte = Math.floor((new Date(exp) - now) / 864e5);
+      return dte >= 0 && dte <= 7;
+    });
+
+    if (nearCalls.length > 0) {
+      // Find the most liquid near-term ATM call
+      // ATM = where delta is closest to 0.5, or where call price is roughly half the strike width
+      nearCalls.sort((a, b) => {
+        // Prefer highest volume, then closest delta to 0.5
+        const aDelta = a.greeks && a.greeks.delta ? Math.abs(a.greeks.delta - 0.5) : 1;
+        const bDelta = b.greeks && b.greeks.delta ? Math.abs(b.greeks.delta - 0.5) : 1;
+        const aVol = a.day.volume || 0;
+        const bVol = b.day.volume || 0;
+        // Primary: delta closest to 0.5. Secondary: highest volume
+        if (Math.abs(aDelta - bDelta) < 0.05) return bVol - aVol;
+        return aDelta - bDelta;
+      });
+
+      const best = nearCalls[0];
+      const derivedSpot = best.details.strike_price + best.day.close;
+      base.spot = derivedSpot;
+      base._live = true;
+      base._priceSource = "put-call parity";
+    }
+  }
+
+  // AFTER HOURS or fallback: use prev-day closing price
+  if (!base._live && polyQuote && polyQuote.results && polyQuote.results.length > 0) {
+    const q = polyQuote.results[0];
+    base.spot = q.c || q.vw || base.spot;
+    base._live = true;
+    base._priceSource = "closing price";
+  }
+
   let d = computeFromChain(base, chain);
   return d;
 }
