@@ -1,6 +1,6 @@
 import { getStore } from "@netlify/blobs";
 
-// ─── 143-TICKER UNIVERSE ───────────────────────────────────────────
+// ─── 144-TICKER UNIVERSE ───────────────────────────────────────────
 const TICKERS = [
   "NVDA","GOOGL","AAPL","MSFT","AMZN","AVGO","TSLA","META","BRK.B","WMT",
   "LLY","MU","JPM","AMD","INTC","V","XOM","ORCL","JNJ","COST","MA","CAT",
@@ -17,15 +17,45 @@ const TICKERS = [
   "SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLV","XLI","XLP","RSP","XBI"
 ];
 
-const RATE_DELAY = 250;
+// ─── CONCURRENCY & RATE CONTROL ────────────────────────────────────
+const BATCH_SIZE = 10;          // tickers processed concurrently per batch
+const INTER_BATCH_DELAY = 500;  // ms pause between batches
+const MAX_RETRIES = 3;          // retry count for rate-limited / failed requests
+const INITIAL_BACKOFF = 1000;   // ms backoff for first retry (doubles each time)
+const SAVE_EVERY = 50;          // progressive-save after this many tickers
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function polyFetch(url) {
-  try {
-    const r = await fetch(url, { headers: { "Accept": "application/json" } });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch { return null; }
+// ─── FETCH WITH RETRY + BACKOFF ────────────────────────────────────
+async function polyFetch(url, retries = MAX_RETRIES) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url, { headers: { "Accept": "application/json" } });
+
+      // Rate limited — back off and retry
+      if (r.status === 429) {
+        if (attempt < retries) {
+          const backoff = INITIAL_BACKOFF * Math.pow(2, attempt);
+          console.warn(`  429 rate-limited, backing off ${backoff}ms (attempt ${attempt + 1}/${retries})`);
+          await sleep(backoff);
+          continue;
+        }
+        console.error(`  429 rate-limited, exhausted retries`);
+        return null;
+      }
+
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) {
+      if (attempt < retries) {
+        const backoff = INITIAL_BACKOFF * Math.pow(2, attempt);
+        await sleep(backoff);
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
 }
 
 async function getQuote(ticker, apiKey) {
@@ -40,7 +70,7 @@ async function getChain(ticker, spot, apiKey) {
   let nextUrl = data.next_url ? data.next_url + `&apiKey=${apiKey}` : null;
   let pages = 0;
   while (nextUrl && pages < 3) {
-    await sleep(RATE_DELAY);
+    await sleep(300);
     const nd = await polyFetch(nextUrl);
     if (!nd || !nd.results) break;
     data.results.push(...nd.results);
@@ -168,6 +198,40 @@ function computePositioning(ticker, spot, chainData) {
   return result;
 }
 
+// ─── PROCESS A SINGLE TICKER ───────────────────────────────────────
+async function processTicker(ticker, apiKey) {
+  const quoteData = await getQuote(ticker, apiKey);
+  let spot = 0;
+  if (quoteData && quoteData.results && quoteData.results.length > 0) {
+    spot = quoteData.results[0].c || quoteData.results[0].vw || 0;
+  }
+  if (spot <= 0) return { error: { ticker, error: "no quote" } };
+
+  const chainData = await getChain(ticker, spot, apiKey);
+  const positioning = computePositioning(ticker, spot, chainData);
+  return { result: positioning };
+}
+
+// ─── PROCESS A BATCH OF TICKERS IN PARALLEL ────────────────────────
+async function processBatch(batch, apiKey) {
+  const settled = await Promise.allSettled(
+    batch.map(ticker => processTicker(ticker, apiKey))
+  );
+
+  const results = [];
+  const errors = [];
+  settled.forEach((s, i) => {
+    if (s.status === "fulfilled" && s.value.result) {
+      results.push(s.value.result);
+    } else if (s.status === "fulfilled" && s.value.error) {
+      errors.push(s.value.error);
+    } else {
+      errors.push({ ticker: batch[i], error: s.reason?.message || "unknown" });
+    }
+  });
+  return { results, errors };
+}
+
 // ─── MAIN BACKGROUND FUNCTION ──────────────────────────────────────
 export default async (request) => {
   const apiKey = Netlify.env.get("POLYGON_API_KEY");
@@ -176,39 +240,46 @@ export default async (request) => {
   const store = getStore("snapshots");
   const now = new Date();
   const dateKey = now.toISOString().slice(0, 10);
-  console.log(`[${now.toISOString()}] Background capture starting for ${TICKERS.length} tickers...`);
+  console.log(`[${now.toISOString()}] Background capture starting for ${TICKERS.length} tickers (batch size ${BATCH_SIZE})...`);
 
-  const results = [];
-  const errors = [];
+  const allResults = [];
+  const allErrors = [];
 
-  for (let i = 0; i < TICKERS.length; i++) {
-    const ticker = TICKERS[i];
-    try {
-      const quoteData = await getQuote(ticker, apiKey);
-      await sleep(RATE_DELAY);
+  // Split tickers into batches and process each batch concurrently
+  for (let i = 0; i < TICKERS.length; i += BATCH_SIZE) {
+    const batch = TICKERS.slice(i, i + BATCH_SIZE);
+    const { results, errors } = await processBatch(batch, apiKey);
+    allResults.push(...results);
+    allErrors.push(...errors);
 
-      let spot = 0;
-      if (quoteData && quoteData.results && quoteData.results.length > 0) {
-        spot = quoteData.results[0].c || quoteData.results[0].vw || 0;
-      }
-      if (spot <= 0) { errors.push({ ticker, error: "no quote" }); continue; }
+    const processed = Math.min(i + BATCH_SIZE, TICKERS.length);
+    console.log(`  Batch done: ${processed}/${TICKERS.length} (${allResults.length} ok, ${allErrors.length} errors)`);
 
-      const chainData = await getChain(ticker, spot, apiKey);
-      await sleep(RATE_DELAY);
+    // Progressive save — write partial snapshot so data is never fully lost
+    if (allResults.length > 0 && (processed % SAVE_EVERY === 0 || processed === TICKERS.length)) {
+      const partial = {
+        date: dateKey, capturedAt: now.toISOString(),
+        tickerCount: allResults.length, errorCount: allErrors.length,
+        complete: processed === TICKERS.length,
+        errors: allErrors.slice(0, 20), tickers: allResults,
+      };
+      await store.setJSON("latest", partial);
+      await store.setJSON(`daily-${dateKey}`, partial);
+      console.log(`  Progressive save: ${allResults.length} tickers written`);
+    }
 
-      const positioning = computePositioning(ticker, spot, chainData);
-      results.push(positioning);
-
-      if ((i + 1) % 20 === 0) console.log(`  Processed ${i + 1}/${TICKERS.length}...`);
-    } catch (e) {
-      errors.push({ ticker, error: e.message });
+    // Pause between batches to stay within rate limits
+    if (i + BATCH_SIZE < TICKERS.length) {
+      await sleep(INTER_BATCH_DELAY);
     }
   }
 
+  // ─── Final save ──────────────────────────────────────────────────
   const snapshot = {
     date: dateKey, capturedAt: now.toISOString(),
-    tickerCount: results.length, errorCount: errors.length,
-    errors: errors.slice(0, 20), tickers: results,
+    tickerCount: allResults.length, errorCount: allErrors.length,
+    complete: true,
+    errors: allErrors.slice(0, 20), tickers: allResults,
   };
 
   await store.setJSON("latest", snapshot);
@@ -221,6 +292,7 @@ export default async (request) => {
     await store.setJSON("date-index", dateIndex);
   }
 
-  console.log(`[${new Date().toISOString()}] Capture complete: ${results.length} tickers, ${errors.length} errors`);
-  if (errors.length > 0) console.log(`  Errors: ${errors.map(e => e.ticker).join(", ")}`);
+  const elapsed = ((Date.now() - now.getTime()) / 1000).toFixed(1);
+  console.log(`[${new Date().toISOString()}] Capture complete in ${elapsed}s: ${allResults.length} tickers, ${allErrors.length} errors`);
+  if (allErrors.length > 0) console.log(`  Errors: ${allErrors.map(e => e.ticker).join(", ")}`);
 };
