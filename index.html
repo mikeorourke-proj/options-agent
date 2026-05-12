@@ -140,51 +140,66 @@ function computeFromChain(d, chainData) {
     d.gammaFlip = flipStrike;
     d.flipDist = ((d.spot - d.gammaFlip) / d.spot) * 100;
 
-    // ── Call wall: strike with highest call OI, MUST be at or above spot
+    // ── Call wall: strike with highest call OI at or above spot
     let maxCallOI = 0, callWallStrike = d.spot * 1.02;
     let totalNearCallOI = 0;
+    let callOIAboveSpot = {};
     Object.entries(strikeCallOI).forEach(([s, oi]) => {
       const sn = Number(s);
       totalNearCallOI += oi;
-      if (oi >= MIN_OI && oi > maxCallOI && sn >= d.spot * 0.98) {
-        maxCallOI = oi;
-        callWallStrike = sn;
+      if (sn >= d.spot * 0.98) {
+        callOIAboveSpot[sn] = oi;
+        if (oi > maxCallOI) {
+          maxCallOI = oi;
+          callWallStrike = sn;
+        }
       }
     });
     d.callWall = callWallStrike;
-    d.callWallConf = totalNearCallOI > 0 ? (maxCallOI / totalNearCallOI * 100) : 0;
+    // Confidence: wall OI as % of all call OI at/above spot (the relevant distribution)
+    const totalCallOIAbove = Object.values(callOIAboveSpot).reduce((s, v) => s + v, 0);
+    d.callWallConf = totalCallOIAbove > 0 ? (maxCallOI / totalCallOIAbove * 100) : 0;
     d.callWallOI = maxCallOI;
 
-    // ── Put wall: strike with highest put OI, MUST be at or below spot
+    // ── Put wall: strike with highest put OI at or below spot
     let maxPutOI = 0, putWallStrike = d.spot * 0.98;
     let totalNearPutOI = 0;
+    let putOIBelowSpot = {};
     Object.entries(strikePutOI).forEach(([s, oi]) => {
       const sn = Number(s);
       totalNearPutOI += oi;
-      if (oi >= MIN_OI && oi > maxPutOI && sn <= d.spot * 1.02) {
-        maxPutOI = oi;
-        putWallStrike = sn;
+      if (sn <= d.spot * 1.02) {
+        putOIBelowSpot[sn] = oi;
+        if (oi > maxPutOI) {
+          maxPutOI = oi;
+          putWallStrike = sn;
+        }
       }
     });
     d.putWall = putWallStrike;
-    d.putWallConf = totalNearPutOI > 0 ? (maxPutOI / totalNearPutOI * 100) : 0;
+    const totalPutOIBelow = Object.values(putOIBelowSpot).reduce((s, v) => s + v, 0);
+    d.putWallConf = totalPutOIBelow > 0 ? (maxPutOI / totalPutOIBelow * 100) : 0;
     d.putWallOI = maxPutOI;
 
-    // ── Max pain: strike that minimizes total option holder P&L (near spot only)
-    // Only test strikes within 15% of spot to avoid LEAPS contamination
-    const nearStrikes = strikes.filter(s => Math.abs(s - d.spot) / d.spot < 0.15);
-    let minPain = Infinity, maxPainStrike = d.spot;
-    nearStrikes.forEach(testStrike => {
-      let totalPain = 0;
+    // ── Max pain: strike where total option holder LOSSES are maximized
+    // At pin price P: call holders with strike < P have intrinsic (P - strike), put holders with strike > P have intrinsic (strike - P)
+    // Max pain = strike where SUM of holder payouts is MINIMIZED (holders lose the most)
+    const nearStrikes = strikes.filter(s => Math.abs(s - d.spot) / d.spot < 0.10);
+    if (nearStrikes.length === 0) nearStrikes.push(...strikes.filter(s => Math.abs(s - d.spot) / d.spot < 0.20));
+    let minPayout = Infinity, maxPainStrike = d.spot;
+    nearStrikes.forEach(pinPrice => {
+      let totalPayout = 0;
+      // Call holders: profit if strike < pinPrice → payout = (pinPrice - strike) × OI × 100
       Object.entries(strikeCallOI).forEach(([s, oi]) => {
-        const intrinsic = Math.max(0, testStrike - Number(s));
-        totalPain += intrinsic * oi * 100;
+        const strike = Number(s);
+        if (pinPrice > strike) totalPayout += (pinPrice - strike) * oi * 100;
       });
+      // Put holders: profit if strike > pinPrice → payout = (strike - pinPrice) × OI × 100
       Object.entries(strikePutOI).forEach(([s, oi]) => {
-        const intrinsic = Math.max(0, Number(s) - testStrike);
-        totalPain += intrinsic * oi * 100;
+        const strike = Number(s);
+        if (strike > pinPrice) totalPayout += (strike - pinPrice) * oi * 100;
       });
-      if (totalPain < minPain) { minPain = totalPain; maxPainStrike = testStrike; }
+      if (totalPayout < minPayout) { minPayout = totalPayout; maxPainStrike = pinPrice; }
     });
     d.maxPain = maxPainStrike;
   }
