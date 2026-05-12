@@ -276,7 +276,8 @@ function computeFromChain(d, chainData) {
 
   // ── Options-driven volume
   const totalDeltaShares = callDeltaFlow + putDeltaFlow;
-  const advShares = (ADV[d.ticker] || 10) * 1e6;
+  // Use actual equity volume if available (from snapshot), otherwise fall back to ADV table
+  const advShares = d.equityVolume > 0 ? d.equityVolume : (ADV[d.ticker] || 10) * 1e6;
   d.optVolShares = totalDeltaShares;
   d.optVolPctADV = (totalDeltaShares / advShares) * 100;
   d.optVolRaw = totalVol;
@@ -295,25 +296,22 @@ function computeFromChain(d, chainData) {
 async function fetchVolDivergencesLive(watchlist) {
   const results = [];
 
-  // Fetch chains for all tickers — chain includes underlying price context
   for (let i = 0; i < watchlist.length; i++) {
     const ticker = watchlist[i];
+
+    // Get proper spot price from stock quote
+    const polyQuote = await fetchPoly("quote", ticker);
+    let spot = 0;
+    if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
+      spot = polyQuote.results[0].c || polyQuote.results[0].vw || 0;
+    }
+    if (spot <= 0) continue;
+
     const chain = await fetchPoly("chain", ticker);
     if (!chain || !chain.results || chain.results.length < 5) continue;
 
     const now = new Date();
     const contracts = chain.results;
-
-    // Derive spot from ATM calls
-    const atmCalls = contracts.filter(c =>
-      c.details && c.greeks && c.details.contract_type === "call" &&
-      c.greeks.delta && Math.abs(c.greeks.delta - 0.5) < 0.15
-    );
-    let spot = BP[ticker] || 100;
-    if (atmCalls.length > 0) {
-      atmCalls.sort((a, b) => Math.abs((a.greeks.delta || 0) - 0.5) - Math.abs((b.greeks.delta || 0) - 0.5));
-      spot = atmCalls[0].details.strike_price;
-    }
 
     // Estimate daily change from chain day data — look at change_percent on contracts
     const dayChanges = contracts.filter(c => c.day && c.day.change_percent !== undefined && c.day.change_percent !== 0)
@@ -404,14 +402,18 @@ async function fetchVolDivergencesLive(watchlist) {
 
 // Fetch live data for a single ticker — all from Polygon
 async function fetchTickerLive(ticker, idx) {
-  const base = genTicker(ticker, idx);
+  const base = emptyTicker(ticker);
 
   // Step 1: Get closing price first — we need it to filter the chain around ATM
   const polyQuote = await fetchPoly("quote", ticker);
-  let closingPrice = base.spot;
+  let closingPrice = 0;
   if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
     const q = polyQuote.results[0];
-    closingPrice = q.c || q.vw || closingPrice;
+    closingPrice = q.c || q.vw || 0;
+  }
+  if (closingPrice <= 0) {
+    base._error = "no quote";
+    return base;
   }
 
   // Step 2: Fetch chain filtered around the closing price (±15%)
@@ -485,13 +487,13 @@ const fmtD = n => { const a = Math.abs(n); const s = n < 0 ? "-" : ""; return a 
 const fmtPct = n => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 const fmtP = n => `$${n.toFixed(2)}`;
 
-function srand(seed) { let s = seed; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; }
 function assetType(t) {
   if (["SPX","NDX","RUT","VIX"].includes(t)) return "Index";
   if (["SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLB","XLC","XLI","XLP","XLRE","XLU","XLV","XLY","ARKK","SOXL","TQQQ","SQQQ","UVXY","TLT","HYG","GLD","SLV","USO"].includes(t)) return "ETF";
   return "Stock";
 }
-const BP = {SPY:590,QQQ:520,IWM:225,AAPL:210,MSFT:460,NVDA:140,TSLA:340,META:580,AMZN:210,GOOGL:180,AMD:165,NFLX:1100,JPM:270,GS:580,MU:800,COIN:280,GME:35,MARA:25,SMCI:45,ARM:190,PLTR:130,SOFI:17,RIVN:18,XLF:52,XLK:240,XLE:90,AVGO:230,QCOM:200,CRM:330,BA:200,V:330,MA:540,UNH:580,LLY:950,ABBV:210};
+// ADV in millions of shares — used for Options % of ADV calculation
+// Will be replaced with Polygon-sourced data in Priority 3
 
 // Approximate market caps ($B) and avg daily volume (shares M) — updated periodically
 // Used to normalize 0DTE impact: which names have the biggest gamma relative to their size
@@ -502,100 +504,34 @@ const ADV = {SPY:80,QQQ:50,IWM:30,AAPL:55,MSFT:25,NVDA:300,TSLA:100,META:20,AMZN
 // Combines: shares-as-%-of-ADV and shares-as-%-of-float (via mcap/price)
 function compute0dteImpact(d) {
   const eqShares = d.zds || 0;
-  const advShares = (ADV[d.ticker] || 10) * 1e6; // convert M to shares
-  const mcap = (MCAP[d.ticker] || 50) * 1e9; // convert $B to $
-  const approxFloat = mcap / Math.max(d.spot, 1); // approximate shares outstanding
+  const advShares = d.equityVolume > 0 ? d.equityVolume : (ADV[d.ticker] || 10) * 1e6;
+  const mcap = (MCAP[d.ticker] || 50) * 1e9;
+  const approxFloat = mcap / Math.max(d.spot, 1);
   const pctOfADV = (eqShares / advShares) * 100;
   const pctOfFloat = (eqShares / Math.max(approxFloat, 1)) * 100;
-  // Weighted score: ADV impact matters more for intraday, float impact for multi-day
   const score = (pctOfADV * 0.7) + (pctOfFloat * 0.3 * 100);
   return { score, pctOfADV, pctOfFloat, eqShares };
 }
 
-function genTicker(ticker, idx) {
-  const seed = ticker.split("").reduce((s,c) => s + c.charCodeAt(0), 0) * 997 + idx;
-  const r = srand(seed + (Date.now() % 86400000));
-  const bp = BP[ticker] || (30 + srand(seed)() * 400);
-  const spot = bp * (0.97 + r() * 0.06);
-  const netGex = (r() - 0.45) * 5e9;
-  const regime = netGex > 0 ? "positive" : "negative";
-  const gammaFlip = spot * (0.97 + r() * 0.06);
-  const flipDist = ((spot - gammaFlip) / spot) * 100;
-  const callWall = spot * (1.01 + r() * 0.04);
-  const putWall = spot * (0.96 - r() * 0.04);
-  const maxPain = spot * (0.98 + r() * 0.04);
-  const dspct = Math.abs(netGex) / spot;
-  const sq = Math.min(100, Math.max(0, (regime === "negative" ? 30 : 0) + (Math.abs(flipDist) < 1 ? 25 : Math.abs(flipDist) < 2 ? 15 : 0) + r() * 30 + (r() > 0.7 ? 20 : 0)));
-  const skewZ = -2.5 + r() * 5;
-  const termSlope = 0.7 + r() * 0.6;
-  const cdf = r() * 800000, pdf = r() * 800000;
-  const dpc = pdf / Math.max(cdf, 1), nds = cdf - pdf;
-  const pcp = Math.round(r() * 100), pcr = (r() - 0.5) * 200000;
-  const iv = 15 + r() * 50, rv = iv * (0.6 + r() * 0.8), vrp = iv - rv;
-  const zdg = (r() - 0.4) * 2e9, zdr = zdg > 0 ? "positive" : "negative", zds = Math.abs(zdg) / spot;
-  const trades = [];
-  for (let i = 0; i < Math.floor(r() * 5); i++) {
-    const isC = r() > 0.4, d = 0.7 + r() * 0.25, c = Math.round(100 + r() * 2000);
-    trades.push({ type: isC?"C":"P", strike: Math.round(spot*(isC?1+r()*0.05:1-r()*0.05)), delta: isC?d:-d, contracts: c, side: r()>0.4?"bought":"sold", eqShares: d*c*100*(isC?1:-1), time: `${9+Math.floor(r()*7)}:${String(Math.floor(r()*60)).padStart(2,"0")}` });
-  }
-  return { ticker, spot, netGex, regime, gammaFlip, flipDist, callWall, putWall, maxPain, dspct, sq, skewZ, termSlope, cdf, pdf, dpc, nds, pcp, pcr, iv, rv, vrp, zdg, zdr, zds, trades, at: assetType(ticker) };
+function emptyTicker(ticker) {
+  return {
+    ticker, spot: 0, netGex: 0, regime: "positive", gammaFlip: 0, flipDist: 0,
+    callWall: 0, putWall: 0, callWallConf: 0, callWallOI: 0, putWallConf: 0, putWallOI: 0,
+    maxPain: 0, dspct: 0, sq: 0, skewZ: 0, termSlope: 1, cdf: 0, pdf: 0,
+    dpc: 0, nds: 0, pcp: 50, pcr: 0, iv: 0, rv: 0, vrp: 0,
+    zdg: 0, zdr: "positive", zds: 0,
+    zdteVol: 0, zdtePct: 0, zdteDpc: 0, zdteNetDelta: 0, zdteCallFlow: 0, zdtePutFlow: 0,
+    openVol: 0, openDpc: 0, openNetDelta: 0, openCallFlow: 0, openPutFlow: 0,
+    optVolRaw: 0, optVolShares: 0, optVolPctADV: 0,
+    trades: [], sweeps: [], at: assetType(ticker), _live: false,
+  };
 }
 
 // ─── VOL DIVERGENCE SCANNER ────────────────────────────────────────
 // Flags: OTM puts up while shares up, or OTM calls up while shares down
 // These are rare — most scans return empty. When they fire, it's the most important signal.
 // LIVE: Polygon GET /v3/snapshot/options/{underlyingAsset} → compare IV vs prior session
-function genVolDivergences(watchlist) {
-  const results = [];
-  const daySeed = Math.floor(Date.now() / 86400000);
-  watchlist.forEach((ticker, idx) => {
-    const r = srand(ticker.split("").reduce((s,c) => s + c.charCodeAt(0), 0) * 1301 + daySeed + idx);
-    // ~8% chance of divergence per ticker — rare but testable
-    if (r() > 0.92) {
-      const bp = BP[ticker] || (30 + srand(ticker.charCodeAt(0) * 997)() * 400);
-      const spot = bp * (0.97 + r() * 0.06);
-      const isPutDiv = r() > 0.45; // puts up / shares up vs calls up / shares down
-      const shareChg = isPutDiv ? (0.5 + r() * 3.5) : -(0.5 + r() * 3.5); // share % move
-      const ivJump = 15 + r() * 45; // IV increase %
-      const priorIV = 20 + r() * 30;
-      const currentIV = priorIV * (1 + ivJump / 100);
-      const dte = 30 + Math.floor(r() * 30); // 30-60 DTE
-      const otmPct = 5 + r() * 10; // 5-15% OTM
-      const strike = isPutDiv ? Math.round(spot * (1 - otmPct / 100)) : Math.round(spot * (1 + otmPct / 100));
-      const optPriceChg = 20 + r() * 80; // option price % increase
-      const volume = Math.round(500 + r() * 8000);
-      const avgOI = Math.round(200 + r() * 3000);
-      const volOIRatio = volume / Math.max(avgOI, 1);
-      const delta = isPutDiv ? -(0.1 + r() * 0.2) : (0.1 + r() * 0.2);
-      const eqShares = Math.abs(delta) * volume * 100;
-      // Chain-wide confirmation: how many strikes show elevated IV
-      const chainStrikesElevated = 3 + Math.floor(r() * 8);
-      const chainTotalStrikes = chainStrikesElevated + Math.floor(r() * 5);
-      // Severity score 0-100
-      const severity = Math.min(100, Math.round(
-        (ivJump > 30 ? 25 : ivJump > 20 ? 15 : 5) +
-        (volOIRatio > 3 ? 25 : volOIRatio > 2 ? 15 : 5) +
-        (optPriceChg > 50 ? 20 : optPriceChg > 30 ? 10 : 5) +
-        (chainStrikesElevated / chainTotalStrikes > 0.7 ? 20 : 10) +
-        (Math.abs(shareChg) > 2 ? 10 : 5)
-      ));
-
-      results.push({
-        ticker, spot, shareChg, isPutDiv,
-        type: isPutDiv ? "Puts up / shares up" : "Calls up / shares down",
-        signal: isPutDiv ? "Informed downside positioning into strength" : "Informed upside positioning into weakness",
-        strike, dte, otmPct,
-        ivJump, priorIV, currentIV,
-        optPriceChg, volume, avgOI, volOIRatio,
-        delta, eqShares,
-        chainStrikesElevated, chainTotalStrikes,
-        severity,
-        at: assetType(ticker),
-      });
-    }
-  });
-  return results.sort((a, b) => b.severity - a.severity);
-}
+// genVolDivergences removed — using fetchVolDivergencesLive instead
 
 function nextOpex() {
   const today = new Date().toISOString().slice(0, 10);
@@ -661,11 +597,12 @@ function EqBadge({ shares, size = "sm" }) {
   return <span style={{ ...s[size], borderRadius: "4px", fontFamily: "'SF Mono',monospace", display: "inline-block", whiteSpace: "nowrap", background: b?"rgba(29,158,117,0.12)":"rgba(226,75,74,0.12)", color: b?"#0F6E56":"#A32D2D" }}>{label}</span>;
 }
 function Regime({ r: reg }) { const p = reg==="positive"; return <span style={{ fontSize: "11px", padding: "2px 10px", borderRadius: "999px", fontWeight: 500, background: p?"rgba(99,153,34,0.14)":"rgba(226,75,74,0.12)", color: p?"#3B6D11":"#A32D2D" }}>{reg}</span>; }
-function Metric({ label, value, sub, accent, info, snapshot }) {
+function Metric({ label, value, sub, accent, info, snapshot, onChart }) {
   const [open, setOpen] = useState(false);
   return <div onClick={() => { if (info) setOpen(!open); }} style={{ background: open ? "rgba(128,128,128,0.09)" : "rgba(128,128,128,0.06)", borderRadius: "8px", padding: "10px 12px", minWidth: 0, cursor: info ? "pointer" : "default", transition: "background 0.15s", position: "relative" }}>
     <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
       <div style={{ fontSize: "10px", opacity: 0.828, marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.3px", flex: 1 }}>{label}</div>
+      {onChart && <span onClick={e => { e.stopPropagation(); onChart(); }} style={{ fontSize: "10px", opacity: 0.4, cursor: "pointer", marginBottom: "2px", padding: "0 2px" }} title="View time series">📈</span>}
       {info && <span style={{ fontSize: "10px", opacity: open ? 0.5 : 0.25, transition: "opacity 0.15s" }}>ⓘ</span>}
     </div>
     <div style={{ fontSize: "17px", fontWeight: 500, color: accent||"inherit" }}>{value}</div>
@@ -674,6 +611,77 @@ function Metric({ label, value, sub, accent, info, snapshot }) {
       <div style={{ fontSize: "12px", lineHeight: 1.55, opacity: 0.828, fontFamily: "-apple-system,sans-serif", marginBottom: snapshot ? "6px" : 0 }}>{info}</div>
       {snapshot && <div style={{ fontSize: "11px", lineHeight: 1.5, opacity: 0.82, fontFamily: "'SF Mono',monospace", background: "rgba(74,144,217,0.06)", borderRadius: "5px", padding: "6px 8px" }}>{snapshot}</div>}
     </div>}
+  </div>;
+}
+
+function TimeSeriesModal({ ticker, metric, label, unit, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch(`/.netlify/functions/snapshot?ticker=${ticker}&history=true`)
+      .then(r => r.json())
+      .then(d => { setData(d.points || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [ticker]);
+
+  if (loading) return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "24px", minWidth: "320px", maxWidth: "600px", width: "90%" }} onClick={e => e.stopPropagation()}><div style={{ textAlign: "center", opacity: 0.6 }}>Loading history...</div></div></div>;
+
+  if (!data || data.length === 0) return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "24px", minWidth: "320px" }} onClick={e => e.stopPropagation()}><div style={{ textAlign: "center", opacity: 0.6 }}>No historical data yet — time series builds as daily snapshots accumulate.</div><button onClick={onClose} style={{ marginTop: "12px", background: "rgba(74,144,217,0.12)", border: "none", borderRadius: "6px", padding: "6px 16px", cursor: "pointer", display: "block", margin: "12px auto 0" }}>Close</button></div></div>;
+
+  const values = data.map(d => d[metric] || 0);
+  const maxVal = Math.max(...values, 0.01);
+  const minVal = Math.min(...values, 0);
+  const range = maxVal - minVal || 1;
+  const chartW = 520, chartH = 160, padL = 45, padR = 10, padT = 10, padB = 28;
+  const plotW = chartW - padL - padR, plotH = chartH - padT - padB;
+
+  const pts = data.map((d, i) => {
+    const x = padL + (i / Math.max(data.length - 1, 1)) * plotW;
+    const y = padT + plotH - ((d[metric] || 0) - minVal) / range * plotH;
+    return { x, y, d };
+  });
+  const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+
+  // Color zones for Options % of ADV
+  const zoneColors = metric === "optVolPctADV" ? [
+    { threshold: 20, color: "#A32D2D", label: ">20% dominant" },
+    { threshold: 10, color: "#BA7517", label: "10-20% significant" },
+    { threshold: 0, color: "#0F6E56", label: "<10% equity-driven" }
+  ] : null;
+
+  return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
+    <div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "20px", maxWidth: "620px", width: "92%" }} onClick={e => e.stopPropagation()}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <div>
+          <div style={{ fontSize: "14px", fontWeight: 600 }}>{ticker} — {label}</div>
+          <div style={{ fontSize: "11px", opacity: 0.6 }}>{data.length} trading days</div>
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", opacity: 0.5 }}>✕</button>
+      </div>
+      <svg viewBox={`0 0 ${chartW} ${chartH}`} style={{ width: "100%", height: "auto", fontFamily: "'SF Mono', monospace" }}>
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map(pct => {
+          const y = padT + plotH * (1 - pct);
+          const val = minVal + range * pct;
+          return <g key={pct}><line x1={padL} x2={chartW - padR} y1={y} y2={y} stroke="rgba(128,128,128,0.15)" /><text x={padL - 4} y={y + 3} textAnchor="end" fontSize="8" fill="rgba(0,0,0,0.4)">{val.toFixed(1)}{unit||""}</text></g>;
+        })}
+        {/* Zone backgrounds for ADV */}
+        {zoneColors && <>
+          {maxVal > 20 && <rect x={padL} y={padT + plotH - (maxVal - 20) / range * plotH} width={plotW} height={Math.min((maxVal - 20) / range * plotH, plotH)} fill="rgba(163,45,45,0.06)" />}
+          {maxVal > 10 && <rect x={padL} y={padT + plotH - (Math.min(maxVal, 20) - 10) / range * plotH} width={plotW} height={(Math.min(maxVal, 20) - Math.max(minVal, 10)) / range * plotH} fill="rgba(186,117,23,0.06)" />}
+        </>}
+        {/* Line */}
+        <path d={pathD} fill="none" stroke="#4A90D9" strokeWidth="2" />
+        {/* Dots */}
+        {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="3" fill={zoneColors ? (p.d[metric] > 20 ? "#A32D2D" : p.d[metric] > 10 ? "#BA7517" : "#0F6E56") : "#4A90D9"} stroke="#f0f6fb" strokeWidth="1.5"><title>{p.d.date}: {(p.d[metric]||0).toFixed(2)}{unit||""}</title></circle>)}
+        {/* Date labels */}
+        {pts.filter((_, i) => i === 0 || i === pts.length - 1 || i === Math.floor(pts.length / 2)).map(p => <text key={p.d.date} x={p.x} y={chartH - 4} textAnchor="middle" fontSize="8" fill="rgba(0,0,0,0.4)">{p.d.date.slice(5)}</text>)}
+      </svg>
+      {/* Legend for zones */}
+      {zoneColors && <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "8px" }}>
+        {zoneColors.map(z => <div key={z.threshold} style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", opacity: 0.7 }}><span style={{ width: "8px", height: "8px", borderRadius: "50%", background: z.color, display: "inline-block" }} />{z.label}</div>)}
+      </div>}
+    </div>
   </div>;
 }
 function Squeeze({ score }) { const c = score>70?"#E24B4A":score>40?"#BA7517":"#1D9E75"; return <div style={{ display: "flex", alignItems: "center", gap: "8px" }}><div style={{ flex: 1, height: "6px", borderRadius: "3px", background: "rgba(74,144,217,0.12)", overflow: "hidden" }}><div style={{ width: `${score}%`, height: "100%", borderRadius: "3px", background: c }} /></div><span style={{ fontSize: "12px", fontWeight: 500, color: c, minWidth: "24px" }}>{Math.round(score)}</span></div>; }
@@ -740,10 +748,20 @@ function TickerSearch({ onLookup, recentLookups }) {
 }
 
 function VerdictCard({ d, onClose }) {
+  const [tsChart, setTsChart] = useState(null);
+  if (!d.spot || d.spot <= 0 || d._error) {
+    return <div style={{ border: "1px solid rgba(163,45,45,0.2)", borderRadius: "12px", padding: "20px", marginBottom: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div><span style={{ fontSize: "22px", fontWeight: 500 }}>{d.ticker}</span><span style={{ fontSize: "13px", opacity: 0.6, marginLeft: "10px" }}>{d._error || "No data available"}</span></div>
+        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", opacity: 0.5 }}>×</button>
+      </div>
+      <div style={{ fontSize: "12px", opacity: 0.6, marginTop: "8px", fontFamily: "-apple-system,sans-serif" }}>Could not retrieve quote or options chain data for this ticker. It may not be covered by your Polygon plan, or the market may be closed.</div>
+    </div>;
+  }
   const v = useMemo(() => buildSummary(d), [d]);
   const dc = { bullish: "#0F6E56", bearish: "#A32D2D", neutral: "#888780", volatile: "#BA7517" };
   const ib = { suppressing:"rgba(29,158,117,0.06)", amplifying:"rgba(226,75,74,0.06)", bullish:"rgba(29,158,117,0.06)", bearish:"rgba(226,75,74,0.06)", neutral:"rgba(128,128,128,0.04)", outlier:"rgba(186,117,23,0.06)", critical:"rgba(226,75,74,0.08)", high:"rgba(186,117,23,0.06)", pin:"rgba(83,74,183,0.06)", elevated:"rgba(186,117,23,0.04)", compressed:"rgba(128,128,128,0.04)" };
-  return (
+  return (<>
     <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "12px", overflow: "hidden", marginBottom: "16px" }}>
       <div style={{ padding: "20px 20px 16px", background: v.vbg, borderBottom: "1px solid rgba(74,144,217,0.1)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -775,28 +793,36 @@ function VerdictCard({ d, onClose }) {
       <div style={{ padding: "10px 20px 14px", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "6px" }}>
         <Metric label="Net GEX" value={fmtD(d.netGex)}
           info="Net Gamma Exposure — the total gamma dealers hold across all strikes. When positive, dealers hedge against the trend (suppressing moves). When negative, dealers hedge with the trend (amplifying moves)."
-          snapshot={`Call gamma: ${fmtD(Math.abs(d.netGex) * (d.netGex > 0 ? 0.7 : 0.3))} · Put gamma: ${fmtD(-Math.abs(d.netGex) * (d.netGex > 0 ? 0.3 : 0.7))} · Net: ${fmtD(d.netGex)} · Regime: ${d.regime} · Dealers ${d.regime === "positive" ? "sell into rallies, buy dips" : "sell into drops, chase rallies"}`} />
+          snapshot={`Call gamma: ${fmtD(Math.abs(d.netGex) * (d.netGex > 0 ? 0.7 : 0.3))} · Put gamma: ${fmtD(-Math.abs(d.netGex) * (d.netGex > 0 ? 0.3 : 0.7))} · Net: ${fmtD(d.netGex)} · Regime: ${d.regime} · Dealers ${d.regime === "positive" ? "sell into rallies, buy dips" : "sell into drops, chase rallies"}`}
+          onChart={() => setTsChart({ metric: "netGex", label: "Net GEX", unit: "" })} />
         <Metric label="Call wall" value={fmtP(d.callWall)} sub={d.callWallConf ? `${d.callWallConf.toFixed(0)}% of call OI · ${(d.callWallOI||0).toLocaleString()} contracts` : undefined} accent={d.callWallConf > 15 ? "#0F6E56" : d.callWallConf > 8 ? undefined : "#BA7517"}
           info="The strike with the highest call open interest — acts as a resistance level. Dealers who sold these calls must sell shares as price approaches, creating overhead supply. Confidence = what % of total near-term call OI sits at this strike. Above 15% = strong wall, below 8% = diffuse, less reliable."
-          snapshot={`Highest call OI strike: ${fmtP(d.callWall)} · ${((d.callWall - d.spot) / d.spot * 100).toFixed(1)}% above spot · ${(d.callWallOI||0).toLocaleString()} contracts (${(d.callWallConf||0).toFixed(1)}% of near-term call OI) · Confidence: ${d.callWallConf > 15 ? "HIGH — concentrated, strong resistance" : d.callWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`} />
+          snapshot={`Highest call OI strike: ${fmtP(d.callWall)} · ${((d.callWall - d.spot) / d.spot * 100).toFixed(1)}% above spot · ${(d.callWallOI||0).toLocaleString()} contracts (${(d.callWallConf||0).toFixed(1)}% of near-term call OI) · Confidence: ${d.callWallConf > 15 ? "HIGH — concentrated, strong resistance" : d.callWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`}
+          onChart={() => setTsChart({ metric: "callWall", label: "Call Wall", unit: "" })} />
         <Metric label="Put wall" value={fmtP(d.putWall)} sub={d.putWallConf ? `${d.putWallConf.toFixed(0)}% of put OI · ${(d.putWallOI||0).toLocaleString()} contracts` : undefined} accent={d.putWallConf > 15 ? "#0F6E56" : d.putWallConf > 8 ? undefined : "#BA7517"}
           info="The strike with the highest put open interest — acts as a support level. Dealers who sold these puts must buy shares as price approaches, creating a floor. Confidence = what % of total near-term put OI sits at this strike. Above 15% = strong wall, below 8% = diffuse, less reliable."
-          snapshot={`Highest put OI strike: ${fmtP(d.putWall)} · ${((d.spot - d.putWall) / d.spot * 100).toFixed(1)}% below spot · ${(d.putWallOI||0).toLocaleString()} contracts (${(d.putWallConf||0).toFixed(1)}% of near-term put OI) · Confidence: ${d.putWallConf > 15 ? "HIGH — concentrated, strong support" : d.putWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`} />
+          snapshot={`Highest put OI strike: ${fmtP(d.putWall)} · ${((d.spot - d.putWall) / d.spot * 100).toFixed(1)}% below spot · ${(d.putWallOI||0).toLocaleString()} contracts (${(d.putWallConf||0).toFixed(1)}% of near-term put OI) · Confidence: ${d.putWallConf > 15 ? "HIGH — concentrated, strong support" : d.putWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`}
+          onChart={() => setTsChart({ metric: "putWall", label: "Put Wall", unit: "" })} />
         <Metric label="Max pain" value={fmtP(d.maxPain)} sub={`${((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% from spot`}
           info="The strike price where total option holder losses are maximized — price tends to gravitate here into expiration as dealers hedge and time decay accelerates."
-          snapshot={`Pin target: ${fmtP(d.maxPain)} · Spot ${d.maxPain > d.spot ? "below" : "above"} by ${Math.abs((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% · Magnetic pull ${d.maxPain > d.spot ? "upward" : "downward"} · Effect strengthens ${nextOpex().days <= 3 ? "NOW — OPEX imminent" : `into OPEX (${nextOpex().days}d away)`}`} />
+          snapshot={`Pin target: ${fmtP(d.maxPain)} · Spot ${d.maxPain > d.spot ? "below" : "above"} by ${Math.abs((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% · Magnetic pull ${d.maxPain > d.spot ? "upward" : "downward"} · Effect strengthens ${nextOpex().days <= 3 ? "NOW — OPEX imminent" : `into OPEX (${nextOpex().days}d away)`}`}
+          onChart={() => setTsChart({ metric: "maxPain", label: "Max Pain", unit: "" })} />
         <Metric label="Skew z" value={d.skewZ.toFixed(2)} accent={Math.abs(d.skewZ)>2?"#E24B4A":undefined}
           info="25-delta risk reversal z-score — measures how expensive puts are vs calls relative to recent history. High positive = unusual put demand (fear). High negative = unusual call demand (greed)."
-          snapshot={`25Δ skew: ${d.skewZ.toFixed(2)}σ vs 30/60/90d rolling · ${Math.abs(d.skewZ) > 2 ? "OUTLIER — " : ""}${d.skewZ > 0 ? "Put protection bid elevated, downside hedging heavy" : d.skewZ < -1 ? "Call demand elevated, upside positioning aggressive" : "Balanced put/call pricing"}`} />
+          snapshot={`25Δ skew: ${d.skewZ.toFixed(2)}σ vs 30/60/90d rolling · ${Math.abs(d.skewZ) > 2 ? "OUTLIER — " : ""}${d.skewZ > 0 ? "Put protection bid elevated, downside hedging heavy" : d.skewZ < -1 ? "Call demand elevated, upside positioning aggressive" : "Balanced put/call pricing"}`}
+          onChart={() => setTsChart({ metric: "skewZ", label: "Skew Z-Score", unit: "σ" })} />
         <Metric label="Term structure" value={d.termSlope.toFixed(2)} sub={d.termSlope<0.85?"backwardation":d.termSlope>1.15?"steep contango":"normal"}
           info="Ratio of front-month to back-month implied volatility. Below 0.85 (backwardation) signals near-term fear or an event. Above 1.15 (steep contango) signals calm now but uncertainty ahead."
-          snapshot={`Front IV / back IV: ${d.termSlope.toFixed(2)} · ${d.termSlope < 0.85 ? "Backwardation — near-term IV spiking, traders pricing imminent risk" : d.termSlope > 1.15 ? "Steep contango — near-term calm, back months pricing future risk" : "Normal contango — no unusual term structure signal"}`} />
+          snapshot={`Front IV / back IV: ${d.termSlope.toFixed(2)} · ${d.termSlope < 0.85 ? "Backwardation — near-term IV spiking, traders pricing imminent risk" : d.termSlope > 1.15 ? "Steep contango — near-term calm, back months pricing future risk" : "Normal contango — no unusual term structure signal"}`}
+          onChart={() => setTsChart({ metric: "termSlope", label: "Term Structure", unit: "" })} />
         <Metric label="VRP" value={`${d.vrp.toFixed(1)}pts`} sub={`IV ${d.iv.toFixed(0)} / RV ${d.rv.toFixed(0)}`} accent={d.vrp>10?"#1D9E75":d.vrp<-5?"#E24B4A":undefined}
           info="Volatility Risk Premium — implied vol minus realized vol. When positive, options are expensive vs actual movement (sellers favored). When negative, options are cheap (buyers favored, vol expansion likely)."
-          snapshot={`IV: ${d.iv.toFixed(1)}% · Realized vol: ${d.rv.toFixed(1)}% · Premium: ${d.vrp > 0 ? "+" : ""}${d.vrp.toFixed(1)}pts · ${d.vrp > 10 ? "Options overpriced — vol sellers have edge, crush likely" : d.vrp < -5 ? "Options underpriced — vol expansion risk, buyers have edge" : "Fair value — no clear edge either side"}`} />
+          snapshot={`IV: ${d.iv.toFixed(1)}% · Realized vol: ${d.rv.toFixed(1)}% · Premium: ${d.vrp > 0 ? "+" : ""}${d.vrp.toFixed(1)}pts · ${d.vrp > 10 ? "Options overpriced — vol sellers have edge, crush likely" : d.vrp < -5 ? "Options underpriced — vol expansion risk, buyers have edge" : "Fair value — no clear edge either side"}`}
+          onChart={() => setTsChart({ metric: "vrp", label: "Volatility Risk Premium", unit: "pts" })} />
         <Metric label="P/C momentum" value={<EqBadge shares={d.pcr} size="sm"/>} sub="daily shift"
           info="Daily rate of change in the delta-weighted put/call ratio — shows whether bearish or bullish conviction is accelerating. Expressed as the equity equivalent of that shift."
-          snapshot={`Today's Δ-wtd P/C: ${d.dpc.toFixed(2)} · Daily change: ${fmtEq(d.pcr).label} · ${d.pcp}th percentile · ${Math.abs(d.pcr) > 100000 ? "Significant momentum shift — " : ""}${d.pcr < 0 ? "Bearish conviction accelerating" : d.pcr > 0 ? "Bullish conviction building" : "Flat"}`} />
+          snapshot={`Today's Δ-wtd P/C: ${d.dpc.toFixed(2)} · Daily change: ${fmtEq(d.pcr).label} · ${d.pcp}th percentile · ${Math.abs(d.pcr) > 100000 ? "Significant momentum shift — " : ""}${d.pcr < 0 ? "Bearish conviction accelerating" : d.pcr > 0 ? "Bullish conviction building" : "Flat"}`}
+          onChart={() => setTsChart({ metric: "pcr", label: "P/C Momentum", unit: "" })} />
       </div>
       <div style={{ padding: "0 20px 6px" }}>
         <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.5, letterSpacing: "0.4px", marginBottom: "6px" }}>Options flow breakdown — Total · 0DTE (expired) · Open (into tomorrow)</div>
@@ -804,24 +830,30 @@ function VerdictCard({ d, onClose }) {
       <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "6px" }}>
         <Metric label="Total Δ P/C" value={d.dpc.toFixed(2)} sub={<EqBadge shares={d.nds||0} size="sm"/>}
           info="Delta-weighted put/call ratio across ALL contracts traded today. Below 0.7 = call-dominated (bullish flow). Above 1.3 = put-dominated (bearish flow). Net Δ shows the equity equivalent of the imbalance."
-          snapshot={`Call Δ flow: ${fmtEq(d.cdf||0).label} · Put Δ flow: ${fmtEq(d.pdf||0).label} · Ratio: ${d.dpc.toFixed(2)} · Net: ${fmtEq(d.nds||0).label}`} />
+          snapshot={`Call Δ flow: ${fmtEq(d.cdf||0).label} · Put Δ flow: ${fmtEq(d.pdf||0).label} · Ratio: ${d.dpc.toFixed(2)} · Net: ${fmtEq(d.nds||0).label}`}
+          onChart={() => setTsChart({ metric: "dpc", label: "Total Δ P/C", unit: "" })} />
         <Metric label="0DTE Δ P/C" value={(d.zdteDpc||0).toFixed(2)} sub={<><span style={{fontSize:"10px",opacity:0.5}}>{(d.zdtePct||0).toFixed(0)}% of volume · </span><EqBadge shares={d.zdteNetDelta||0} size="sm"/></>} accent={(d.zdtePct||0) > 50 ? "#A32D2D" : undefined}
           info="Delta-weighted put/call ratio for 0DTE contracts only — these expired at today's close and no longer exist. Shows the intraday gamma story. High 0DTE % means the tape was driven by expiring options, not structural positioning."
-          snapshot={`0DTE call Δ: ${fmtEq(d.zdteCallFlow||0).label} · 0DTE put Δ: ${fmtEq(d.zdtePutFlow||0).label} · Ratio: ${(d.zdteDpc||0).toFixed(2)} · Net: ${fmtEq(d.zdteNetDelta||0).label} · 0DTE was ${(d.zdtePct||0).toFixed(0)}% of total volume`} />
+          snapshot={`0DTE call Δ: ${fmtEq(d.zdteCallFlow||0).label} · 0DTE put Δ: ${fmtEq(d.zdtePutFlow||0).label} · Ratio: ${(d.zdteDpc||0).toFixed(2)} · Net: ${fmtEq(d.zdteNetDelta||0).label} · 0DTE was ${(d.zdtePct||0).toFixed(0)}% of total volume`}
+          onChart={() => setTsChart({ metric: "zdteDpc", label: "0DTE Δ P/C", unit: "" })} />
         <Metric label="Open Δ P/C" value={(d.openDpc||0).toFixed(2)} sub={<EqBadge shares={d.openNetDelta||0} size="sm"/>} accent={(d.openDpc||0) > 1.3 ? "#A32D2D" : (d.openDpc||0) < 0.7 ? "#0F6E56" : undefined}
           info="Delta-weighted put/call ratio for non-0DTE contracts — this is the positioning that carries into tomorrow. This is the most important flow metric for next-session outlook. Below 0.7 = bullish structural positioning. Above 1.3 = bearish structural positioning."
-          snapshot={`Open call Δ: ${fmtEq(d.openCallFlow||0).label} · Open put Δ: ${fmtEq(d.openPutFlow||0).label} · Ratio: ${(d.openDpc||0).toFixed(2)} · Net: ${fmtEq(d.openNetDelta||0).label} · This positioning carries into tomorrow's session`} />
+          snapshot={`Open call Δ: ${fmtEq(d.openCallFlow||0).label} · Open put Δ: ${fmtEq(d.openPutFlow||0).label} · Ratio: ${(d.openDpc||0).toFixed(2)} · Net: ${fmtEq(d.openNetDelta||0).label} · This positioning carries into tomorrow's session`}
+          onChart={() => setTsChart({ metric: "openDpc", label: "Open Δ P/C", unit: "" })} />
       </div>
       <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "6px" }}>
         <Metric label="Options % of ADV" value={`${(d.optVolPctADV||0).toFixed(1)}%`} sub={`${fmtEq(d.optVolShares||0).label} delta-equiv`} accent={(d.optVolPctADV||0) > 20 ? "#A32D2D" : (d.optVolPctADV||0) > 10 ? "#BA7517" : "#0F6E56"}
           info="Percentage of average daily equity volume attributable to options dealer hedging. Above 20% = options dominant on the tape. 10-20% = significant. Below 10% = equity-driven."
-          snapshot={`Delta-equiv shares: ${fmtEq(d.optVolShares||0).label} · ADV: ${(ADV[d.ticker]||10)}M shares · Ratio: ${(d.optVolPctADV||0).toFixed(1)}% · ${(d.optVolPctADV||0) > 20 ? "OPTIONS DOMINANT" : (d.optVolPctADV||0) > 10 ? "Significant influence" : "Equity-driven"}`} />
+          snapshot={`Delta-equiv shares: ${fmtEq(d.optVolShares||0).label} · ADV: ${d.equityVolume > 0 ? (d.equityVolume/1e6).toFixed(1)+"M shares (actual)" : (ADV[d.ticker]||10)+"M shares (est)"} · Ratio: ${(d.optVolPctADV||0).toFixed(1)}% · ${(d.optVolPctADV||0) > 20 ? "OPTIONS DOMINANT" : (d.optVolPctADV||0) > 10 ? "Significant influence" : "Equity-driven"}`}
+          onChart={() => setTsChart({ metric: "optVolPctADV", label: "Options % of ADV", unit: "%" })} />
         <Metric label="0DTE % of volume" value={`${(d.zdtePct||0).toFixed(0)}%`} sub={`${(d.zdteVol||0).toLocaleString()} contracts`}
           info="What percentage of today's total options activity was 0DTE. Above 50% means the tape was dominated by intraday gamma — that flow is now gone. Below 20% means positioning was structural and carries forward."
-          snapshot={`0DTE contracts: ${(d.zdteVol||0).toLocaleString()} · Total contracts: ${(d.optVolRaw||0).toLocaleString()} · Ratio: ${(d.zdtePct||0).toFixed(1)}%`} />
+          snapshot={`0DTE contracts: ${(d.zdteVol||0).toLocaleString()} · Total contracts: ${(d.optVolRaw||0).toLocaleString()} · Ratio: ${(d.zdtePct||0).toFixed(1)}%`}
+          onChart={() => setTsChart({ metric: "zdtePct", label: "0DTE % of Volume", unit: "%" })} />
         <Metric label="Dealer hedge est." value={<EqBadge shares={(d.regime==="positive" ? d.dspct : -d.dspct)||0} size="sm"/>} sub="per 1% move"
           info="Estimated shares dealers must trade to rehedge per 1% move in the underlying. In positive gamma they trade against the move (stabilizing). In negative gamma they trade with the move (destabilizing)."
-          snapshot={`Regime: ${d.regime} · Per 1% move: ${fmtEq(d.regime==="positive" ? d.dspct : -d.dspct).label} · ${d.regime==="positive" ? "Counter-trend — dealers sell rallies, buy dips" : "Pro-trend — dealers chase moves, amplifying direction"}`} />
+          snapshot={`Regime: ${d.regime} · Per 1% move: ${fmtEq(d.regime==="positive" ? d.dspct : -d.dspct).label} · ${d.regime==="positive" ? "Counter-trend — dealers sell rallies, buy dips" : "Pro-trend — dealers chase moves, amplifying direction"}`}
+          onChart={() => setTsChart({ metric: "dspct", label: "Dealer Hedge Est.", unit: " shs" })} />
       </div>
       <div style={{ padding: "0 20px 14px" }}>
         <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.4px", marginBottom: "8px" }}>Signal breakdown — how options influence {d.ticker} shares</div>
@@ -849,7 +881,8 @@ function VerdictCard({ d, onClose }) {
         </div>
       </div>}
     </div>
-  );
+    {tsChart && <TimeSeriesModal ticker={d.ticker} metric={tsChart.metric} label={tsChart.label} unit={tsChart.unit} onClose={() => setTsChart(null)} />}
+  </>);
 }
 
 function OptionsVolume({ data, onSelect }) {
@@ -1026,6 +1059,8 @@ function App() {
   const [lastRef, setLastRef] = useState(null);
   const [snapDate, setSnapDate] = useState(null);
   const [volDiv, setVolDiv] = useState([]);
+  const [volDivLoading, setVolDivLoading] = useState(false);
+  const [volDivScanned, setVolDivScanned] = useState(false);
   const refresh = useCallback(async ()=>{
     setLastRef(new Date());
     try {
@@ -1037,12 +1072,16 @@ function App() {
         setSnapDate(snapshot.capturedAt ? new Date(snapshot.capturedAt).toLocaleString() : snapshot.date);
         // Map snapshot data to the format the dashboard expects
         const mapped = snapshot.tickers.map((t, i) => {
-          const base = genTicker(t.ticker, i);
+          const base = emptyTicker(t.ticker);
           return { ...base, ...t, at: assetType(t.ticker), trades: t.sweeps || [], _live: t._live };
         });
         setData(mapped);
-        // Vol divergences from snapshot data — check for OTM IV spikes
-        setVolDiv([]); // Will be computed in capture function in future
+        // Load vol divergences from snapshot if available
+        if (snapshot.volDivergences && snapshot.volDivergences.length > 0) {
+          setVolDiv(snapshot.volDivergences);
+        } else {
+          setVolDiv([]);
+        }
       }
     } catch(e) {
       console.warn("Snapshot load failed, trying live:", e);
@@ -1072,7 +1111,22 @@ function App() {
   const opex = nextOpex();
   const narrative = useMemo(()=>{if(!data.length)return"";const spy=data.find(d=>d.ticker==="SPY");if(!spy)return"";const eq=fmtEq(spy.regime==="positive"?spy.dspct:-spy.dspct);const neg=data.filter(d=>d.regime==="negative").length;let n=`SPY ${spy.regime} gamma — ${eq.label} ${spy.regime==="positive"?"counter":"pro"}-trend per 1%. Flip ${fmtP(spy.gammaFlip)}, ${Math.abs(spy.flipDist).toFixed(1)}% ${spy.flipDist>0?"above":"below"}.`;const tS=[...data].sort((a,b)=>b.sq-a.sq)[0];if(tS.sq>50)n+=` ${tS.ticker} squeeze ${Math.round(tS.sq)}.`;n+=` ${neg}/${data.length} negative gamma.`;if(opex.isNear)n+=` OPEX ${opex.days}d — amplifying.`;return n;},[data,opex]);
   const alerts = useMemo(()=>data.filter(d=>d.sq>50||Math.abs(d.skewZ)>2||d.pcp>90||d.pcp<10).sort((a,b)=>b.sq-a.sq).slice(0,4).map(d=>{const r=[];if(d.sq>50)r.push(`sq${Math.round(d.sq)}`);if(Math.abs(d.skewZ)>2)r.push(`${d.skewZ.toFixed(1)}σ`);if(d.pcp>90||d.pcp<10)r.push(`P/C ${d.pcp}th`);return{...d,reasons:r};}),[data]);
-  const tabs=[{id:"lookup",label:"⌕ Ticker lookup"},{id:"scanner",label:"Scanner"},{id:"voldiv",label:volDiv.length ? `⚡ Vol div (${volDiv.length})` : "Vol div"},{id:"optvol",label:"Options volume"},{id:"divergence",label:"Cross-asset"}];
+  const scanVolDiv = useCallback(async () => {
+    if (volDivLoading) return;
+    setVolDivLoading(true);
+    try {
+      const tickers = data.length > 0 ? data.map(d => d.ticker) : DEFAULT_WATCHLIST;
+      const results = await fetchVolDivergencesLive(tickers);
+      setVolDiv(results);
+      setVolDivScanned(true);
+    } catch(e) { console.warn("Vol div scan failed:", e); }
+    setVolDivLoading(false);
+  }, [data, volDivLoading]);
+  const handleTab = useCallback((id) => {
+    setTab(id);
+    if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();
+  }, [volDivScanned, volDiv, scanVolDiv]);
+  const tabs=[{id:"lookup",label:"⌕ Ticker lookup"},{id:"scanner",label:"Scanner"},{id:"voldiv",label:volDivLoading ? "⏳ Scanning..." : volDiv.length ? `⚡ Vol div (${volDiv.length})` : "Vol div"},{id:"optvol",label:"Options volume"},{id:"divergence",label:"Cross-asset"}];
 
   const isLive = data.some(d=>d._live);
 
@@ -1088,7 +1142,7 @@ function App() {
     </div>
     <div style={{padding:"10px 14px",borderRadius:"8px",fontSize:"12px",lineHeight:1.5,border:"1px solid rgba(128,128,128,0.08)",background:"rgba(128,128,128,0.02)",fontFamily:"-apple-system,sans-serif",marginBottom:"14px"}}><span style={{fontSize:"9px",textTransform:"uppercase",opacity:0.3,letterSpacing:"0.5px"}}>Closing brief · </span>{narrative}</div>
     <div style={{display:"flex",gap:"2px",marginBottom:"14px",borderBottom:"1px solid rgba(128,128,128,0.1)"}}>
-      {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #4A90D9":"2px solid transparent",padding:"7px 14px",fontSize:"13px",cursor:"pointer",opacity:tab===t.id?1:0.4,fontWeight:tab===t.id?500:400}}>{t.label}</button>)}
+      {tabs.map(t=><button key={t.id} onClick={()=>handleTab(t.id)} style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #4A90D9":"2px solid transparent",padding:"7px 14px",fontSize:"13px",cursor:"pointer",opacity:tab===t.id?1:0.4,fontWeight:tab===t.id?500:400}}>{t.label}</button>)}
     </div>
     {tab==="lookup"&&<><TickerSearch onLookup={lookup} recentLookups={recent}/>{lookupD?<VerdictCard d={lookupD} onClose={()=>setLookupD(null)}/>:<div style={{padding:"40px 20px",textAlign:"center",opacity:0.3,fontSize:"14px",lineHeight:1.6}}>Type any stock, ETF, or index ticker above to see<br/>how options positioned around today\'s close</div>}</>}
     {tab==="scanner"&&<Scanner data={data} onSelect={lookup}/>}

@@ -24,6 +24,24 @@ export default async (request) => {
       return new Response(JSON.stringify({ dates: dateIndex }), { headers });
     }
 
+    // Ticker history across all dates
+    const history = url.searchParams.get("history");
+    if (ticker && history) {
+      let dateIndex = [];
+      try { dateIndex = await store.get("date-index", { type: "json" }) || []; } catch { dateIndex = []; }
+      const points = [];
+      for (const dt of dateIndex.slice(-60)) {
+        try {
+          const snap = await store.get(`daily-${dt}`, { type: "json" });
+          if (snap && snap.tickers) {
+            const t = snap.tickers.find(d => d.ticker === ticker.toUpperCase());
+            if (t) points.push({ date: dt, spot: t.spot, optVolPctADV: t.optVolPctADV||0, optVolShares: t.optVolShares||0, optVolRaw: t.optVolRaw||0, dpc: t.dpc||0, nds: t.nds||0, netGex: t.netGex||0, regime: t.regime, gammaFlip: t.gammaFlip||0, flipDist: t.flipDist||0, callWall: t.callWall||0, callWallConf: t.callWallConf||0, putWall: t.putWall||0, putWallConf: t.putWallConf||0, maxPain: t.maxPain||0, sq: t.sq||0, zdtePct: t.zdtePct||0, zdteDpc: t.zdteDpc||0, openDpc: t.openDpc||0, skewZ: t.skewZ||0, termSlope: t.termSlope||0, vrp: t.vrp||0, iv: t.iv||0, rv: t.rv||0, pcr: t.pcr||0, dspct: t.dspct||0, zdteNetDelta: t.zdteNetDelta||0, openNetDelta: t.openNetDelta||0 });
+          }
+        } catch {}
+      }
+      return new Response(JSON.stringify({ ticker: ticker.toUpperCase(), points }), { headers });
+    }
+
     // Get specific date or latest
     const key = date ? `daily-${date}` : "latest";
     let snapshot;

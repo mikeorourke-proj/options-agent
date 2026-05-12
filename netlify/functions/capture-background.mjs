@@ -15,10 +15,10 @@ const TICKERS = [
 ];
 
 // ─── CONCURRENCY & RATE CONTROL ────────────────────────────────────
-const BATCH_SIZE = 1;           // one ticker at a time — fully sequential
-const INTER_BATCH_DELAY = 5000; // 5s pause between tickers (≈5 calls/min safe)
+const BATCH_SIZE = 5;           // tickers processed concurrently per batch
+const INTER_BATCH_DELAY = 1000; // 1s pause between batches
 const MAX_RETRIES = 3;          // retry count for rate-limited / failed requests
-const INITIAL_BACKOFF = 3000;   // ms backoff for first retry (doubles each time)
+const INITIAL_BACKOFF = 2000;   // ms backoff for first retry (doubles each time)
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -217,13 +217,20 @@ function computePositioning(ticker, spot, chainData) {
 async function processTicker(ticker, apiKey) {
   const quoteData = await getQuote(ticker, apiKey);
   let spot = 0;
+  let equityVolume = 0;
   if (quoteData && quoteData.results && quoteData.results.length > 0) {
     spot = quoteData.results[0].c || quoteData.results[0].vw || 0;
+    equityVolume = quoteData.results[0].v || 0;
   }
   if (spot <= 0) return { error: { ticker, error: "no quote" } };
 
   const chainData = await getChain(ticker, spot, apiKey);
   const positioning = computePositioning(ticker, spot, chainData);
+  positioning.equityVolume = equityVolume;
+  // Compute Options % of equity volume (ADV proxy using today's volume)
+  if (equityVolume > 0 && positioning.optVolShares > 0) {
+    positioning.optVolPctADV = (positioning.optVolShares / equityVolume) * 100;
+  }
   return { result: positioning };
 }
 
@@ -314,6 +321,29 @@ export default async (request) => {
     complete: allDone, completedWaves,
     errors: mergedErrors.slice(0, 30), tickers: mergedTickers,
   };
+
+  // Run vol divergence scan on complete data — flag OTM IV spikes contradicting share direction
+  if (allDone && mergedTickers.length > 10) {
+    const volDivs = [];
+    for (const t of mergedTickers) {
+      if (!t._live || !t.spot || t.spot <= 0) continue;
+      // Check for extreme put/call flow imbalance — high DPC with positive price or low DPC with negative
+      const bullishShares = t.dpc < 0.5 && t.nds > 100000;
+      const bearishShares = t.dpc > 1.5 && Math.abs(t.nds) > 100000;
+      if (bullishShares || bearishShares) {
+        volDivs.push({
+          ticker: t.ticker, spot: t.spot, dpc: t.dpc, nds: t.nds,
+          type: bearishShares ? "Heavy put flow" : "Heavy call flow",
+          signal: bearishShares ? "Bearish options conviction" : "Bullish options conviction",
+          severity: Math.min(100, Math.round(Math.abs(t.nds) / 10000)),
+          optVolPctADV: t.optVolPctADV || 0,
+          regime: t.regime,
+        });
+      }
+    }
+    snapshot.volDivergences = volDivs.sort((a, b) => b.severity - a.severity).slice(0, 20);
+    if (volDivs.length > 0) console.log(`  Vol divergences: ${volDivs.length} detected`);
+  }
 
   await store.setJSON("latest", snapshot);
   await store.setJSON(`daily-${dateKey}`, snapshot);
