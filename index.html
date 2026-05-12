@@ -989,26 +989,51 @@ function App() {
   const [lookupD, setLookupD] = useState(null);
   const [recent, setRecent] = useState([]);
   const [lastRef, setLastRef] = useState(null);
+  const [snapDate, setSnapDate] = useState(null);
   const [volDiv, setVolDiv] = useState([]);
   const refresh = useCallback(async ()=>{
     setLastRef(new Date());
     try {
-      const liveResults = await Promise.all(
-        DEFAULT_WATCHLIST.map((t, i) => fetchTickerLive(t, i))
-      );
-      setData(liveResults);
-      // Run live vol divergence scanner via Polygon
-      const divResults = await fetchVolDivergencesLive(DEFAULT_WATCHLIST);
-      setVolDiv(divResults);
-    } catch(e) { console.warn("Refresh failed:", e); }
+      // Read latest snapshot from Netlify Blobs via the snapshot function
+      const r = await fetch("/.netlify/functions/snapshot");
+      if (!r.ok) throw new Error("No snapshot available");
+      const snapshot = await r.json();
+      if (snapshot && snapshot.tickers && snapshot.tickers.length > 0) {
+        setSnapDate(snapshot.capturedAt ? new Date(snapshot.capturedAt).toLocaleString() : snapshot.date);
+        // Map snapshot data to the format the dashboard expects
+        const mapped = snapshot.tickers.map((t, i) => {
+          const base = genTicker(t.ticker, i);
+          return { ...base, ...t, at: assetType(t.ticker), trades: t.sweeps || [], _live: t._live };
+        });
+        setData(mapped);
+        // Vol divergences from snapshot data — check for OTM IV spikes
+        setVolDiv([]); // Will be computed in capture function in future
+      }
+    } catch(e) {
+      console.warn("Snapshot load failed, trying live:", e);
+      // Fallback: fetch live for watchlist
+      try {
+        const liveResults = await Promise.all(
+          DEFAULT_WATCHLIST.map((t, i) => fetchTickerLive(t, i))
+        );
+        setData(liveResults);
+      } catch(e2) { console.warn("Live fallback failed:", e2); }
+    }
   },[]);
   useEffect(()=>{refresh();},[refresh]);
   const lookup = useCallback(async (ticker)=>{
     setTab("lookup");
     setRecent(p=>[ticker,...p.filter(t=>t!==ticker)].slice(0,8));
+    // Check if ticker is in current data (from snapshot)
+    const existing = data.find(d => d.ticker === ticker.toUpperCase());
+    if (existing && existing._live) {
+      setLookupD(existing);
+      return;
+    }
+    // Not in snapshot — fetch live from Polygon
     const live = await fetchTickerLive(ticker, 999);
     setLookupD(live);
-  },[]);
+  },[data]);
   const opex = nextOpex();
   const narrative = useMemo(()=>{if(!data.length)return"";const spy=data.find(d=>d.ticker==="SPY");if(!spy)return"";const eq=fmtEq(spy.regime==="positive"?spy.dspct:-spy.dspct);const neg=data.filter(d=>d.regime==="negative").length;let n=`SPY ${spy.regime} gamma — ${eq.label} ${spy.regime==="positive"?"counter":"pro"}-trend per 1%. Flip ${fmtP(spy.gammaFlip)}, ${Math.abs(spy.flipDist).toFixed(1)}% ${spy.flipDist>0?"above":"below"}.`;const tS=[...data].sort((a,b)=>b.sq-a.sq)[0];if(tS.sq>50)n+=` ${tS.ticker} squeeze ${Math.round(tS.sq)}.`;n+=` ${neg}/${data.length} negative gamma.`;if(opex.isNear)n+=` OPEX ${opex.days}d — amplifying.`;return n;},[data,opex]);
   const alerts = useMemo(()=>data.filter(d=>d.sq>50||Math.abs(d.skewZ)>2||d.pcp>90||d.pcp<10).sort((a,b)=>b.sq-a.sq).slice(0,4).map(d=>{const r=[];if(d.sq>50)r.push(`sq${Math.round(d.sq)}`);if(Math.abs(d.skewZ)>2)r.push(`${d.skewZ.toFixed(1)}σ`);if(d.pcp>90||d.pcp<10)r.push(`P/C ${d.pcp}th`);return{...d,reasons:r};}),[data]);
@@ -1023,6 +1048,7 @@ function App() {
     </div>
     <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
       <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:opex.isNear?"rgba(226,75,74,0.1)":"rgba(128,128,128,0.06)",color:opex.isNear?"#A32D2D":"inherit",display:"flex",alignItems:"center",gap:"5px",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>OPEX</span>{opex.date} · <span style={{fontWeight:500}}>{opex.days}d {opex.hours}h</span>{opex.isNear&&<span style={{fontWeight:500}}>⚠</span>}</div>
+      {snapDate && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:"rgba(74,144,217,0.08)",color:"#2B6CB0",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>Snapshot</span> {snapDate}</div>}
       {alerts.map(a=><span key={a.ticker} onClick={()=>lookup(a.ticker)} style={{padding:"4px 10px",borderRadius:"4px",cursor:"pointer",background:"rgba(226,75,74,0.08)",color:"#A32D2D",fontSize:"11px",whiteSpace:"nowrap"}}>{a.ticker} {a.reasons.join(" ")}</span>)}
     </div>
     <div style={{padding:"10px 14px",borderRadius:"8px",fontSize:"12px",lineHeight:1.5,border:"1px solid rgba(128,128,128,0.08)",background:"rgba(128,128,128,0.02)",fontFamily:"-apple-system,sans-serif",marginBottom:"14px"}}><span style={{fontSize:"9px",textTransform:"uppercase",opacity:0.3,letterSpacing:"0.5px"}}>Closing brief · </span>{narrative}</div>

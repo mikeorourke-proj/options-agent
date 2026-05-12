@@ -1,0 +1,8 @@
+{
+  "name": "options-agent",
+  "private": true,
+  "dependencies": {
+    "@netlify/blobs": "^8.0.0",
+    "@netlify/functions": "^3.0.0"
+  }
+}
