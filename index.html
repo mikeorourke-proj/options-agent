@@ -378,12 +378,19 @@ async function fetchVolDivergencesLive(watchlist) {
 // Fetch live data for a single ticker — all from Polygon
 async function fetchTickerLive(ticker, idx) {
   const base = genTicker(ticker, idx);
-  const [polyQuote, chain] = await Promise.all([
-    fetchPoly("quote", ticker),
-    fetchPoly("chain", ticker),
-  ]);
 
-  // Determine if market is open (rough check: Mon-Fri 9:30-16:00 ET)
+  // Step 1: Get closing price first — we need it to filter the chain around ATM
+  const polyQuote = await fetchPoly("quote", ticker);
+  let closingPrice = base.spot;
+  if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
+    const q = polyQuote.results[0];
+    closingPrice = q.c || q.vw || closingPrice;
+  }
+
+  // Step 2: Fetch chain filtered around the closing price (±15%)
+  const chain = await fetchPoly(`chain&spot=${closingPrice}`, ticker);
+
+  // Step 3: Determine spot price
   const now = new Date();
   const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = et.getDay();
@@ -391,9 +398,7 @@ async function fetchTickerLive(ticker, idx) {
   const marketOpen = day >= 1 && day <= 5 && hours >= 9.5 && hours < 16;
 
   if (marketOpen && chain && chain.results && chain.results.length > 5) {
-    // INTRADAY: derive spot from put-call parity on 0-7 DTE ATM calls
-    // stock price ≈ strike + call last trade price
-    const nowMs = now.getTime();
+    // INTRADAY: put-call parity on 0-7 DTE ATM calls
     const nearCalls = chain.results.filter(c => {
       if (!c.details || c.details.contract_type !== "call") return false;
       if (!c.day || !c.day.close || c.day.close <= 0) return false;
@@ -405,31 +410,24 @@ async function fetchTickerLive(ticker, idx) {
     });
 
     if (nearCalls.length > 0) {
-      // Find the most liquid near-term ATM call
-      // ATM = where delta is closest to 0.5, or where call price is roughly half the strike width
       nearCalls.sort((a, b) => {
-        // Prefer highest volume, then closest delta to 0.5
         const aDelta = a.greeks && a.greeks.delta ? Math.abs(a.greeks.delta - 0.5) : 1;
         const bDelta = b.greeks && b.greeks.delta ? Math.abs(b.greeks.delta - 0.5) : 1;
         const aVol = a.day.volume || 0;
         const bVol = b.day.volume || 0;
-        // Primary: delta closest to 0.5. Secondary: highest volume
         if (Math.abs(aDelta - bDelta) < 0.05) return bVol - aVol;
         return aDelta - bDelta;
       });
-
       const best = nearCalls[0];
-      const derivedSpot = best.details.strike_price + best.day.close;
-      base.spot = derivedSpot;
+      base.spot = best.details.strike_price + best.day.close;
       base._live = true;
       base._priceSource = "put-call parity";
     }
   }
 
-  // AFTER HOURS or fallback: use prev-day closing price
-  if (!base._live && polyQuote && polyQuote.results && polyQuote.results.length > 0) {
-    const q = polyQuote.results[0];
-    base.spot = q.c || q.vw || base.spot;
+  // AFTER HOURS fallback: use closing price
+  if (!base._live) {
+    base.spot = closingPrice;
     base._live = true;
     base._priceSource = "closing price";
   }
