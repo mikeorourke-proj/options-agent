@@ -1150,16 +1150,10 @@ function App() {
   const lookup = useCallback(async (ticker)=>{
     setTab("lookup");
     setRecent(p=>[ticker,...p.filter(t=>t!==ticker)].slice(0,8));
-    // Check if ticker is in current data (from snapshot)
-    const existing = data.find(d => d.ticker === ticker.toUpperCase());
-    if (existing && existing._live) {
-      setLookupD(existing);
-      return;
-    }
-    // Not in snapshot — fetch live from Polygon
+    // Always fetch live from Polygon for the freshest data
     const live = await fetchTickerLive(ticker, 999);
     setLookupD(live);
-  },[data]);
+  },[]);
   const opex = nextOpex();
   const narrative = useMemo(()=>{if(!data.length)return"";const spy=data.find(d=>d.ticker==="SPY");if(!spy)return"";const eq=fmtEq(spy.regime==="positive"?spy.dspct:-spy.dspct);const neg=data.filter(d=>d.regime==="negative").length;let n=`SPY ${spy.regime} gamma — ${eq.label} ${spy.regime==="positive"?"counter":"pro"}-trend per 1%. Flip ${fmtP(spy.gammaFlip)}, ${Math.abs(spy.flipDist).toFixed(1)}% ${spy.flipDist>0?"above":"below"}.`;const tS=[...data].sort((a,b)=>b.sq-a.sq)[0];if(tS.sq>50)n+=` ${tS.ticker} squeeze ${Math.round(tS.sq)}.`;n+=` ${neg}/${data.length} negative gamma.`;if(opex.isNear)n+=` OPEX ${opex.days}d — amplifying.`;return n;},[data,opex]);
   const alerts = useMemo(()=>data.filter(d=>d.sq>50||Math.abs(d.skewZ)>2||d.pcp>90||d.pcp<10).sort((a,b)=>b.sq-a.sq).slice(0,4).map(d=>{const r=[];if(d.sq>50)r.push(`sq${Math.round(d.sq)}`);if(Math.abs(d.skewZ)>2)r.push(`${d.skewZ.toFixed(1)}σ`);if(d.pcp>90||d.pcp<10)r.push(`P/C ${d.pcp}th`);return{...d,reasons:r};}),[data]);
