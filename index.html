@@ -55,87 +55,166 @@ function computeFromChain(d, chainData) {
   if (!chainData || !chainData.results || !chainData.results.length) return d;
   const contracts = chainData.results;
   const now = new Date();
+  const spot = d.spot;
 
-  // ── Spot price from chain's underlying_asset or most liquid ATM contract
-  // Polygon chain contracts have underlying_asset.price on some responses
-  // Otherwise derive from the tightest bid-ask near ATM
-  let spotFromChain = d.spot;
-  const validContracts = contracts.filter(c => c.details && c.greeks);
-  if (validContracts.length === 0) return d;
+  // ── Filter to valid contracts with greeks
+  const valid = contracts.filter(c => c.details && c.greeks && c.details.expiration_date && c.details.strike_price);
+  if (valid.length === 0) return d;
 
-  // Try to get spot from contract data — use the strike closest to where delta ≈ 0.5
-  const atmCalls = validContracts.filter(c =>
+  // ── Spot price: derive from ATM call where delta ≈ 0.5
+  const atmCalls = valid.filter(c =>
     c.details.contract_type === "call" && c.greeks.delta && Math.abs(c.greeks.delta - 0.5) < 0.15
   );
   if (atmCalls.length > 0) {
-    // ATM call strike ≈ spot price
     atmCalls.sort((a, b) => Math.abs((a.greeks.delta || 0) - 0.5) - Math.abs((b.greeks.delta || 0) - 0.5));
-    spotFromChain = atmCalls[0].details.strike_price;
-    // Refine with mid price: spot ≈ strike + call_mid for ATM
-    const mid = atmCalls[0].day ? (atmCalls[0].day.close || 0) : 0;
-    if (mid > 0) spotFromChain = atmCalls[0].details.strike_price + mid * 0.5;
+    const bestATM = atmCalls[0];
+    let derivedSpot = bestATM.details.strike_price;
+    const mid = bestATM.day ? (bestATM.day.close || 0) : 0;
+    if (mid > 0) derivedSpot = bestATM.details.strike_price + mid * 0.5;
+    if (derivedSpot > 0) d.spot = derivedSpot;
   }
-  if (spotFromChain > 0) d.spot = spotFromChain;
 
-  // ── GEX computation
-  // GEX per strike = gamma × OI × 100 × spot²
-  // Dealer assumption: dealers are short calls (negative gamma from calls becomes positive GEX)
-  // and short puts (negative gamma from puts becomes negative GEX when flipped)
+  // ── Separate near-term (7-45 DTE) for GEX/walls/max pain vs broader for flow
+  const MIN_DTE = 7, MAX_DTE = 45;
+  const MIN_OI = 100; // minimum open interest to count toward walls
+  const nearTerm = valid.filter(c => {
+    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    return dte >= MIN_DTE && dte <= MAX_DTE;
+  });
+
+  // ── GEX computation (near-term only)
   let netGex = 0;
-  let callGex = 0, putGex = 0;
   const strikeGex = {};
   const strikeCallOI = {};
   const strikePutOI = {};
-  const strikeOI = {};
-  let callDeltaFlow = 0, putDeltaFlow = 0;
-  let totalCallVol = 0, totalPutVol = 0;
-  const sweeps = [];
 
-  validContracts.forEach(c => {
+  nearTerm.forEach(c => {
     const isCall = c.details.contract_type === "call";
-    const gamma = c.greeks.gamma || 0;
-    const delta = c.greeks.delta || 0;
+    const gamma = Math.abs(c.greeks.gamma || 0);
     const oi = c.open_interest || 0;
-    const vol = c.day ? (c.day.volume || 0) : 0;
     const strike = c.details.strike_price;
-    const exp = c.details.expiration_date;
-    if (!exp) return;
-    const dte = Math.floor((new Date(exp) - now) / 864e5);
-    if (dte < 0 || dte > 90) return;
+    if (oi < 10) return; // skip trivial OI
 
-    // GEX: calls contribute positive GEX (dealers short calls → long gamma)
-    // puts contribute negative GEX (dealers short puts → short gamma)
     const contractGex = gamma * oi * 100 * d.spot * d.spot * 0.01;
     const signedGex = isCall ? contractGex : -contractGex;
-
     netGex += signedGex;
-    if (isCall) callGex += contractGex; else putGex += contractGex;
 
-    // Accumulate per-strike for walls and flip
     if (!strikeGex[strike]) strikeGex[strike] = 0;
     strikeGex[strike] += signedGex;
 
     if (!strikeCallOI[strike]) strikeCallOI[strike] = 0;
     if (!strikePutOI[strike]) strikePutOI[strike] = 0;
     if (isCall) strikeCallOI[strike] += oi; else strikePutOI[strike] += oi;
+  });
 
-    if (!strikeOI[strike]) strikeOI[strike] = 0;
-    strikeOI[strike] += oi;
+  const strikes = Object.keys(strikeGex).map(Number).sort((a, b) => a - b);
 
-    // Delta-weighted flow
+  if (strikes.length > 0) {
+    // ── Set GEX and regime
+    d.netGex = netGex;
+    d.regime = netGex > 0 ? "positive" : "negative";
+    d.dspct = Math.abs(netGex) / Math.max(d.spot, 1);
+
+    // ── Gamma flip: interpolated strike where cumulative GEX crosses zero
+    let cumGex = 0;
+    let flipStrike = d.spot;
+    let foundFlip = false;
+    for (let i = 0; i < strikes.length; i++) {
+      const prevCum = cumGex;
+      cumGex += strikeGex[strikes[i]];
+      if ((prevCum <= 0 && cumGex > 0) || (prevCum >= 0 && cumGex < 0)) {
+        if (i > 0) {
+          const ratio = Math.abs(prevCum) / (Math.abs(prevCum) + Math.abs(cumGex));
+          flipStrike = strikes[i - 1] + (strikes[i] - strikes[i - 1]) * ratio;
+        } else {
+          flipStrike = strikes[i];
+        }
+        foundFlip = true;
+        break;
+      }
+    }
+    // Sanity check: flip must be within 20% of spot, otherwise discard
+    if (!foundFlip || Math.abs(flipStrike - d.spot) / d.spot > 0.20) {
+      flipStrike = d.spot;
+    }
+    d.gammaFlip = flipStrike;
+    d.flipDist = ((d.spot - d.gammaFlip) / d.spot) * 100;
+
+    // ── Call wall: strike with highest call OI, MUST be at or above spot
+    let maxCallOI = 0, callWallStrike = d.spot * 1.02;
+    let totalNearCallOI = 0;
+    Object.entries(strikeCallOI).forEach(([s, oi]) => {
+      const sn = Number(s);
+      totalNearCallOI += oi;
+      if (oi >= MIN_OI && oi > maxCallOI && sn >= d.spot * 0.98) {
+        maxCallOI = oi;
+        callWallStrike = sn;
+      }
+    });
+    d.callWall = callWallStrike;
+    d.callWallConf = totalNearCallOI > 0 ? (maxCallOI / totalNearCallOI * 100) : 0;
+    d.callWallOI = maxCallOI;
+
+    // ── Put wall: strike with highest put OI, MUST be at or below spot
+    let maxPutOI = 0, putWallStrike = d.spot * 0.98;
+    let totalNearPutOI = 0;
+    Object.entries(strikePutOI).forEach(([s, oi]) => {
+      const sn = Number(s);
+      totalNearPutOI += oi;
+      if (oi >= MIN_OI && oi > maxPutOI && sn <= d.spot * 1.02) {
+        maxPutOI = oi;
+        putWallStrike = sn;
+      }
+    });
+    d.putWall = putWallStrike;
+    d.putWallConf = totalNearPutOI > 0 ? (maxPutOI / totalNearPutOI * 100) : 0;
+    d.putWallOI = maxPutOI;
+
+    // ── Max pain: strike that minimizes total option holder P&L (near spot only)
+    // Only test strikes within 15% of spot to avoid LEAPS contamination
+    const nearStrikes = strikes.filter(s => Math.abs(s - d.spot) / d.spot < 0.15);
+    let minPain = Infinity, maxPainStrike = d.spot;
+    nearStrikes.forEach(testStrike => {
+      let totalPain = 0;
+      Object.entries(strikeCallOI).forEach(([s, oi]) => {
+        const intrinsic = Math.max(0, testStrike - Number(s));
+        totalPain += intrinsic * oi * 100;
+      });
+      Object.entries(strikePutOI).forEach(([s, oi]) => {
+        const intrinsic = Math.max(0, Number(s) - testStrike);
+        totalPain += intrinsic * oi * 100;
+      });
+      if (totalPain < minPain) { minPain = totalPain; maxPainStrike = testStrike; }
+    });
+    d.maxPain = maxPainStrike;
+  }
+
+  // ── Delta-weighted P/C ratio and sweeps (use ALL expirations 0-90 DTE for flow)
+  let callDeltaFlow = 0, putDeltaFlow = 0;
+  let totalVol = 0;
+  const sweeps = [];
+
+  valid.forEach(c => {
+    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    if (dte < 0 || dte > 90) return;
+    const isCall = c.details.contract_type === "call";
+    const delta = c.greeks.delta || 0;
+    const vol = c.day ? (c.day.volume || 0) : 0;
+    const oi = c.open_interest || 0;
+
+    totalVol += vol;
+
     if (isCall) {
       callDeltaFlow += Math.abs(delta) * vol * 100;
-      totalCallVol += vol;
     } else {
       putDeltaFlow += Math.abs(delta) * vol * 100;
-      totalPutVol += vol;
     }
 
     // High-delta sweeps
     if (Math.abs(delta) > 0.7 && vol > 100) {
       sweeps.push({
         type: isCall ? "C" : "P",
-        strike: strike,
+        strike: c.details.strike_price,
         delta: delta,
         contracts: vol,
         side: "traded",
@@ -147,63 +226,7 @@ function computeFromChain(d, chainData) {
     }
   });
 
-  // ── Set GEX and regime
-  d.netGex = netGex;
-  d.regime = netGex > 0 ? "positive" : "negative";
-  d.dspct = Math.abs(netGex) / Math.max(d.spot, 1);
-
-  // ── Gamma flip: find strike where cumulative GEX crosses zero
-  const strikes = Object.keys(strikeGex).map(Number).sort((a, b) => a - b);
-  let cumGex = 0;
-  let flipStrike = d.spot;
-  for (let i = 0; i < strikes.length; i++) {
-    const prevCum = cumGex;
-    cumGex += strikeGex[strikes[i]];
-    if ((prevCum <= 0 && cumGex > 0) || (prevCum >= 0 && cumGex < 0)) {
-      // Interpolate
-      if (i > 0) {
-        const ratio = Math.abs(prevCum) / (Math.abs(prevCum) + Math.abs(cumGex));
-        flipStrike = strikes[i - 1] + (strikes[i] - strikes[i - 1]) * ratio;
-      } else {
-        flipStrike = strikes[i];
-      }
-      break;
-    }
-  }
-  d.gammaFlip = flipStrike;
-  d.flipDist = ((d.spot - d.gammaFlip) / d.spot) * 100;
-
-  // ── Call wall: strike with highest call OI
-  let maxCallOI = 0, callWallStrike = d.spot * 1.03;
-  Object.entries(strikeCallOI).forEach(([s, oi]) => {
-    if (oi > maxCallOI) { maxCallOI = oi; callWallStrike = Number(s); }
-  });
-  d.callWall = callWallStrike;
-
-  // ── Put wall: strike with highest put OI
-  let maxPutOI = 0, putWallStrike = d.spot * 0.97;
-  Object.entries(strikePutOI).forEach(([s, oi]) => {
-    if (oi > maxPutOI) { maxPutOI = oi; putWallStrike = Number(s); }
-  });
-  d.putWall = putWallStrike;
-
-  // ── Max pain: strike that minimizes total option holder P&L
-  let minPain = Infinity, maxPainStrike = d.spot;
-  strikes.forEach(testStrike => {
-    let totalPain = 0;
-    Object.entries(strikeCallOI).forEach(([s, oi]) => {
-      const intrinsic = Math.max(0, testStrike - Number(s));
-      totalPain += intrinsic * oi * 100;
-    });
-    Object.entries(strikePutOI).forEach(([s, oi]) => {
-      const intrinsic = Math.max(0, Number(s) - testStrike);
-      totalPain += intrinsic * oi * 100;
-    });
-    if (totalPain < minPain) { minPain = totalPain; maxPainStrike = testStrike; }
-  });
-  d.maxPain = maxPainStrike;
-
-  // ── P/C ratio and flow
+  // ── P/C ratio (only meaningful if there's volume)
   if (callDeltaFlow > 0 || putDeltaFlow > 0) {
     d.cdf = callDeltaFlow;
     d.pdf = putDeltaFlow;
@@ -214,6 +237,20 @@ function computeFromChain(d, chainData) {
   // ── Sweeps
   if (sweeps.length > 0) {
     d.trades = sweeps.sort((a, b) => Math.abs(b.eqShares) - Math.abs(a.eqShares)).slice(0, 10);
+  }
+
+  // ── Options-driven volume: total delta-equivalent shares from all options activity
+  // = sum of |delta| × volume × 100 across all contracts (both calls and puts)
+  // This is the share-equivalent volume that dealer hedging adds to the equity tape
+  const totalDeltaShares = callDeltaFlow + putDeltaFlow;
+  const advShares = (ADV[d.ticker] || 10) * 1e6;
+  d.optVolShares = totalDeltaShares;
+  d.optVolPctADV = (totalDeltaShares / advShares) * 100;
+  d.optVolRaw = totalVol; // raw options contracts traded
+
+  // ── After-hours flag: if total volume across chain is 0, mark as prior session
+  if (totalVol === 0) {
+    d._afterHours = true;
   }
 
   d._polyChain = true;
@@ -488,11 +525,11 @@ function buildSummary(d) {
   const eq = fmtEq(d.regime==="positive" ? d.dspct : -d.dspct);
 
   if (d.regime === "positive") {
-    lines.push(`${d.ticker} is in positive gamma — dealers are suppressing moves with ${eq.label} of counter-trend hedging per 1% move. Gamma flip at ${fmtP(d.gammaFlip)}, spot ${Math.abs(d.flipDist).toFixed(1)}% ${d.flipDist>0?"above":"below"}. Call wall resistance at ${fmtP(d.callWall)}, put wall support at ${fmtP(d.putWall)}.`);
+    lines.push(`${d.ticker} is in positive gamma — dealers are suppressing moves with ${eq.label} of counter-trend hedging per 1% move. Gamma flip at ${fmtP(d.gammaFlip)}, spot ${Math.abs(d.flipDist).toFixed(1)}% ${d.flipDist>0?"above":"below"}. Call wall resistance at ${fmtP(d.callWall)} (${(d.callWallConf||0).toFixed(0)}% concentration), put wall support at ${fmtP(d.putWall)} (${(d.putWallConf||0).toFixed(0)}% concentration).`);
     score += 10;
     factors.push({ sig: "Gamma regime", det: `Positive — ${eq.label} counter-trend per 1%`, imp: "suppressing", dir: "neutral" });
   } else {
-    lines.push(`${d.ticker} is in negative gamma — dealers are amplifying moves with ${eq.label} of pro-trend hedging per 1% move. Gamma flip at ${fmtP(d.gammaFlip)}, spot ${Math.abs(d.flipDist).toFixed(1)}% ${d.flipDist>0?"above":"below"}. Call wall resistance at ${fmtP(d.callWall)}, put wall support at ${fmtP(d.putWall)}.`);
+    lines.push(`${d.ticker} is in negative gamma — dealers are amplifying moves with ${eq.label} of pro-trend hedging per 1% move. Gamma flip at ${fmtP(d.gammaFlip)}, spot ${Math.abs(d.flipDist).toFixed(1)}% ${d.flipDist>0?"above":"below"}. Call wall resistance at ${fmtP(d.callWall)} (${(d.callWallConf||0).toFixed(0)}% concentration), put wall support at ${fmtP(d.putWall)} (${(d.putWallConf||0).toFixed(0)}% concentration).`);
     score -= 15;
     factors.push({ sig: "Gamma regime", det: `Negative — ${eq.label} pro-trend per 1%`, imp: "amplifying", dir: "bearish" });
   }
@@ -592,6 +629,7 @@ function VerdictCard({ d, onClose }) {
               <span style={{ fontSize: "18px", opacity: 0.825 }}>{fmtP(d.spot)}</span>
               <Regime r={d.regime} />
               <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: "rgba(74,144,217,0.08)" }}>{d.at}</span>
+              {d._afterHours && <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "4px", background: "rgba(186,117,23,0.1)", color: "#BA7517", fontWeight: 500 }}>PRIOR SESSION</span>}
             </div>
             <div style={{ fontSize: "17px", fontWeight: 500, color: v.vc, marginBottom: "12px" }}>{v.verdict}</div>
             <div style={{ fontSize: "13.5px", lineHeight: 1.7, opacity: 0.85, fontFamily: "-apple-system,sans-serif", maxWidth: "620px" }}>
@@ -617,12 +655,12 @@ function VerdictCard({ d, onClose }) {
         <Metric label="Net GEX" value={fmtD(d.netGex)}
           info="Net Gamma Exposure — the total gamma dealers hold across all strikes. When positive, dealers hedge against the trend (suppressing moves). When negative, dealers hedge with the trend (amplifying moves)."
           snapshot={`Call gamma: ${fmtD(Math.abs(d.netGex) * (d.netGex > 0 ? 0.7 : 0.3))} · Put gamma: ${fmtD(-Math.abs(d.netGex) * (d.netGex > 0 ? 0.3 : 0.7))} · Net: ${fmtD(d.netGex)} · Regime: ${d.regime} · Dealers ${d.regime === "positive" ? "sell into rallies, buy dips" : "sell into drops, chase rallies"}`} />
-        <Metric label="Call wall" value={fmtP(d.callWall)}
-          info="The strike with the highest call open interest — acts as a resistance level. Dealers who sold these calls must sell shares as price approaches, creating overhead supply."
-          snapshot={`Highest call OI strike: ${fmtP(d.callWall)} · ${((d.callWall - d.spot) / d.spot * 100).toFixed(1)}% above spot · Dealer position: short calls → selling shares into rally toward this level`} />
-        <Metric label="Put wall" value={fmtP(d.putWall)}
-          info="The strike with the highest put open interest — acts as a support level. Dealers who sold these puts must buy shares as price approaches, creating a floor."
-          snapshot={`Highest put OI strike: ${fmtP(d.putWall)} · ${((d.spot - d.putWall) / d.spot * 100).toFixed(1)}% below spot · Dealer position: short puts → buying shares on selloff toward this level`} />
+        <Metric label="Call wall" value={fmtP(d.callWall)} sub={d.callWallConf ? `${d.callWallConf.toFixed(0)}% of call OI · ${(d.callWallOI||0).toLocaleString()} contracts` : undefined} accent={d.callWallConf > 15 ? "#0F6E56" : d.callWallConf > 8 ? undefined : "#BA7517"}
+          info="The strike with the highest call open interest — acts as a resistance level. Dealers who sold these calls must sell shares as price approaches, creating overhead supply. Confidence = what % of total near-term call OI sits at this strike. Above 15% = strong wall, below 8% = diffuse, less reliable."
+          snapshot={`Highest call OI strike: ${fmtP(d.callWall)} · ${((d.callWall - d.spot) / d.spot * 100).toFixed(1)}% above spot · ${(d.callWallOI||0).toLocaleString()} contracts (${(d.callWallConf||0).toFixed(1)}% of near-term call OI) · Confidence: ${d.callWallConf > 15 ? "HIGH — concentrated, strong resistance" : d.callWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`} />
+        <Metric label="Put wall" value={fmtP(d.putWall)} sub={d.putWallConf ? `${d.putWallConf.toFixed(0)}% of put OI · ${(d.putWallOI||0).toLocaleString()} contracts` : undefined} accent={d.putWallConf > 15 ? "#0F6E56" : d.putWallConf > 8 ? undefined : "#BA7517"}
+          info="The strike with the highest put open interest — acts as a support level. Dealers who sold these puts must buy shares as price approaches, creating a floor. Confidence = what % of total near-term put OI sits at this strike. Above 15% = strong wall, below 8% = diffuse, less reliable."
+          snapshot={`Highest put OI strike: ${fmtP(d.putWall)} · ${((d.spot - d.putWall) / d.spot * 100).toFixed(1)}% below spot · ${(d.putWallOI||0).toLocaleString()} contracts (${(d.putWallConf||0).toFixed(1)}% of near-term put OI) · Confidence: ${d.putWallConf > 15 ? "HIGH — concentrated, strong support" : d.putWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`} />
         <Metric label="Max pain" value={fmtP(d.maxPain)} sub={`${((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% from spot`}
           info="The strike price where total option holder losses are maximized — price tends to gravitate here into expiration as dealers hedge and time decay accelerates."
           snapshot={`Pin target: ${fmtP(d.maxPain)} · Spot ${d.maxPain > d.spot ? "below" : "above"} by ${Math.abs((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% · Magnetic pull ${d.maxPain > d.spot ? "upward" : "downward"} · Effect strengthens ${nextOpex().days <= 3 ? "NOW — OPEX imminent" : `into OPEX (${nextOpex().days}d away)`}`} />
@@ -638,6 +676,17 @@ function VerdictCard({ d, onClose }) {
         <Metric label="P/C momentum" value={<EqBadge shares={d.pcr} size="sm"/>} sub="daily shift"
           info="Daily rate of change in the delta-weighted put/call ratio — shows whether bearish or bullish conviction is accelerating. Expressed as the equity equivalent of that shift."
           snapshot={`Today's Δ-wtd P/C: ${d.dpc.toFixed(2)} · Daily change: ${fmtEq(d.pcr).label} · ${d.pcp}th percentile · ${Math.abs(d.pcr) > 100000 ? "Significant momentum shift — " : ""}${d.pcr < 0 ? "Bearish conviction accelerating" : d.pcr > 0 ? "Bullish conviction building" : "Flat"}`} />
+      </div>
+      <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "6px" }}>
+        <Metric label="Options % of ADV" value={`${(d.optVolPctADV||0).toFixed(1)}%`} sub={`${fmtEq(d.optVolShares||0).label} delta-equiv`} accent={(d.optVolPctADV||0) > 20 ? "#A32D2D" : (d.optVolPctADV||0) > 10 ? "#BA7517" : "#0F6E56"}
+          info="Percentage of average daily equity volume attributable to options dealer hedging. Computed as total delta-equivalent shares (|delta| × volume × 100 across all contracts) divided by average daily share volume. Above 20% = options are a dominant force on the tape. 10-20% = significant influence. Below 10% = equity flow is driving, not options."
+          snapshot={`Delta-equiv shares from options: ${fmtEq(d.optVolShares||0).label} · ADV: ${(ADV[d.ticker]||10)}M shares · Ratio: ${(d.optVolPctADV||0).toFixed(1)}% · Raw options contracts: ${(d.optVolRaw||0).toLocaleString()} · ${(d.optVolPctADV||0) > 20 ? "OPTIONS DOMINANT — dealer hedging is a major component of equity volume" : (d.optVolPctADV||0) > 10 ? "Significant — options flow is a meaningful part of the tape" : "Equity-driven — fundamental flow dominates, options secondary"}`} />
+        <Metric label="Options contracts" value={(d.optVolRaw||0).toLocaleString()} sub="traded today"
+          info="Total options contracts traded today across all strikes and expirations. Raw contract count before delta-weighting."
+          snapshot={`Total contracts: ${(d.optVolRaw||0).toLocaleString()} · Call flow: ${fmtEq(d.cdf||0).label} · Put flow: ${fmtEq(d.pdf||0).label}`} />
+        <Metric label="Dealer hedge est." value={<EqBadge shares={(d.regime==="positive" ? d.dspct : -d.dspct)||0} size="sm"/>} sub="per 1% move"
+          info="Estimated shares dealers must trade to rehedge per 1% move in the underlying. In positive gamma they trade against the move (stabilizing). In negative gamma they trade with the move (destabilizing)."
+          snapshot={`Regime: ${d.regime} · Per 1% move: ${fmtEq(d.regime==="positive" ? d.dspct : -d.dspct).label} · ${d.regime==="positive" ? "Counter-trend — dealers sell rallies, buy dips" : "Pro-trend — dealers chase moves, amplifying direction"}`} />
       </div>
       <div style={{ padding: "0 20px 14px" }}>
         <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.4px", marginBottom: "8px" }}>Signal breakdown — how options influence {d.ticker} shares</div>
