@@ -68,8 +68,13 @@ function computeFromChain(d, chainData) {
   // ── Separate near-term (7-45 DTE) for GEX/walls/max pain vs broader for flow
   const MIN_DTE = 7, MAX_DTE = 45;
   const MIN_OI = 100; // minimum open interest to count toward walls
+  const todayETDate = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const todayMidnight = new Date(todayETDate.getFullYear(), todayETDate.getMonth(), todayETDate.getDate());
+
   const nearTerm = valid.filter(c => {
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const expDate = new Date(ey, em - 1, ed);
+    const dte = Math.round((expDate - todayMidnight) / 864e5);
     return dte >= MIN_DTE && dte <= MAX_DTE;
   });
 
@@ -204,7 +209,11 @@ function computeFromChain(d, chainData) {
   const sweeps = [];
 
   valid.forEach(c => {
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    // DTE: compare dates in ET timezone to avoid UTC midnight issues
+    const expStr = c.details.expiration_date;
+    const [ey, em, ed] = expStr.split("-").map(Number);
+    const expDate = new Date(ey, em - 1, ed);
+    const dte = Math.round((expDate - todayMidnight) / 864e5);
     if (dte < 0 || dte > 90) return;
     const isCall = c.details.contract_type === "call";
     const delta = c.greeks.delta || 0;
@@ -276,7 +285,9 @@ function computeFromChain(d, chainData) {
   let zdteGex = 0;
   let zdteNetDeltaShares = zdteCallFlow - zdtePutFlow;
   valid.forEach(c => {
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const expDate = new Date(ey, em - 1, ed);
+    const dte = Math.round((expDate - todayMidnight) / 864e5);
     if (dte !== 0) return;
     const isCall = c.details.contract_type === "call";
     const gamma = Math.abs(c.greeks.gamma || 0);
