@@ -59,7 +59,7 @@ async function getQuote(ticker, apiKey) {
   const snap = await polyFetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`);
   if (snap && snap.ticker) {
     const s = snap.ticker;
-    const price = s.day?.c || s.lastTrade?.p || s.min?.c || 0;
+    const price = s.lastTrade?.p || s.min?.c || s.day?.c || 0;
     const volume = s.day?.v || 0;
     if (price > 0) return { results: [{ c: price, vw: s.day?.vw || price, v: volume }] };
   }
@@ -109,6 +109,7 @@ function computePositioning(ticker, spot, chainData) {
     openVol: 0, openDpc: 0, openNetDelta: 0, openCallFlow: 0, openPutFlow: 0,
     optVolRaw: 0, optVolShares: 0, sweeps: [],
     skewZ: 0, termSlope: 1, iv: 0, rv: 0, vrp: 0, sq: 0, dspct: 0,
+    rr25d: 0, rr25dPutIV: 0, rr25dCallIV: 0,
     _live: false,
   };
 
@@ -117,8 +118,14 @@ function computePositioning(ticker, spot, chainData) {
   if (contracts.length === 0) return result;
 
   // Near-term GEX (7-45 DTE)
+  // Today's date at midnight for DTE calculation (avoids UTC midnight issues)
+  const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const todayMidnight = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
+
   const nearTerm = contracts.filter(c => {
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const expDate = new Date(ey, em - 1, ed);
+    const dte = Math.round((expDate - todayMidnight) / 864e5);
     return dte >= 7 && dte <= 45;
   });
 
@@ -186,7 +193,9 @@ function computePositioning(ticker, spot, chainData) {
   const sweeps = [];
 
   contracts.forEach(c => {
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const expDate = new Date(ey, em - 1, ed);
+    const dte = Math.round((expDate - todayMidnight) / 864e5);
     if (dte < 0 || dte > 90) return;
     const isCall = c.details.contract_type === "call";
     const delta = c.greeks.delta || 0;
@@ -226,7 +235,7 @@ function computePositioning(ticker, spot, chainData) {
   const byExp = {};
   contracts.forEach(c => {
     if (!c.implied_volatility || c.implied_volatility <= 0) return;
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
+    const [_ey, _em, _ed] = c.details.expiration_date.split("-").map(Number); const dte = Math.round((new Date(_ey, _em - 1, _ed) - todayMidnight) / 864e5);
     if (dte < 5 || dte > 90) return;
     const bucket = dte <= 30 ? "front" : "back";
     if (!byExp[bucket]) byExp[bucket] = [];
@@ -236,6 +245,22 @@ function computePositioning(ticker, spot, chainData) {
     const frontIV = byExp.front.reduce((s, v) => s + v, 0) / byExp.front.length;
     const backIV = byExp.back.reduce((s, v) => s + v, 0) / byExp.back.length;
     result.termSlope = frontIV / Math.max(backIV, 0.01);
+  }
+
+  // 25-Delta Risk Reversal: IV(25Δ call) - IV(25Δ put) on 14-45 DTE
+  const rr25contracts = contracts.filter(c => {
+    if (!c.implied_volatility || c.implied_volatility <= 0 || !c.greeks.delta) return false;
+    const [_ey, _em, _ed] = c.details.expiration_date.split("-").map(Number); const dte = Math.round((new Date(_ey, _em - 1, _ed) - todayMidnight) / 864e5);
+    return dte >= 14 && dte <= 45;
+  });
+  const rr25puts = rr25contracts.filter(c => c.details.contract_type === "put" && Math.abs(c.greeks.delta) >= 0.18 && Math.abs(c.greeks.delta) <= 0.32);
+  const rr25calls = rr25contracts.filter(c => c.details.contract_type === "call" && c.greeks.delta >= 0.18 && c.greeks.delta <= 0.32);
+  if (rr25puts.length > 0 && rr25calls.length > 0) {
+    const putIV = rr25puts.reduce((s, c) => s + c.implied_volatility, 0) / rr25puts.length;
+    const callIV = rr25calls.reduce((s, c) => s + c.implied_volatility, 0) / rr25calls.length;
+    result.rr25d = (callIV - putIV) * 100;
+    result.rr25dPutIV = putIV * 100;
+    result.rr25dCallIV = callIV * 100;
   }
 
   // IV and VRP

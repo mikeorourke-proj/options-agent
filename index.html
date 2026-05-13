@@ -347,6 +347,27 @@ function computeFromChain(d, chainData) {
     d.termSlope = frontIV / Math.max(backIV, 0.01);
   }
 
+  // ── 25-Delta Risk Reversal: IV(25Δ call) - IV(25Δ put) on nearest-to-30-DTE expiration
+  // Negative = puts richer than calls (typical for equities, protective hedging demand)
+  // Extreme negative = near-term bottom signal; less negative / positive = near-term top signal
+  const rr25dContracts = valid.filter(c => {
+    if (!c.implied_volatility || c.implied_volatility <= 0 || !c.greeks.delta) return false;
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const expDate = new Date(ey, em - 1, ed);
+    const dte = Math.round((expDate - todayMidnight) / 864e5);
+    return dte >= 14 && dte <= 45;
+  });
+  const rr25puts = rr25dContracts.filter(c => c.details.contract_type === "put" && Math.abs(c.greeks.delta) >= 0.18 && Math.abs(c.greeks.delta) <= 0.32);
+  const rr25calls = rr25dContracts.filter(c => c.details.contract_type === "call" && c.greeks.delta >= 0.18 && c.greeks.delta <= 0.32);
+  if (rr25puts.length > 0 && rr25calls.length > 0) {
+    const putIV = rr25puts.reduce((s, c) => s + c.implied_volatility, 0) / rr25puts.length;
+    const callIV = rr25calls.reduce((s, c) => s + c.implied_volatility, 0) / rr25calls.length;
+    d.rr25d = (callIV - putIV) * 100; // in vol points, negative = put skew dominant
+    d.rr25dPutIV = putIV * 100;
+    d.rr25dCallIV = callIV * 100;
+    d.rr25dATMIV = d.iv || ((putIV + callIV) / 2 * 100);
+  }
+
   // ── IV: average implied vol across ATM contracts (delta 0.35-0.65)
   const atmContracts = valid.filter(c => c.implied_volatility > 0 && c.greeks.delta && Math.abs(Math.abs(c.greeks.delta) - 0.5) < 0.15);
   if (atmContracts.length > 0) {
@@ -387,11 +408,17 @@ async function fetchVolDivergencesLive(watchlist) {
   for (let i = 0; i < watchlist.length; i++) {
     const ticker = watchlist[i];
 
-    // Get proper spot price from stock quote
+    // Get spot price and daily change from stock quote
     const polyQuote = await fetchPoly("quote", ticker);
-    let spot = 0;
+    let spot = 0, changePct = 0;
     if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
-      spot = polyQuote.results[0].c || polyQuote.results[0].vw || 0;
+      const q = polyQuote.results[0];
+      spot = q.c || q.vw || 0;
+      changePct = q.changePerc || 0;
+      // If changePerc not available, estimate from prevClose
+      if (!changePct && q.prevClose && q.prevClose > 0) {
+        changePct = ((spot - q.prevClose) / q.prevClose) * 100;
+      }
     }
     if (spot <= 0) continue;
 
@@ -401,45 +428,43 @@ async function fetchVolDivergencesLive(watchlist) {
     const now = new Date();
     const contracts = chain.results;
 
-    // Estimate daily change from chain day data — look at change_percent on contracts
-    const dayChanges = contracts.filter(c => c.day && c.day.change_percent !== undefined && c.day.change_percent !== 0)
-      .map(c => c.day.change_percent);
-    // Use median contract change as proxy (rough but functional)
-    let changePct = 0;
-    if (dayChanges.length > 5) {
-      dayChanges.sort((a, b) => a - b);
-      changePct = dayChanges[Math.floor(dayChanges.length / 2)] * 0.1; // scale down — contract % != stock %
-    }
-    if (Math.abs(changePct) < 0.3) continue;
+    // Loosened: any stock with movement >= 0.15% qualifies
+    if (Math.abs(changePct) < 0.15) continue;
 
-    // Filter to 30-60 DTE, 5-15% OTM
+    // Filter to 14-75 DTE, 3-20% OTM (widened from 30-60 / 5-15%)
     const otmContracts = contracts.filter(c => {
       if (!c.details || !c.greeks) return false;
       const exp = c.details.expiration_date;
       if (!exp) return false;
-      const dte = Math.floor((new Date(exp) - now) / 864e5);
-      if (dte < 25 || dte > 65) return false;
+      const [ey, em, ed] = exp.split("-").map(Number);
+      const expDate = new Date(ey, em - 1, ed);
+      const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const todayDate = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
+      const dte = Math.round((expDate - todayDate) / 864e5);
+      if (dte < 14 || dte > 75) return false;
       const strike = c.details.strike_price;
       const otm = Math.abs(strike - spot) / spot;
-      if (otm < 0.03 || otm > 0.18) return false;
+      if (otm < 0.02 || otm > 0.20) return false;
       const isCall = c.details.contract_type === "call";
       if (isCall && strike <= spot) return false;
       if (!isCall && strike >= spot) return false;
       return true;
     });
 
-    if (otmContracts.length < 3) continue;
+    if (otmContracts.length < 2) continue;
 
-    const sharesUp = changePct > 0.5;
-    const sharesDown = changePct < -0.5;
+    // Key signal: stock going UP but OTM puts holding value or gaining IV (informed downside)
+    //             stock going DOWN but OTM calls holding value or gaining IV (informed upside)
+    const sharesUp = changePct > 0.15;
+    const sharesDown = changePct < -0.15;
     const targetType = sharesUp ? "put" : sharesDown ? "call" : null;
     if (!targetType) continue;
 
     const targetContracts = otmContracts.filter(c => c.details.contract_type === targetType);
-    if (targetContracts.length < 2) continue;
+    if (targetContracts.length < 1) continue;
 
     const ivValues = targetContracts.map(c => c.implied_volatility || 0).filter(v => v > 0);
-    if (ivValues.length < 2) continue;
+    if (ivValues.length < 1) continue;
     const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
 
     const volValues = targetContracts.map(c => (c.day && c.day.volume) || 0);
@@ -448,8 +473,9 @@ async function fetchVolDivergencesLive(watchlist) {
     const totalOI = oiValues.reduce((s, v) => s + v, 0);
     const volOIRatio = totalOI > 0 ? totalVol / totalOI : 0;
 
-    if (totalVol < 200 || avgIV < 0.20) continue;
-    if (volOIRatio < 1.0) continue;
+    // Loosened: minimum 50 contracts (from 200), IV > 0.10 (from 0.20), volOI > 0.3 (from 1.0)
+    if (totalVol < 50 && volOIRatio < 0.3) continue;
+    if (avgIV < 0.10) continue;
 
     const topContract = targetContracts.sort((a, b) => ((b.day && b.day.volume) || 0) - ((a.day && a.day.volume) || 0))[0];
     const topStrike = topContract.details.strike_price;
@@ -578,6 +604,7 @@ function emptyTicker(ticker) {
     ticker, spot: 0, netGex: 0, regime: "positive", gammaFlip: 0, flipDist: 0,
     callWall: 0, putWall: 0, callWallConf: 0, callWallOI: 0, putWallConf: 0, putWallOI: 0,
     maxPain: 0, dspct: 0, sq: 0, skewZ: 0, termSlope: 1, cdf: 0, pdf: 0,
+    rr25d: 0, rr25dPutIV: 0, rr25dCallIV: 0, rr25dATMIV: 0,
     dpc: 0, nds: 0, pcp: 50, pcr: 0, iv: 0, rv: 0, vrp: 0,
     zdg: 0, zdr: "positive", zds: 0,
     zdteVol: 0, zdtePct: 0, zdteDpc: 0, zdteNetDelta: 0, zdteCallFlow: 0, zdtePutFlow: 0,
@@ -877,6 +904,11 @@ function VerdictCard({ d, onClose }) {
           info="25-delta risk reversal z-score — measures how expensive puts are vs calls relative to recent history. High positive = unusual put demand (fear). High negative = unusual call demand (greed)."
           snapshot={`25Δ skew: ${d.skewZ.toFixed(2)}σ vs 30/60/90d rolling · ${Math.abs(d.skewZ) > 2 ? "OUTLIER — " : ""}${d.skewZ > 0 ? "Put protection bid elevated, downside hedging heavy" : d.skewZ < -1 ? "Call demand elevated, upside positioning aggressive" : "Balanced put/call pricing"}`}
           onChart={() => setTsChart({ metric: "skewZ", label: "Skew Z-Score", unit: "σ" })} />
+        <Metric label="25Δ Risk Rev" value={d.rr25d !== 0 ? `${d.rr25d > 0 ? "+" : ""}${d.rr25d.toFixed(1)}` : "—"} accent={d.rr25d < -8 ? "#0F6E56" : d.rr25d > -1 ? "#A32D2D" : undefined}
+          sub={d.rr25d !== 0 ? `${d.rr25dCallIV.toFixed(0)}c / ${d.rr25dPutIV.toFixed(0)}p` : "no data"}
+          info="25-delta risk reversal: IV(25Δ call) minus IV(25Δ put). Measures relative demand for downside vs upside protection. Normally negative for equities (puts are richer). Extremes are contrarian: deeply negative readings (-8 or beyond) often mark near-term bottoms as hedging demand peaks. Less negative or positive readings often mark near-term tops. Based on Borochin & Zhao (2022): positive risk-neutral skewness predicts next-month price rebounds."
+          snapshot={`25Δ call IV: ${d.rr25dCallIV.toFixed(1)}% · 25Δ put IV: ${d.rr25dPutIV.toFixed(1)}% · Risk reversal: ${d.rr25d > 0 ? "+" : ""}${d.rr25d.toFixed(1)}pts · ${d.rr25d < -8 ? "EXTREME put skew — contrarian bullish signal, hedging demand at peak" : d.rr25d < -4 ? "Elevated put demand — downside protection being bid" : d.rr25d > -1 ? "Call skew elevated — upside speculation heavy, contrarian bearish" : "Normal put skew — structural hedging, no signal"}`}
+          onChart={() => setTsChart({ metric: "rr25d", label: "25Δ Risk Reversal", unit: "pts" })} />
         <Metric label="Term structure" value={d.termSlope.toFixed(2)} sub={d.termSlope<0.85?"backwardation":d.termSlope>1.15?"steep contango":"normal"}
           info="Ratio of front-month to back-month implied volatility. Below 0.85 (backwardation) signals near-term fear or an event. Above 1.15 (steep contango) signals calm now but uncertainty ahead."
           snapshot={`Front IV / back IV: ${d.termSlope.toFixed(2)} · ${d.termSlope < 0.85 ? "Backwardation — near-term IV spiking, traders pricing imminent risk" : d.termSlope > 1.15 ? "Steep contango — near-term calm, back months pricing future risk" : "Normal contango — no unusual term structure signal"}`}
@@ -952,7 +984,13 @@ function VerdictCard({ d, onClose }) {
 }
 
 function OptionsVolume({ data, onSelect }) {
-  const sorted = useMemo(() => [...data].filter(d => d.optVolPctADV > 0).sort((a,b) => b.optVolPctADV - a.optVolPctADV).slice(0, 25), [data]);
+  const sorted = useMemo(() => [...data].filter(d => d.optVolRaw > 0 || d.optVolPctADV > 0).sort((a,b) => {
+    // Sort by ADV% if available, otherwise by raw contract volume
+    if (a.optVolPctADV > 0 && b.optVolPctADV > 0) return b.optVolPctADV - a.optVolPctADV;
+    if (a.optVolPctADV > 0) return -1;
+    if (b.optVolPctADV > 0) return 1;
+    return (b.optVolRaw||0) - (a.optVolRaw||0);
+  }).slice(0, 30), [data]);
 
   return <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", overflow: "hidden" }}>
     {/* Header row */}
@@ -1006,19 +1044,68 @@ function Sweeps({ data, onSelect }) {
 }
 
 function Divergence({ data }) {
-  const idx=data.filter(d=>["SPY","QQQ","IWM"].includes(d.ticker)),stk=data.filter(d=>d.at==="Stock");
+  const idx=data.filter(d=>["SPY","QQQ","IWM","SMH","DIA","XLF","XLK","XLE","RSP"].includes(d.ticker));
+  const stk=data.filter(d=>d.at==="Stock");
   const nN=stk.filter(d=>d.regime==="negative").length,nP=stk.filter(d=>d.regime==="positive").length;
   const iR=idx.length>0&&idx.filter(d=>d.regime==="positive").length>idx.length/2?"positive":"negative";
   const div=(iR==="positive"&&nN>nP)||(iR==="negative"&&nN<nP);
-  const iS=idx.reduce((s,d)=>s+(d.regime==="positive"?d.dspct:-d.dspct),0);
-  const sS=stk.reduce((s,d)=>s+(d.regime==="positive"?d.dspct:-d.dspct),0);
-  return <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",padding:"16px"}}>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}><span style={{fontSize:"13px",fontWeight:500}}>Index vs component divergence</span><span style={{fontSize:"11px",padding:"2px 10px",borderRadius:"999px",fontWeight:500,background:div?"rgba(226,75,74,0.12)":"rgba(29,158,117,0.12)",color:div?"#A32D2D":"#0F6E56"}}>{div?"diverging":"aligned"}</span></div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-      <div style={{background:"rgba(128,128,128,0.05)",borderRadius:"8px",padding:"10px"}}><div style={{fontSize:"10px",opacity:0.45,textTransform:"uppercase",marginBottom:"4px"}}>ETF/Index</div><Regime r={iR}/><div style={{marginTop:"6px"}}><EqBadge shares={iS} size="md"/></div><div style={{fontSize:"11px",opacity:0.4,marginTop:"2px"}}>per 1% move</div></div>
-      <div style={{background:"rgba(128,128,128,0.05)",borderRadius:"8px",padding:"10px"}}><div style={{fontSize:"10px",opacity:0.45,textTransform:"uppercase",marginBottom:"4px"}}>Single stocks</div><div style={{fontSize:"12px",marginBottom:"4px"}}><span style={{color:"#3B6D11"}}>{nP} pos</span> / <span style={{color:"#A32D2D"}}>{nN} neg</span></div><div style={{marginTop:"6px"}}><EqBadge shares={sS} size="md"/></div><div style={{fontSize:"11px",opacity:0.4,marginTop:"2px"}}>net per 1% move</div></div>
+  const negPctStk = stk.length > 0 ? Math.round(nN / stk.length * 100) : 0;
+  const negIdx = idx.filter(d=>d.regime==="negative");
+  const posIdx = idx.filter(d=>d.regime==="positive");
+
+  // Top squeeze names
+  const topSqueeze = [...stk].sort((a,b) => b.sq - a.sq).slice(0, 5);
+  // Most bearish P/C
+  const topBearish = [...stk].filter(d => d.dpc > 0.8).sort((a,b) => b.dpc - a.dpc).slice(0, 5);
+  // Most bullish P/C
+  const topBullish = [...stk].filter(d => d.dpc < 0.5 && d.dpc > 0).sort((a,b) => a.dpc - b.dpc).slice(0, 5);
+
+  return <div>
+    <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",padding:"16px",marginBottom:"12px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}><span style={{fontSize:"13px",fontWeight:500}}>Index vs component gamma regime</span><span style={{fontSize:"11px",padding:"2px 10px",borderRadius:"999px",fontWeight:500,background:div?"rgba(226,75,74,0.12)":"rgba(29,158,117,0.12)",color:div?"#A32D2D":"#0F6E56"}}>{div?"diverging":"aligned"}</span></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
+        <div style={{background:"rgba(128,128,128,0.05)",borderRadius:"8px",padding:"10px"}}>
+          <div style={{fontSize:"10px",opacity:0.45,textTransform:"uppercase",marginBottom:"6px"}}>ETFs / Indices</div>
+          {idx.map(d => <div key={d.ticker} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:"12px",padding:"2px 0"}}>
+            <span style={{fontWeight:500}}>{d.ticker}</span>
+            <Regime r={d.regime}/>
+          </div>)}
+        </div>
+        <div style={{background:"rgba(128,128,128,0.05)",borderRadius:"8px",padding:"10px"}}>
+          <div style={{fontSize:"10px",opacity:0.45,textTransform:"uppercase",marginBottom:"6px"}}>Single stocks</div>
+          <div style={{fontSize:"20px",fontWeight:500,marginBottom:"4px"}}><span style={{color:"#3B6D11"}}>{nP}</span> <span style={{fontSize:"12px",opacity:0.5}}>pos</span> / <span style={{color:"#A32D2D"}}>{nN}</span> <span style={{fontSize:"12px",opacity:0.5}}>neg</span></div>
+          <div style={{fontSize:"11px",opacity:0.5}}>{negPctStk}% in negative gamma</div>
+        </div>
+      </div>
+      {div&&<div style={{fontSize:"12px",opacity:0.7,lineHeight:1.5,padding:"8px 10px",background:"rgba(226,75,74,0.04)",borderRadius:"6px",marginTop:"10px"}}>Divergence: ETFs in {iR} gamma while {iR==="positive"?nN:nP}/{stk.length} components are in {iR==="positive"?"negative":"positive"} — structural tension that tends to resolve with sharp moves toward the component signal.</div>}
+      {!div&&<div style={{fontSize:"12px",opacity:0.5,lineHeight:1.5,padding:"8px 10px",marginTop:"10px"}}>ETFs and single-stock gamma regimes are aligned — no structural tension detected.</div>}
     </div>
-    {div&&<div style={{fontSize:"12px",opacity:0.6,lineHeight:1.5,padding:"8px 10px",background:"rgba(226,75,74,0.04)",borderRadius:"6px",marginTop:"10px"}}>Tension: ETFs in {iR} gamma while majority of components in {iR==="positive"?"negative":"positive"} — tends to resolve with sharp moves.</div>}
+
+    {topSqueeze.length > 0 && <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",padding:"16px",marginBottom:"12px"}}>
+      <div style={{fontSize:"13px",fontWeight:500,marginBottom:"10px"}}>Highest squeeze scores</div>
+      {topSqueeze.map(d => <div key={d.ticker} style={{display:"flex",alignItems:"center",gap:"8px",fontSize:"12px",padding:"3px 0"}}>
+        <span style={{fontWeight:500,width:"48px"}}>{d.ticker}</span>
+        <div style={{flex:1}}><Squeeze score={d.sq}/></div>
+        <Regime r={d.regime}/>
+      </div>)}
+    </div>}
+
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+      {topBullish.length > 0 && <div style={{border:"1px solid rgba(29,158,117,0.2)",borderRadius:"10px",padding:"12px"}}>
+        <div style={{fontSize:"11px",opacity:0.5,textTransform:"uppercase",marginBottom:"8px"}}>Most bullish Δ P/C</div>
+        {topBullish.map(d => <div key={d.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:"12px",padding:"2px 0"}}>
+          <span style={{fontWeight:500}}>{d.ticker}</span>
+          <span style={{color:"#0F6E56",fontFamily:"monospace"}}>{d.dpc.toFixed(2)}</span>
+        </div>)}
+      </div>}
+      {topBearish.length > 0 && <div style={{border:"1px solid rgba(226,75,74,0.2)",borderRadius:"10px",padding:"12px"}}>
+        <div style={{fontSize:"11px",opacity:0.5,textTransform:"uppercase",marginBottom:"8px"}}>Most bearish Δ P/C</div>
+        {topBearish.map(d => <div key={d.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:"12px",padding:"2px 0"}}>
+          <span style={{fontWeight:500}}>{d.ticker}</span>
+          <span style={{color:"#A32D2D",fontFamily:"monospace"}}>{d.dpc.toFixed(2)}</span>
+        </div>)}
+      </div>}
+    </div>
   </div>;
 }
 
@@ -1135,7 +1222,15 @@ function App() {
       if (!r.ok) throw new Error("No snapshot available");
       const snapshot = await r.json();
       if (snapshot && snapshot.tickers && snapshot.tickers.length > 0) {
-        setSnapDate(snapshot.capturedAt ? new Date(snapshot.capturedAt).toLocaleString() : snapshot.date);
+        // Check if snapshot is from today
+        const snapDateStr = snapshot.date || "";
+        const todayStr = new Date().toISOString().slice(0, 10);
+        if (snapDateStr === todayStr) {
+          setSnapDate(snapshot.capturedAt ? new Date(snapshot.capturedAt).toLocaleString() : snapshot.date);
+        } else {
+          // Stale snapshot — don't show yesterday's date, mark as loaded from prior session
+          setSnapDate(snapshot.capturedAt ? `${snapshot.date} (prior session)` : `${snapshot.date} (prior session)`);
+        }
         // Map snapshot data to the format the dashboard expects
         const mapped = snapshot.tickers.map((t, i) => {
           const base = emptyTicker(t.ticker);
@@ -1157,6 +1252,7 @@ function App() {
           DEFAULT_WATCHLIST.map((t, i) => fetchTickerLive(t, i))
         );
         setData(liveResults);
+        setSnapDate("live");
       } catch(e2) { console.warn("Live fallback failed:", e2); }
     }
   },[]);
@@ -1197,7 +1293,7 @@ function App() {
     </div>
     <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
       <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:opex.isNear?"rgba(226,75,74,0.1)":"rgba(128,128,128,0.06)",color:opex.isNear?"#A32D2D":"inherit",display:"flex",alignItems:"center",gap:"5px",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>OPEX</span>{opex.date} · <span style={{fontWeight:500}}>{opex.days}d {opex.hours}h</span>{opex.isNear&&<span style={{fontWeight:500}}>⚠</span>}</div>
-      {snapDate && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:"rgba(74,144,217,0.08)",color:"#2B6CB0",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>Snapshot</span> {snapDate}</div>}
+      {snapDate && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:"rgba(74,144,217,0.08)",color:"#2B6CB0",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>{snapDate === "live" ? "Live" : "Snapshot"}</span> {snapDate === "live" ? new Date().toLocaleString() : snapDate}</div>}
       {alerts.map(a=><span key={a.ticker} onClick={()=>lookup(a.ticker)} style={{padding:"4px 10px",borderRadius:"4px",cursor:"pointer",background:"rgba(226,75,74,0.08)",color:"#A32D2D",fontSize:"11px",whiteSpace:"nowrap"}}>{a.ticker} {a.reasons.join(" ")}</span>)}
     </div>
     <div style={{padding:"10px 14px",borderRadius:"8px",fontSize:"12px",lineHeight:1.5,border:"1px solid rgba(128,128,128,0.08)",background:"rgba(128,128,128,0.02)",fontFamily:"-apple-system,sans-serif",marginBottom:"14px"}}><span style={{fontSize:"9px",textTransform:"uppercase",opacity:0.3,letterSpacing:"0.5px"}}>Closing brief · </span>{narrative}</div>

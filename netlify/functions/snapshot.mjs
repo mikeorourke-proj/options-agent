@@ -35,7 +35,7 @@ export default async (request) => {
           const snap = await store.get(`daily-${dt}`, { type: "json" });
           if (snap && snap.tickers) {
             const t = snap.tickers.find(d => d.ticker === ticker.toUpperCase());
-            if (t) points.push({ date: dt, spot: t.spot, optVolPctADV: t.optVolPctADV||0, optVolShares: t.optVolShares||0, optVolRaw: t.optVolRaw||0, dpc: t.dpc||0, nds: t.nds||0, netGex: t.netGex||0, regime: t.regime, gammaFlip: t.gammaFlip||0, flipDist: t.flipDist||0, callWall: t.callWall||0, callWallConf: t.callWallConf||0, putWall: t.putWall||0, putWallConf: t.putWallConf||0, maxPain: t.maxPain||0, sq: t.sq||0, zdtePct: t.zdtePct||0, zdteDpc: t.zdteDpc||0, openDpc: t.openDpc||0, skewZ: t.skewZ||0, termSlope: t.termSlope||0, vrp: t.vrp||0, iv: t.iv||0, rv: t.rv||0, pcr: t.pcr||0, dspct: t.dspct||0, zdteNetDelta: t.zdteNetDelta||0, openNetDelta: t.openNetDelta||0 });
+            if (t) points.push({ date: dt, spot: t.spot, optVolPctADV: t.optVolPctADV||0, optVolShares: t.optVolShares||0, optVolRaw: t.optVolRaw||0, dpc: t.dpc||0, nds: t.nds||0, netGex: t.netGex||0, regime: t.regime, gammaFlip: t.gammaFlip||0, flipDist: t.flipDist||0, callWall: t.callWall||0, callWallConf: t.callWallConf||0, putWall: t.putWall||0, putWallConf: t.putWallConf||0, maxPain: t.maxPain||0, sq: t.sq||0, zdtePct: t.zdtePct||0, zdteDpc: t.zdteDpc||0, openDpc: t.openDpc||0, skewZ: t.skewZ||0, termSlope: t.termSlope||0, vrp: t.vrp||0, iv: t.iv||0, rv: t.rv||0, pcr: t.pcr||0, dspct: t.dspct||0, zdteNetDelta: t.zdteNetDelta||0, openNetDelta: t.openNetDelta||0, rr25d: t.rr25d||0, rr25dPutIV: t.rr25dPutIV||0, rr25dCallIV: t.rr25dCallIV||0 });
           }
         } catch {}
       }
