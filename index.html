@@ -1414,10 +1414,33 @@ function App() {
     } catch(e) { console.warn("Vol div scan failed:", e); }
     setVolDivLoading(false);
   }, [data, volDivLoading]);
+  const [wallsPinnedFetched, setWallsPinnedFetched] = useState(false);
+  const fetchPinnedWalls = useCallback(async () => {
+    if (wallsPinnedFetched) return;
+    setWallsPinnedFetched(true);
+    const pinned = ["SPY", "QQQ"];
+    const needsFetch = pinned.filter(t => {
+      const existing = data.find(d => d.ticker === t);
+      return !existing || !existing.callWall || existing.callWall <= 0 || !existing.putWall || existing.putWall <= 0;
+    });
+    if (needsFetch.length === 0) return;
+    const liveResults = await Promise.all(needsFetch.map((t, i) => fetchTickerLive(t, i)));
+    setData(prev => {
+      const updated = [...prev];
+      liveResults.forEach(live => {
+        if (!live || !live.spot) return;
+        const idx = updated.findIndex(d => d.ticker === live.ticker);
+        if (idx >= 0) updated[idx] = { ...updated[idx], ...live };
+        else updated.push(live);
+      });
+      return updated;
+    });
+  }, [data, wallsPinnedFetched]);
   const handleTab = useCallback((id) => {
     setTab(id);
     if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();
-  }, [volDivScanned, volDiv, scanVolDiv]);
+    if (id === "walls") fetchPinnedWalls();
+  }, [volDivScanned, volDiv, scanVolDiv, fetchPinnedWalls]);
   const wallProxCount = useMemo(() => {
     return data.filter(d => {
       if (!d.spot || d.spot <= 0) return false;
