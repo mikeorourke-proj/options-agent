@@ -1111,6 +1111,114 @@ function Divergence({ data }) {
   </div>;
 }
 
+// ─── WALL PROXIMITY SCREEN ───────────────────────────────────────
+function WallProximity({ data, onSelect }) {
+  const { putHits, callHits } = useMemo(() => {
+    const putHits = [], callHits = [];
+    data.forEach(d => {
+      if (!d.spot || d.spot <= 0) return;
+      // Put wall: spot within 2.5%, wall >= 20% concentration
+      if (d.putWall > 0 && d.putWallConf >= 20) {
+        const dist = ((d.spot - d.putWall) / d.spot) * 100;
+        if (Math.abs(dist) <= 2.5) {
+          putHits.push({
+            ticker: d.ticker, spot: d.spot, wall: d.putWall,
+            conf: d.putWallConf, oi: d.putWallOI || 0, dist,
+            regime: d.regime, at: d.at,
+            status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
+          });
+        }
+      }
+      // Call wall: spot within 2.5%, wall >= 20% concentration
+      if (d.callWall > 0 && d.callWallConf >= 20) {
+        const dist = ((d.callWall - d.spot) / d.spot) * 100;
+        if (Math.abs(dist) <= 2.5) {
+          callHits.push({
+            ticker: d.ticker, spot: d.spot, wall: d.callWall,
+            conf: d.callWallConf, oi: d.callWallOI || 0, dist,
+            regime: d.regime, at: d.at,
+            status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
+          });
+        }
+      }
+    });
+    putHits.sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist));
+    callHits.sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist));
+    return { putHits, callHits };
+  }, [data]);
+
+  const total = putHits.length + callHits.length;
+
+  if (!total) return (
+    <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", padding: "30px 20px", textAlign: "center" }}>
+      <div style={{ fontSize: "24px", opacity: 0.85, marginBottom: "8px" }}>⊘</div>
+      <div style={{ fontSize: "14px", opacity: 0.82, marginBottom: "6px" }}>No wall proximity alerts</div>
+      <div style={{ fontSize: "12px", opacity: 0.5, lineHeight: 1.6, maxWidth: "420px", margin: "0 auto" }}>
+        Screens for tickers within 2.5% of a call or put wall holding ≥20% of open interest.
+        These concentrated strikes create strong dealer-driven support and resistance.
+      </div>
+    </div>
+  );
+
+  const statusBadge = (s) => {
+    const colors = { testing: { bg: "rgba(226,75,74,0.12)", color: "#A32D2D" }, approaching: { bg: "rgba(186,117,23,0.1)", color: "#BA7517" }, broken: { bg: "rgba(128,128,128,0.1)", color: "#666" } };
+    const c = colors[s] || colors.approaching;
+    return <span style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", background: c.bg, color: c.color, fontWeight: 500, textTransform: "uppercase" }}>{s}</span>;
+  };
+
+  const WallColumn = ({ hits, type, onSelect }) => {
+    const isCall = type === "call";
+    const accent = isCall ? "#A32D2D" : "#0F6E56";
+    const bgAccent = isCall ? "rgba(226,75,74,0.03)" : "rgba(29,158,117,0.03)";
+    const borderAccent = isCall ? "rgba(226,75,74,0.2)" : "rgba(29,158,117,0.2)";
+    return <div style={{ border: `1px solid ${borderAccent}`, borderRadius: "10px", overflow: "hidden" }}>
+      <div style={{ padding: "10px 12px", background: bgAccent, borderBottom: `1px solid ${borderAccent}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: "12px", fontWeight: 600, color: accent }}>{isCall ? "Call Wall" : "Put Wall"} · {isCall ? "Resistance" : "Support"}</div>
+          <div style={{ fontSize: "10px", opacity: 0.5, marginTop: "1px" }}>{hits.length} ticker{hits.length !== 1 ? "s" : ""} within 2.5%</div>
+        </div>
+      </div>
+      {hits.length === 0 && <div style={{ padding: "20px", textAlign: "center", fontSize: "12px", opacity: 0.4 }}>None</div>}
+      {hits.map((h, i) => (
+        <div key={h.ticker} onClick={() => onSelect(h.ticker)} style={{
+          padding: "8px 12px", cursor: "pointer",
+          borderBottom: i < hits.length - 1 ? `1px solid ${borderAccent}` : "none",
+        }} onMouseEnter={e => e.currentTarget.style.background = bgAccent} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ fontWeight: 600, fontSize: "13px" }}>{h.ticker}</span>
+              <Regime r={h.regime}/>
+              {statusBadge(h.status)}
+            </div>
+            <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>${h.spot.toFixed(2)}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
+            <div>
+              <span style={{ opacity: 0.5 }}>Wall </span>
+              <span style={{ fontWeight: 500, color: accent }}>${h.wall.toFixed(2)}</span>
+              <span style={{ opacity: 0.5 }}> · {h.conf.toFixed(0)}% of OI</span>
+              <span style={{ opacity: 0.4 }}> · {h.oi.toLocaleString()} cts</span>
+            </div>
+            <span style={{ fontWeight: 500, fontFamily: "monospace", color: Math.abs(h.dist) < 0.5 ? accent : "inherit" }}>
+              {h.dist > 0 ? "+" : ""}{h.dist.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>;
+  };
+
+  return <div>
+    <div style={{ fontSize: "12px", opacity: 0.6, lineHeight: 1.5, padding: "8px 12px", background: "rgba(74,144,217,0.04)", borderRadius: "8px", marginBottom: "12px" }}>
+      {total} ticker{total !== 1 ? "s" : ""} within 2.5% of a concentrated wall (≥20% OI). Price tends to pin near high-OI strikes as dealer hedging absorbs moves. Breaches can trigger accelerated moves as hedges unwind.
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+      <WallColumn hits={putHits} type="put" onSelect={onSelect}/>
+      <WallColumn hits={callHits} type="call" onSelect={onSelect}/>
+    </div>
+  </div>;
+}
+
 // ─── VOL DIVERGENCE PANEL ──────────────────────────────────────────
 function VolDivergence({ divergences, onSelect }) {
   if (!divergences.length) return (
@@ -1284,7 +1392,15 @@ function App() {
     setTab(id);
     if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();
   }, [volDivScanned, volDiv, scanVolDiv]);
-  const tabs=[{id:"lookup",label:"⌕ Ticker lookup"},{id:"scanner",label:"Scanner"},{id:"voldiv",label:volDivLoading ? "⏳ Scanning..." : volDiv.length ? `⚡ Vol div (${volDiv.length})` : "Vol div"},{id:"optvol",label:"Options volume"},{id:"divergence",label:"Cross-asset"}];
+  const wallProxCount = useMemo(() => {
+    return data.filter(d => {
+      if (!d.spot || d.spot <= 0) return false;
+      const callClose = d.callWall > 0 && d.callWallConf >= 20 && Math.abs((d.callWall - d.spot) / d.spot * 100) <= 2.5;
+      const putClose = d.putWall > 0 && d.putWallConf >= 20 && Math.abs((d.spot - d.putWall) / d.spot * 100) <= 2.5;
+      return callClose || putClose;
+    }).length;
+  }, [data]);
+  const tabs=[{id:"lookup",label:"⌕ Ticker lookup"},{id:"scanner",label:"Scanner"},{id:"walls",label:wallProxCount > 0 ? `Walls (${wallProxCount})` : "Walls"},{id:"voldiv",label:volDivLoading ? "⏳ Scanning..." : volDiv.length ? `⚡ Vol div (${volDiv.length})` : "Vol div"},{id:"optvol",label:"Options volume"},{id:"divergence",label:"Cross-asset"}];
 
   const isLive = data.some(d=>d._live);
 
@@ -1304,6 +1420,7 @@ function App() {
     </div>
     {tab==="lookup"&&<><TickerSearch onLookup={lookup} recentLookups={recent}/>{lookupD?<VerdictCard d={lookupD} onClose={()=>setLookupD(null)}/>:<div style={{padding:"40px 20px",textAlign:"center",opacity:0.3,fontSize:"14px",lineHeight:1.6}}>Type any stock, ETF, or index ticker above to see<br/>how options positioned around today\'s close</div>}</>}
     {tab==="scanner"&&<Scanner data={data} onSelect={lookup}/>}
+    {tab==="walls"&&<WallProximity data={data} onSelect={lookup}/>}
     {tab==="voldiv"&&<VolDivergence divergences={volDiv} onSelect={lookup}/>}
     {tab==="optvol"&&<OptionsVolume data={data} onSelect={lookup}/>}
     {tab==="divergence"&&<Divergence data={data}/>}
