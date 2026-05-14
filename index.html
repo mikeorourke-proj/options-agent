@@ -1113,52 +1113,48 @@ function Divergence({ data }) {
 
 // ─── WALL PROXIMITY SCREEN ───────────────────────────────────────
 function WallProximity({ data, onSelect }) {
-  const { putHits, callHits } = useMemo(() => {
-    const putHits = [], callHits = [];
+  const PINNED = ["SPY", "QQQ"];
+
+  const { putHits, callHits, putPinned, callPinned } = useMemo(() => {
+    const putHits = [], callHits = [], putPinned = [], callPinned = [];
     data.forEach(d => {
       if (!d.spot || d.spot <= 0) return;
-      // Put wall: spot within 2.5%, wall >= 20% concentration
-      if (d.putWall > 0 && d.putWallConf >= 20) {
+      const isPinned = PINNED.includes(d.ticker);
+
+      // Put wall
+      if (d.putWall > 0) {
         const dist = ((d.spot - d.putWall) / d.spot) * 100;
-        if (Math.abs(dist) <= 2.5) {
-          putHits.push({
-            ticker: d.ticker, spot: d.spot, wall: d.putWall,
-            conf: d.putWallConf, oi: d.putWallOI || 0, dist,
-            regime: d.regime, at: d.at,
-            status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
-          });
-        }
+        const row = {
+          ticker: d.ticker, spot: d.spot, wall: d.putWall,
+          conf: d.putWallConf, oi: d.putWallOI || 0, dist,
+          regime: d.regime, at: d.at,
+          status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
+        };
+        if (isPinned) putPinned.push(row);
+        else if (d.putWallConf >= 20 && Math.abs(dist) <= 2.5) putHits.push(row);
       }
-      // Call wall: spot within 2.5%, wall >= 20% concentration
-      if (d.callWall > 0 && d.callWallConf >= 20) {
+
+      // Call wall
+      if (d.callWall > 0) {
         const dist = ((d.callWall - d.spot) / d.spot) * 100;
-        if (Math.abs(dist) <= 2.5) {
-          callHits.push({
-            ticker: d.ticker, spot: d.spot, wall: d.callWall,
-            conf: d.callWallConf, oi: d.callWallOI || 0, dist,
-            regime: d.regime, at: d.at,
-            status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
-          });
-        }
+        const row = {
+          ticker: d.ticker, spot: d.spot, wall: d.callWall,
+          conf: d.callWallConf, oi: d.callWallOI || 0, dist,
+          regime: d.regime, at: d.at,
+          status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
+        };
+        if (isPinned) callPinned.push(row);
+        else if (d.callWallConf >= 20 && Math.abs(dist) <= 2.5) callHits.push(row);
       }
     });
+    putPinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
+    callPinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
     putHits.sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist));
     callHits.sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist));
-    return { putHits, callHits };
+    return { putHits, callHits, putPinned, callPinned };
   }, [data]);
 
   const total = putHits.length + callHits.length;
-
-  if (!total) return (
-    <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", padding: "30px 20px", textAlign: "center" }}>
-      <div style={{ fontSize: "24px", opacity: 0.85, marginBottom: "8px" }}>⊘</div>
-      <div style={{ fontSize: "14px", opacity: 0.82, marginBottom: "6px" }}>No wall proximity alerts</div>
-      <div style={{ fontSize: "12px", opacity: 0.5, lineHeight: 1.6, maxWidth: "420px", margin: "0 auto" }}>
-        Screens for tickers within 2.5% of a call or put wall holding ≥20% of open interest.
-        These concentrated strikes create strong dealer-driven support and resistance.
-      </div>
-    </div>
-  );
 
   const statusBadge = (s) => {
     const colors = { testing: { bg: "rgba(226,75,74,0.12)", color: "#A32D2D" }, approaching: { bg: "rgba(186,117,23,0.1)", color: "#BA7517" }, broken: { bg: "rgba(128,128,128,0.1)", color: "#666" } };
@@ -1166,55 +1162,67 @@ function WallProximity({ data, onSelect }) {
     return <span style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", background: c.bg, color: c.color, fontWeight: 500, textTransform: "uppercase" }}>{s}</span>;
   };
 
-  const WallColumn = ({ hits, type, onSelect }) => {
+  const WallRow = ({ h, accent, borderAccent, bgAccent, onSelect, isLast }) => (
+    <div onClick={() => onSelect(h.ticker)} style={{
+      padding: "8px 12px", cursor: "pointer",
+      borderBottom: isLast ? "none" : `1px solid ${borderAccent}`,
+    }} onMouseEnter={e => e.currentTarget.style.background = bgAccent} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontWeight: 600, fontSize: "13px" }}>{h.ticker}</span>
+          <Regime r={h.regime}/>
+          {h.conf >= 20 && Math.abs(h.dist) <= 2.5 && statusBadge(h.status)}
+        </div>
+        <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>${h.spot.toFixed(2)}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
+        <div>
+          <span style={{ opacity: 0.5 }}>Wall </span>
+          <span style={{ fontWeight: 500, color: accent }}>${h.wall.toFixed(2)}</span>
+          <span style={{ opacity: 0.5 }}> · {h.conf.toFixed(0)}% of OI</span>
+          <span style={{ opacity: 0.4 }}> · {h.oi.toLocaleString()} cts</span>
+        </div>
+        <span style={{ fontWeight: 500, fontFamily: "monospace", color: Math.abs(h.dist) < 0.5 ? accent : "inherit" }}>
+          {h.dist > 0 ? "+" : ""}{h.dist.toFixed(1)}%
+        </span>
+      </div>
+    </div>
+  );
+
+  const WallColumn = ({ pinned, hits, type, onSelect }) => {
     const isCall = type === "call";
     const accent = isCall ? "#A32D2D" : "#0F6E56";
     const bgAccent = isCall ? "rgba(226,75,74,0.03)" : "rgba(29,158,117,0.03)";
     const borderAccent = isCall ? "rgba(226,75,74,0.2)" : "rgba(29,158,117,0.2)";
+    const pinnedBg = isCall ? "rgba(226,75,74,0.06)" : "rgba(29,158,117,0.06)";
     return <div style={{ border: `1px solid ${borderAccent}`, borderRadius: "10px", overflow: "hidden" }}>
       <div style={{ padding: "10px 12px", background: bgAccent, borderBottom: `1px solid ${borderAccent}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: "12px", fontWeight: 600, color: accent }}>{isCall ? "Call Wall" : "Put Wall"} · {isCall ? "Resistance" : "Support"}</div>
-          <div style={{ fontSize: "10px", opacity: 0.5, marginTop: "1px" }}>{hits.length} ticker{hits.length !== 1 ? "s" : ""} within 2.5%</div>
+          <div style={{ fontSize: "10px", opacity: 0.5, marginTop: "1px" }}>{hits.length} alert{hits.length !== 1 ? "s" : ""} within 2.5%</div>
         </div>
       </div>
-      {hits.length === 0 && <div style={{ padding: "20px", textAlign: "center", fontSize: "12px", opacity: 0.4 }}>None</div>}
-      {hits.map((h, i) => (
-        <div key={h.ticker} onClick={() => onSelect(h.ticker)} style={{
-          padding: "8px 12px", cursor: "pointer",
-          borderBottom: i < hits.length - 1 ? `1px solid ${borderAccent}` : "none",
-        }} onMouseEnter={e => e.currentTarget.style.background = bgAccent} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontWeight: 600, fontSize: "13px" }}>{h.ticker}</span>
-              <Regime r={h.regime}/>
-              {statusBadge(h.status)}
-            </div>
-            <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>${h.spot.toFixed(2)}</span>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
-            <div>
-              <span style={{ opacity: 0.5 }}>Wall </span>
-              <span style={{ fontWeight: 500, color: accent }}>${h.wall.toFixed(2)}</span>
-              <span style={{ opacity: 0.5 }}> · {h.conf.toFixed(0)}% of OI</span>
-              <span style={{ opacity: 0.4 }}> · {h.oi.toLocaleString()} cts</span>
-            </div>
-            <span style={{ fontWeight: 500, fontFamily: "monospace", color: Math.abs(h.dist) < 0.5 ? accent : "inherit" }}>
-              {h.dist > 0 ? "+" : ""}{h.dist.toFixed(1)}%
-            </span>
-          </div>
+      {/* Pinned SPY/QQQ — always shown */}
+      {pinned.map((h, i) => (
+        <div key={h.ticker} style={{ background: pinnedBg, borderBottom: `1px solid ${borderAccent}` }}>
+          <WallRow h={h} accent={accent} borderAccent={borderAccent} bgAccent={pinnedBg} onSelect={onSelect} isLast={false}/>
         </div>
+      ))}
+      {/* Proximity alerts */}
+      {hits.length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: "11px", opacity: 0.4 }}>No other tickers within 2.5%</div>}
+      {hits.map((h, i) => (
+        <WallRow key={h.ticker} h={h} accent={accent} borderAccent={borderAccent} bgAccent={bgAccent} onSelect={onSelect} isLast={i === hits.length - 1}/>
       ))}
     </div>;
   };
 
   return <div>
     <div style={{ fontSize: "12px", opacity: 0.6, lineHeight: 1.5, padding: "8px 12px", background: "rgba(74,144,217,0.04)", borderRadius: "8px", marginBottom: "12px" }}>
-      {total} ticker{total !== 1 ? "s" : ""} within 2.5% of a concentrated wall (≥20% OI). Price tends to pin near high-OI strikes as dealer hedging absorbs moves. Breaches can trigger accelerated moves as hedges unwind.
+      SPY/QQQ walls always shown. {total > 0 ? `${total} other ticker${total !== 1 ? "s" : ""} within 2.5% of a concentrated wall (≥20% OI).` : "No other tickers currently within 2.5% of a concentrated wall."} Breaches can trigger accelerated moves as dealer hedges unwind.
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-      <WallColumn hits={putHits} type="put" onSelect={onSelect}/>
-      <WallColumn hits={callHits} type="call" onSelect={onSelect}/>
+      <WallColumn pinned={putPinned} hits={putHits} type="put" onSelect={onSelect}/>
+      <WallColumn pinned={callPinned} hits={callHits} type="call" onSelect={onSelect}/>
     </div>
   </div>;
 }
