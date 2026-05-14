@@ -117,7 +117,7 @@ function computePositioning(ticker, spot, chainData) {
   const contracts = chainData.results.filter(c => c.details && c.greeks && c.details.expiration_date && c.details.strike_price);
   if (contracts.length === 0) return result;
 
-  // Near-term GEX (7-45 DTE)
+  // Near-term GEX (1-60 DTE) — includes this week's expiry for OPEX accuracy
   // Today's date at midnight for DTE calculation (avoids UTC midnight issues)
   const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const todayMidnight = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
@@ -126,7 +126,7 @@ function computePositioning(ticker, spot, chainData) {
     const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
     const expDate = new Date(ey, em - 1, ed);
     const dte = Math.round((expDate - todayMidnight) / 864e5);
-    return dte >= 7 && dte <= 45;
+    return dte >= 1 && dte <= 60;
   });
 
   let netGex = 0;

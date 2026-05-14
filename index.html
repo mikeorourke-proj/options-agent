@@ -65,8 +65,10 @@ function computeFromChain(d, chainData) {
   // ── Spot price: ONLY use Polygon quote price set upstream. Never derive from ATM delta.
   // Bad data is worse than no data.
 
-  // ── Separate near-term (7-45 DTE) for GEX/walls/max pain vs broader for flow
-  const MIN_DTE = 7, MAX_DTE = 45;
+  // ── Near-term for GEX/walls/max pain: 1-60 DTE
+  // Include this week's expiry (critical near OPEX) but exclude 0DTE (noise)
+  // 0DTE GEX is computed separately in the 0DTE section
+  const MIN_DTE = 1, MAX_DTE = 60;
   const MIN_OI = 100; // minimum open interest to count toward walls
   const todayETDate = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const todayMidnight = new Date(todayETDate.getFullYear(), todayETDate.getMonth(), todayETDate.getDate());

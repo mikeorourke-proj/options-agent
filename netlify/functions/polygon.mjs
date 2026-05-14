@@ -76,7 +76,7 @@ export default async (request) => {
     if (endpoint === "chain" && data.results && data.next_url) {
       let nextUrl = data.next_url + `&apiKey=${apiKey}`;
       let pages = 0;
-      while (nextUrl && pages < 3) {
+      while (nextUrl && pages < 5) {
         try {
           const nr = await fetch(nextUrl, { headers: { "Accept": "application/json" } });
           const nd = await nr.json();
