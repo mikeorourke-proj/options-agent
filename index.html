@@ -1117,34 +1117,48 @@ function WallProximity({ data, onSelect }) {
 
   const { putHits, callHits, putPinned, callPinned } = useMemo(() => {
     const putHits = [], callHits = [], putPinned = [], callPinned = [];
+    const pinnedTickers = {};
     data.forEach(d => {
       if (!d.spot || d.spot <= 0) return;
       const isPinned = PINNED.includes(d.ticker);
+      if (isPinned) pinnedTickers[d.ticker] = d;
 
       // Put wall
-      if (d.putWall > 0) {
-        const dist = ((d.spot - d.putWall) / d.spot) * 100;
+      const hasPut = d.putWall > 0;
+      if (hasPut || isPinned) {
+        const wall = d.putWall || 0;
+        const dist = wall > 0 ? ((d.spot - wall) / d.spot) * 100 : 999;
         const row = {
-          ticker: d.ticker, spot: d.spot, wall: d.putWall,
-          conf: d.putWallConf, oi: d.putWallOI || 0, dist,
-          regime: d.regime, at: d.at,
-          status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
+          ticker: d.ticker, spot: d.spot, wall,
+          conf: d.putWallConf || 0, oi: d.putWallOI || 0, dist,
+          regime: d.regime, at: d.at, noData: !hasPut,
+          status: !hasPut ? "—" : dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
         };
         if (isPinned) putPinned.push(row);
-        else if (d.putWallConf >= 20 && Math.abs(dist) <= 2.5) putHits.push(row);
+        else if (hasPut && d.putWallConf >= 20 && Math.abs(dist) <= 2.5) putHits.push(row);
       }
 
       // Call wall
-      if (d.callWall > 0) {
-        const dist = ((d.callWall - d.spot) / d.spot) * 100;
+      const hasCall = d.callWall > 0;
+      if (hasCall || isPinned) {
+        const wall = d.callWall || 0;
+        const dist = wall > 0 ? ((wall - d.spot) / d.spot) * 100 : 999;
         const row = {
-          ticker: d.ticker, spot: d.spot, wall: d.callWall,
-          conf: d.callWallConf, oi: d.callWallOI || 0, dist,
-          regime: d.regime, at: d.at,
-          status: dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
+          ticker: d.ticker, spot: d.spot, wall,
+          conf: d.callWallConf || 0, oi: d.callWallOI || 0, dist,
+          regime: d.regime, at: d.at, noData: !hasCall,
+          status: !hasCall ? "—" : dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
         };
         if (isPinned) callPinned.push(row);
-        else if (d.callWallConf >= 20 && Math.abs(dist) <= 2.5) callHits.push(row);
+        else if (hasCall && d.callWallConf >= 20 && Math.abs(dist) <= 2.5) callHits.push(row);
+      }
+    });
+    // Ensure both pinned tickers are present even if not in data
+    PINNED.forEach(t => {
+      if (!pinnedTickers[t]) {
+        const stub = { ticker: t, spot: 0, wall: 0, conf: 0, oi: 0, dist: 999, regime: "positive", at: "ETF", noData: true, status: "—" };
+        putPinned.push(stub);
+        callPinned.push(stub);
       }
     });
     putPinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
@@ -1171,21 +1185,25 @@ function WallProximity({ data, onSelect }) {
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <span style={{ fontWeight: 600, fontSize: "13px" }}>{h.ticker}</span>
           <Regime r={h.regime}/>
-          {h.conf >= 20 && Math.abs(h.dist) <= 2.5 && statusBadge(h.status)}
+          {!h.noData && h.conf >= 20 && Math.abs(h.dist) <= 2.5 && statusBadge(h.status)}
         </div>
-        <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>${h.spot.toFixed(2)}</span>
+        <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>{h.spot > 0 ? `$${h.spot.toFixed(2)}` : "—"}</span>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
-        <div>
-          <span style={{ opacity: 0.5 }}>Wall </span>
-          <span style={{ fontWeight: 500, color: accent }}>${h.wall.toFixed(2)}</span>
-          <span style={{ opacity: 0.5 }}> · {h.conf.toFixed(0)}% of OI</span>
-          <span style={{ opacity: 0.4 }}> · {h.oi.toLocaleString()} cts</span>
+      {h.noData ? (
+        <div style={{ fontSize: "11px", opacity: 0.4 }}>Wall data unavailable — look up ticker for live calc</div>
+      ) : (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
+          <div>
+            <span style={{ opacity: 0.5 }}>Wall </span>
+            <span style={{ fontWeight: 500, color: accent }}>${h.wall.toFixed(2)}</span>
+            <span style={{ opacity: 0.5 }}> · {h.conf.toFixed(0)}% of OI</span>
+            <span style={{ opacity: 0.4 }}> · {h.oi.toLocaleString()} cts</span>
+          </div>
+          <span style={{ fontWeight: 500, fontFamily: "monospace", color: Math.abs(h.dist) < 0.5 ? accent : "inherit" }}>
+            {h.dist > 0 ? "+" : ""}{h.dist.toFixed(1)}%
+          </span>
         </div>
-        <span style={{ fontWeight: 500, fontFamily: "monospace", color: Math.abs(h.dist) < 0.5 ? accent : "inherit" }}>
-          {h.dist > 0 ? "+" : ""}{h.dist.toFixed(1)}%
-        </span>
-      </div>
+      )}
     </div>
   );
 
