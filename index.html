@@ -637,8 +637,11 @@ async function fetchTickerLive(ticker, idx) {
     return base;
   }
 
-  // Step 2: Fetch chain filtered around the spot price (±15%)
-  const chain = await fetchPoly(`chain&spot=${spotPrice}`, ticker);
+  // Step 2: Fetch chain filtered around the spot price
+  // SPY/QQQ/IWM have strikes at every $1 — use tighter range to avoid pagination issues
+  const tightRange = ["SPY","QQQ","IWM","DIA","SPX","NDX"].includes(ticker);
+  const rangeParam = tightRange ? `chain&spot=${spotPrice}&range=tight` : `chain&spot=${spotPrice}`;
+  const chain = await fetchPoly(rangeParam, ticker);
 
   // Step 3: Use Polygon snapshot price directly — real-time with stock feed subscription
   base.spot = spotPrice;
@@ -1211,7 +1214,7 @@ function Divergence({ data }) {
 }
 
 // ─── WALL PROXIMITY SCREEN ───────────────────────────────────────
-function WallProximity({ data, onSelect }) {
+function WallProximity({ data, onSelect, loading }) {
   const PINNED = ["SPY", "QQQ"];
 
   const { putHits, callHits, putPinned, callPinned } = useMemo(() => {
@@ -1222,8 +1225,8 @@ function WallProximity({ data, onSelect }) {
       const isPinned = PINNED.includes(d.ticker);
       if (isPinned) pinnedTickers[d.ticker] = d;
 
-      // Put wall
-      const hasPut = d.putWall > 0;
+      // Put wall — noData only if wall is 0 AND no OI data
+      const hasPut = d.putWall > 0 && (d.putWallOI > 0 || d.putWallConf > 0);
       if (hasPut || isPinned) {
         const wall = d.putWall || 0;
         const dist = wall > 0 ? ((d.spot - wall) / d.spot) * 100 : 999;
@@ -1237,8 +1240,8 @@ function WallProximity({ data, onSelect }) {
         else if (hasPut && d.putWallConf >= 20 && Math.abs(dist) <= 2.5) putHits.push(row);
       }
 
-      // Call wall
-      const hasCall = d.callWall > 0;
+      // Call wall — noData only if wall is 0 AND no OI data
+      const hasCall = d.callWall > 0 && (d.callWallOI > 0 || d.callWallConf > 0);
       if (hasCall || isPinned) {
         const wall = d.callWall || 0;
         const dist = wall > 0 ? ((wall - d.spot) / d.spot) * 100 : 999;
@@ -1289,7 +1292,7 @@ function WallProximity({ data, onSelect }) {
         <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>{h.spot > 0 ? `$${h.spot.toFixed(2)}` : "—"}</span>
       </div>
       {h.noData ? (
-        <div style={{ fontSize: "11px", opacity: 0.4 }}>Wall data unavailable — look up ticker for live calc</div>
+        <div style={{ fontSize: "11px", opacity: 0.4 }}>{loading ? "Fetching live chain data..." : "Wall data unavailable — look up ticker for live calc"}</div>
       ) : (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
           <div>
@@ -1336,6 +1339,7 @@ function WallProximity({ data, onSelect }) {
   return <div>
     <div style={{ fontSize: "12px", opacity: 0.6, lineHeight: 1.5, padding: "8px 12px", background: "rgba(74,144,217,0.04)", borderRadius: "8px", marginBottom: "12px" }}>
       SPY/QQQ walls always shown. {total > 0 ? `${total} other ticker${total !== 1 ? "s" : ""} within 2.5% of a concentrated wall (≥20% OI).` : "No other tickers currently within 2.5% of a concentrated wall."} Breaches can trigger accelerated moves as dealer hedges unwind.
+      {loading && <span style={{ marginLeft: "6px", color: "#4A90D9", fontWeight: 500 }}>⏳ Fetching live SPY/QQQ walls...</span>}
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
       <WallColumn pinned={putPinned} hits={putHits} type="put" onSelect={onSelect}/>
@@ -1550,23 +1554,30 @@ function App() {
     setVolDivLoading(false);
   }, [data, volDivLoading]);
   const [wallsPinnedFetched, setWallsPinnedFetched] = useState(false);
+  const [wallsLoading, setWallsLoading] = useState(false);
   const fetchPinnedWalls = useCallback(async () => {
-    if (wallsPinnedFetched) return;
-    setWallsPinnedFetched(true);
+    if (wallsPinnedFetched || wallsLoading) return;
+    setWallsLoading(true);
     // Always fetch live for SPY/QQQ — snapshot walls are often stale or incomplete
     const pinned = ["SPY", "QQQ"];
-    const liveResults = await Promise.all(pinned.map((t, i) => fetchTickerLive(t, i)));
-    setData(prev => {
-      const updated = [...prev];
-      liveResults.forEach(live => {
-        if (!live || !live.spot) return;
-        const idx = updated.findIndex(d => d.ticker === live.ticker);
-        if (idx >= 0) updated[idx] = { ...updated[idx], ...live };
-        else updated.push(live);
+    try {
+      const liveResults = await Promise.all(pinned.map((t, i) => fetchTickerLive(t, i)));
+      setData(prev => {
+        const updated = [...prev];
+        liveResults.forEach(live => {
+          if (!live || !live.spot) return;
+          const idx = updated.findIndex(d => d.ticker === live.ticker);
+          if (idx >= 0) updated[idx] = { ...updated[idx], ...live };
+          else updated.push(live);
+        });
+        return updated;
       });
-      return updated;
-    });
-  }, [wallsPinnedFetched]);
+      setWallsPinnedFetched(true);
+    } catch(e) {
+      console.warn("Failed to fetch pinned walls:", e);
+    }
+    setWallsLoading(false);
+  }, [wallsPinnedFetched, wallsLoading]);
   const handleTab = useCallback((id) => {
     setTab(id);
     if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();
@@ -1600,7 +1611,7 @@ function App() {
     </div>
     {tab==="lookup"&&<><TickerSearch onLookup={lookup} recentLookups={recent}/>{lookupD?<VerdictCard d={lookupD} onClose={()=>setLookupD(null)}/>:<div style={{padding:"40px 20px",textAlign:"center",opacity:0.3,fontSize:"14px",lineHeight:1.6}}>Type any stock, ETF, or index ticker above to see<br/>how options positioned around today\'s close</div>}</>}
     {tab==="scanner"&&<Scanner data={data} onSelect={lookup}/>}
-    {tab==="walls"&&<WallProximity data={data} onSelect={lookup}/>}
+    {tab==="walls"&&<WallProximity data={data} onSelect={lookup} loading={wallsLoading}/>}
     {tab==="voldiv"&&<VolDivergence divergences={volDiv} onSelect={lookup}/>}
     {tab==="optvol"&&<OptionsVolume data={data} onSelect={lookup}/>}
     {tab==="divergence"&&<Divergence data={data}/>}

@@ -81,13 +81,17 @@ async function getQuote(ticker, apiKey) {
 }
 
 async function getChain(ticker, spot, apiKey) {
-  const low = Math.round(spot * 0.85);
-  const high = Math.round(spot * 1.15);
+  // Tighter range for high-volume ETFs with $1 strike spacing
+  const highVol = ["SPY","QQQ","IWM","DIA","SPX","NDX"].includes(ticker);
+  const pct = highVol ? 0.07 : 0.15;
+  const low = Math.round(spot * (1 - pct));
+  const high = Math.round(spot * (1 + pct));
   const data = await polyFetch(`https://api.polygon.io/v3/snapshot/options/${ticker}?limit=250&strike_price.gte=${low}&strike_price.lte=${high}&apiKey=${apiKey}`);
   if (!data || !data.results) return data;
   let nextUrl = data.next_url ? data.next_url + `&apiKey=${apiKey}` : null;
   let pages = 0;
-  while (nextUrl && pages < 3) {
+  const maxPages = highVol ? 6 : 3;
+  while (nextUrl && pages < maxPages) {
     await sleep(300);
     const nd = await polyFetch(nextUrl);
     if (!nd || !nd.results) break;

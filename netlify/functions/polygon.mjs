@@ -3,6 +3,7 @@ export default async (request) => {
   const endpoint = url.searchParams.get("endpoint") || "quote";
   const ticker = url.searchParams.get("ticker") || "SPY";
   const spot = url.searchParams.get("spot") || "";
+  const range = url.searchParams.get("range") || "";
   const apiKey = Netlify.env.get("POLYGON_API_KEY");
   const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
@@ -55,8 +56,10 @@ export default async (request) => {
       let chainUrl = `https://api.polygon.io/v3/snapshot/options/${ticker}?limit=250&apiKey=${apiKey}`;
       if (spot && Number(spot) > 0) {
         const s = Number(spot);
-        const low = Math.round(s * 0.85);
-        const high = Math.round(s * 1.15);
+        // tight range for high-volume ETFs like SPY/QQQ (strikes at every $1)
+        const pct = range === "tight" ? 0.07 : 0.15;
+        const low = Math.round(s * (1 - pct));
+        const high = Math.round(s * (1 + pct));
         chainUrl += `&strike_price.gte=${low}&strike_price.lte=${high}`;
       }
       polygonUrl = chainUrl;
