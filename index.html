@@ -412,14 +412,14 @@ async function fetchVolDivergencesLive(watchlist) {
 
     // Get spot price and daily change from stock quote
     const polyQuote = await fetchPoly("quote", ticker);
-    let spot = 0, changePct = 0;
+    let spot = 0, changePct = 0, prevClose = 0;
     if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
       const q = polyQuote.results[0];
       spot = q.c || q.vw || 0;
+      prevClose = q.prevClose || 0;
       changePct = q.changePerc || 0;
-      // If changePerc not available, estimate from prevClose
-      if (!changePct && q.prevClose && q.prevClose > 0) {
-        changePct = ((spot - q.prevClose) / q.prevClose) * 100;
+      if (!changePct && prevClose > 0) {
+        changePct = ((spot - prevClose) / prevClose) * 100;
       }
     }
     if (spot <= 0) continue;
@@ -428,90 +428,189 @@ async function fetchVolDivergencesLive(watchlist) {
     if (!chain || !chain.results || chain.results.length < 5) continue;
 
     const now = new Date();
-    const contracts = chain.results;
+    const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const todayDate = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
+    const contracts = chain.results.filter(c => c.details && c.greeks && c.details.expiration_date);
 
-    // Loosened: any stock with movement >= 0.15% qualifies
-    if (Math.abs(changePct) < 0.15) continue;
+    // ═══ SIGNAL 1: Classic OTM divergence (puts up / shares up, calls up / shares down)
+    if (Math.abs(changePct) >= 0.15) {
+      const otmContracts = contracts.filter(c => {
+        const exp = c.details.expiration_date;
+        if (!exp) return false;
+        const [ey, em, ed] = exp.split("-").map(Number);
+        const dte = Math.round((new Date(ey, em - 1, ed) - todayDate) / 864e5);
+        if (dte < 14 || dte > 75) return false;
+        const strike = c.details.strike_price;
+        const otm = Math.abs(strike - spot) / spot;
+        if (otm < 0.02 || otm > 0.20) return false;
+        const isCall = c.details.contract_type === "call";
+        if (isCall && strike <= spot) return false;
+        if (!isCall && strike >= spot) return false;
+        return true;
+      });
 
-    // Filter to 14-75 DTE, 3-20% OTM (widened from 30-60 / 5-15%)
-    const otmContracts = contracts.filter(c => {
-      if (!c.details || !c.greeks) return false;
-      const exp = c.details.expiration_date;
-      if (!exp) return false;
-      const [ey, em, ed] = exp.split("-").map(Number);
-      const expDate = new Date(ey, em - 1, ed);
-      const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-      const todayDate = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
-      const dte = Math.round((expDate - todayDate) / 864e5);
-      if (dte < 14 || dte > 75) return false;
-      const strike = c.details.strike_price;
-      const otm = Math.abs(strike - spot) / spot;
-      if (otm < 0.02 || otm > 0.20) return false;
-      const isCall = c.details.contract_type === "call";
-      if (isCall && strike <= spot) return false;
-      if (!isCall && strike >= spot) return false;
-      return true;
-    });
+      if (otmContracts.length >= 2) {
+        const sharesUp = changePct > 0.15;
+        const targetType = sharesUp ? "put" : "call";
+        const targetContracts = otmContracts.filter(c => c.details.contract_type === targetType);
 
-    if (otmContracts.length < 2) continue;
+        if (targetContracts.length >= 1) {
+          const ivValues = targetContracts.map(c => c.implied_volatility || 0).filter(v => v > 0);
+          if (ivValues.length >= 1) {
+            const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
+            const volValues = targetContracts.map(c => (c.day && c.day.volume) || 0);
+            const oiValues = targetContracts.map(c => c.open_interest || 0);
+            const totalVol = volValues.reduce((s, v) => s + v, 0);
+            const totalOI = oiValues.reduce((s, v) => s + v, 0);
+            const volOIRatio = totalOI > 0 ? totalVol / totalOI : 0;
 
-    // Key signal: stock going UP but OTM puts holding value or gaining IV (informed downside)
-    //             stock going DOWN but OTM calls holding value or gaining IV (informed upside)
-    const sharesUp = changePct > 0.15;
-    const sharesDown = changePct < -0.15;
-    const targetType = sharesUp ? "put" : sharesDown ? "call" : null;
-    if (!targetType) continue;
+            if ((totalVol >= 50 || volOIRatio >= 0.3) && avgIV >= 0.10) {
+              const topContract = targetContracts.sort((a, b) => ((b.day && b.day.volume) || 0) - ((a.day && a.day.volume) || 0))[0];
+              const topStrike = topContract.details.strike_price;
+              const topDelta = topContract.greeks.delta || 0;
+              const topDte = Math.floor((new Date(topContract.details.expiration_date) - now) / 864e5);
+              const otmPct = Math.abs(topStrike - spot) / spot * 100;
+              const ivSorted = [...ivValues].sort((a, b) => a - b);
+              const p75 = ivSorted[Math.floor(ivSorted.length * 0.5)] || avgIV;
+              const elevated = ivValues.filter(v => v >= p75 * 0.9).length;
+              const isPutDiv = targetType === "put";
+              const ivPct = avgIV * 100;
+              const severity = Math.min(100, Math.round(
+                (ivPct > 50 ? 25 : ivPct > 35 ? 15 : 5) +
+                (volOIRatio > 3 ? 25 : volOIRatio > 2 ? 15 : 5) +
+                (totalVol > 2000 ? 20 : totalVol > 500 ? 10 : 5) +
+                (elevated / targetContracts.length > 0.7 ? 20 : 10) +
+                (Math.abs(changePct) > 2 ? 10 : 5)
+              ));
+              results.push({
+                ticker, spot, shareChg: changePct, isPutDiv,
+                divType: "otm",
+                type: isPutDiv ? "Puts up / shares up" : "Calls up / shares down",
+                signal: isPutDiv ? "Informed downside positioning into strength" : "Informed upside positioning into weakness",
+                strike: topStrike, dte: topDte, otmPct,
+                ivJump: ivPct, priorIV: ivPct * 0.75, currentIV: ivPct,
+                optPriceChg: volOIRatio * 20,
+                volume: totalVol, avgOI: totalOI, volOIRatio,
+                delta: topDelta, eqShares: Math.abs(topDelta) * totalVol * 100,
+                chainStrikesElevated: elevated, chainTotalStrikes: targetContracts.length,
+                severity, at: assetType(ticker), _live: true,
+              });
+            }
+          }
+        }
+      }
+    }
 
-    const targetContracts = otmContracts.filter(c => c.details.contract_type === targetType);
-    if (targetContracts.length < 1) continue;
+    // ═══ SIGNAL 2: Spot-up / Vol-up (FOMO call chasing — Bloomberg "spot-up/vol-up" correlation)
+    // Normally spot up → IV down. When both rise, retail/momentum traders are chasing upside
+    // through long calls, bidding up premiums. This historically marks speculative excess
+    // and precedes sharp reversals. The Bloomberg chart tracks this as 1M realized correlation
+    // between NDX spot and 1M 25Δ call IV.
+    //
+    // We detect it per-stock: shares up AND ATM/OTM call IV elevated AND call volume dominance.
+    // Inverse: spot-down / vol-down = complacency into weakness (IV should spike but isn't).
+    if (Math.abs(changePct) >= 0.3) {
+      // Get near-term ATM contracts (14-60 DTE, delta 0.25-0.75) to measure aggregate IV
+      const nearATM = contracts.filter(c => {
+        if (!c.implied_volatility || c.implied_volatility <= 0) return false;
+        const exp = c.details.expiration_date;
+        if (!exp) return false;
+        const [ey, em, ed] = exp.split("-").map(Number);
+        const dte = Math.round((new Date(ey, em - 1, ed) - todayDate) / 864e5);
+        if (dte < 7 || dte > 60) return false;
+        const absDelta = Math.abs(c.greeks.delta || 0);
+        return absDelta >= 0.15 && absDelta <= 0.85;
+      });
 
-    const ivValues = targetContracts.map(c => c.implied_volatility || 0).filter(v => v > 0);
-    if (ivValues.length < 1) continue;
-    const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
+      if (nearATM.length >= 4) {
+        // Separate calls and puts
+        const nearCalls = nearATM.filter(c => c.details.contract_type === "call");
+        const nearPuts = nearATM.filter(c => c.details.contract_type === "put");
 
-    const volValues = targetContracts.map(c => (c.day && c.day.volume) || 0);
-    const oiValues = targetContracts.map(c => c.open_interest || 0);
-    const totalVol = volValues.reduce((s, v) => s + v, 0);
-    const totalOI = oiValues.reduce((s, v) => s + v, 0);
-    const volOIRatio = totalOI > 0 ? totalVol / totalOI : 0;
+        const callIVs = nearCalls.map(c => c.implied_volatility).filter(v => v > 0);
+        const putIVs = nearPuts.map(c => c.implied_volatility).filter(v => v > 0);
+        const avgCallIV = callIVs.length > 0 ? callIVs.reduce((s, v) => s + v, 0) / callIVs.length * 100 : 0;
+        const avgPutIV = putIVs.length > 0 ? putIVs.reduce((s, v) => s + v, 0) / putIVs.length * 100 : 0;
 
-    // Loosened: minimum 50 contracts (from 200), IV > 0.10 (from 0.20), volOI > 0.3 (from 1.0)
-    if (totalVol < 50 && volOIRatio < 0.3) continue;
-    if (avgIV < 0.10) continue;
+        // Call volume vs put volume in the near-term
+        const callVol = nearCalls.reduce((s, c) => s + ((c.day && c.day.volume) || 0), 0);
+        const putVol = nearPuts.reduce((s, c) => s + ((c.day && c.day.volume) || 0), 0);
+        const totalNearVol = callVol + putVol;
+        const callDominance = totalNearVol > 0 ? callVol / totalNearVol : 0.5;
 
-    const topContract = targetContracts.sort((a, b) => ((b.day && b.day.volume) || 0) - ((a.day && a.day.volume) || 0))[0];
-    const topStrike = topContract.details.strike_price;
-    const topDelta = topContract.greeks.delta || 0;
-    const topDte = Math.floor((new Date(topContract.details.expiration_date) - now) / 864e5);
-    const otmPct = Math.abs(topStrike - spot) / spot * 100;
+        // 25-delta call IV specifically (the metric Bloomberg tracks)
+        const calls25d = nearCalls.filter(c => c.greeks.delta >= 0.18 && c.greeks.delta <= 0.35);
+        const avg25dCallIV = calls25d.length > 0
+          ? calls25d.reduce((s, c) => s + c.implied_volatility, 0) / calls25d.length * 100
+          : avgCallIV;
 
-    const ivSorted = [...ivValues].sort((a, b) => a - b);
-    const p75 = ivSorted[Math.floor(ivSorted.length * 0.5)] || avgIV;
-    const elevated = ivValues.filter(v => v >= p75 * 0.9).length;
+        const spotUp = changePct > 0.3;
+        const spotDown = changePct < -0.3;
 
-    const isPutDiv = targetType === "put";
-    const ivPct = avgIV * 100;
+        // Spot-up / Vol-up: shares rising AND call IV elevated (> put IV or high absolutely)
+        // Key signal: call IV > put IV is abnormal (puts normally trade richer)
+        // OR: call IV is elevated absolutely (> 30% for most stocks)
+        const callIVRicher = avgCallIV > avgPutIV && avgPutIV > 0;
+        const callIVElevated = avg25dCallIV > 25; // 25%+ is notable
+        const callChasing = callDominance > 0.60; // calls > 60% of volume
 
-    const severity = Math.min(100, Math.round(
-      (ivPct > 50 ? 25 : ivPct > 35 ? 15 : 5) +
-      (volOIRatio > 3 ? 25 : volOIRatio > 2 ? 15 : 5) +
-      (totalVol > 2000 ? 20 : totalVol > 500 ? 10 : 5) +
-      (elevated / targetContracts.length > 0.7 ? 20 : 10) +
-      (Math.abs(changePct) > 2 ? 10 : 5)
-    ));
+        if (spotUp && (callIVRicher || (callIVElevated && callChasing))) {
+          const riskRevSpread = avgCallIV - avgPutIV;
+          // Severity: how extreme is the spot-up/vol-up
+          const severity = Math.min(100, Math.round(
+            (callIVRicher ? 25 : 0) +
+            (riskRevSpread > 3 ? 20 : riskRevSpread > 1 ? 10 : 0) +
+            (avg25dCallIV > 50 ? 20 : avg25dCallIV > 35 ? 12 : avg25dCallIV > 25 ? 5 : 0) +
+            (callDominance > 0.75 ? 20 : callDominance > 0.65 ? 12 : callDominance > 0.55 ? 5 : 0) +
+            (changePct > 3 ? 15 : changePct > 1.5 ? 10 : 5)
+          ));
 
-    results.push({
-      ticker, spot, shareChg: changePct, isPutDiv,
-      type: isPutDiv ? "Puts up / shares up" : "Calls up / shares down",
-      signal: isPutDiv ? "Informed downside positioning into strength" : "Informed upside positioning into weakness",
-      strike: topStrike, dte: topDte, otmPct,
-      ivJump: ivPct, priorIV: ivPct * 0.75, currentIV: ivPct,
-      optPriceChg: volOIRatio * 20,
-      volume: totalVol, avgOI: totalOI, volOIRatio,
-      delta: topDelta, eqShares: Math.abs(topDelta) * totalVol * 100,
-      chainStrikesElevated: elevated, chainTotalStrikes: targetContracts.length,
-      severity, at: assetType(ticker), _live: true,
-    });
+          // Don't duplicate if already flagged by Signal 1
+          const alreadyFlagged = results.find(r => r.ticker === ticker);
+          if (!alreadyFlagged && severity >= 25) {
+            results.push({
+              ticker, spot, shareChg: changePct, isPutDiv: false,
+              divType: "spotUpVolUp",
+              type: "Spot up / vol up",
+              signal: "Speculative call chasing — FOMO driving IV higher into rally",
+              callIV: avg25dCallIV, putIV: avgPutIV, callIVRicher, riskRevSpread,
+              callDominance: Math.round(callDominance * 100),
+              callVol, putVol, totalVol: totalNearVol,
+              ivJump: avg25dCallIV, currentIV: avg25dCallIV, priorIV: avg25dCallIV * 0.85,
+              chainStrikesElevated: callIVRicher ? calls25d.length : 0,
+              chainTotalStrikes: nearCalls.length,
+              severity, at: assetType(ticker), _live: true,
+            });
+          }
+        }
+
+        // Spot-down / Vol-down: shares falling but IV compressing (complacency)
+        // Normally shares down → put IV spikes. If it doesn't, the market is mispricing risk.
+        if (spotDown && avgPutIV > 0 && avgPutIV < 25 && !callIVRicher) {
+          const severity = Math.min(100, Math.round(
+            (avgPutIV < 15 ? 25 : avgPutIV < 20 ? 15 : 5) +
+            (Math.abs(changePct) > 3 ? 20 : Math.abs(changePct) > 1.5 ? 12 : 5) +
+            (callDominance < 0.35 ? 10 : 0) +
+            15 // base for this rare signal
+          ));
+          const alreadyFlagged = results.find(r => r.ticker === ticker);
+          if (!alreadyFlagged && severity >= 30) {
+            results.push({
+              ticker, spot, shareChg: changePct, isPutDiv: true,
+              divType: "spotDownVolDown",
+              type: "Spot down / vol down",
+              signal: "IV compressed into selloff — complacency or informed bottom",
+              callIV: avgCallIV, putIV: avgPutIV,
+              ivJump: avgPutIV, currentIV: avgPutIV, priorIV: avgPutIV * 1.15,
+              chainStrikesElevated: 0, chainTotalStrikes: nearPuts.length,
+              callDominance: Math.round(callDominance * 100),
+              callVol, putVol, totalVol: totalNearVol,
+              severity, at: assetType(ticker), _live: true,
+            });
+          }
+        }
+      }
+    }
   }
   return results.sort((a, b) => b.severity - a.severity);
 }
@@ -1251,8 +1350,8 @@ function VolDivergence({ divergences, onSelect }) {
     <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", padding: "30px 20px", textAlign: "center" }}>
       <div style={{ fontSize: "24px", opacity: 0.85, marginBottom: "8px" }}>⊘</div>
       <div style={{ fontSize: "14px", opacity: 0.82, marginBottom: "6px" }}>No vol divergences detected</div>
-      <div style={{ fontSize: "12px", opacity: 0.85, lineHeight: 1.5, maxWidth: "400px", margin: "0 auto", fontFamily: "-apple-system,sans-serif" }}>
-        This scanner flags rare scenarios where OTM put IV spikes while shares are up (informed downside positioning into strength) or OTM call IV spikes while shares are down (informed upside positioning into weakness). When it fires, pay attention.
+      <div style={{ fontSize: "12px", opacity: 0.85, lineHeight: 1.5, maxWidth: "440px", margin: "0 auto", fontFamily: "-apple-system,sans-serif" }}>
+        This scanner flags three rare signals: <strong>OTM puts bid into strength</strong> (informed downside), <strong>OTM calls bid into weakness</strong> (informed upside), and <strong>spot-up / vol-up</strong> — when implied vol rises alongside price instead of falling, signaling speculative call chasing and FOMO. The Bloomberg "spot-up/vol-up" correlation historically marks euphoric tops. When any of these fire, pay attention.
       </div>
     </div>
   );
@@ -1260,13 +1359,64 @@ function VolDivergence({ divergences, onSelect }) {
   return (
     <div>
       <div style={{ fontSize: "12px", opacity: 0.828, marginBottom: "12px", lineHeight: 1.5, fontFamily: "-apple-system,sans-serif" }}>
-        {divergences.length} divergence{divergences.length > 1 ? "s" : ""} detected — option pricing contradicts share direction, suggesting informed positioning ahead of a move.
+        {divergences.length} divergence{divergences.length > 1 ? "s" : ""} detected — option pricing contradicts normal spot-vol relationship, suggesting informed positioning or speculative excess.
       </div>
       {divergences.map((dv, idx) => {
+        const isSpotUpVolUp = dv.divType === "spotUpVolUp";
+        const isSpotDownVolDown = dv.divType === "spotDownVolDown";
+        const isCorrelation = isSpotUpVolUp || isSpotDownVolDown;
         const isPut = dv.isPutDiv;
-        const accentColor = isPut ? "#A32D2D" : "#0F6E56";
-        const accentBg = isPut ? "rgba(226,75,74,0.06)" : "rgba(29,158,117,0.06)";
+
+        // Color coding: spot-up/vol-up = amber/warning (speculative excess), classic div = red/green
+        const accentColor = isSpotUpVolUp ? "#BA7517" : isSpotDownVolDown ? "#6B5B95" : isPut ? "#A32D2D" : "#0F6E56";
+        const accentBg = isSpotUpVolUp ? "rgba(186,117,23,0.06)" : isSpotDownVolDown ? "rgba(107,91,149,0.06)" : isPut ? "rgba(226,75,74,0.06)" : "rgba(29,158,117,0.06)";
+        const badgeBg = isSpotUpVolUp ? "rgba(186,117,23,0.12)" : isSpotDownVolDown ? "rgba(107,91,149,0.12)" : isPut ? "rgba(226,75,74,0.12)" : "rgba(29,158,117,0.12)";
         const sevColor = dv.severity > 70 ? "#A32D2D" : dv.severity > 40 ? "#BA7517" : "#888780";
+
+        // Build description based on divergence type
+        let description = "";
+        let whyItMatters = "";
+        let metricsStrip = [];
+
+        if (isSpotUpVolUp) {
+          description = `${dv.ticker} shares up ${Math.abs(dv.shareChg).toFixed(1)}% but 25Δ call IV at ${dv.callIV.toFixed(0)}%${dv.callIVRicher ? ` — richer than put IV (${dv.putIV.toFixed(0)}%)` : ""}. Call volume ${dv.callDominance}% of total near-term flow. IV should fall as spot rises — instead, call demand is bidding vol higher.`;
+          whyItMatters = `The normal relationship between spot and vol is negative: when stocks go up, uncertainty drops and IV falls. When both rise together, it means traders are chasing upside through long calls so aggressively that they're bidding up premiums despite the move already happening. This "spot-up/vol-up" correlation — tracked by Bloomberg as a key regime indicator — historically marks speculative excess and precedes sharp reversals. The 2024 AI melt-up and the Kospi's 7% reversal from 8,000 are recent examples.`;
+          metricsStrip = [
+            { l: "25Δ Call IV", v: `${dv.callIV.toFixed(0)}%`, s: dv.callIVRicher ? "richer than puts" : "elevated" },
+            { l: "Put IV", v: `${dv.putIV.toFixed(0)}%` },
+            { l: "Risk reversal", v: dv.riskRevSpread ? `${dv.riskRevSpread > 0 ? "+" : ""}${dv.riskRevSpread.toFixed(1)}pts` : "—", s: dv.callIVRicher ? "calls over puts" : "" },
+            { l: "Call dominance", v: `${dv.callDominance}%`, s: `${(dv.callVol||0).toLocaleString()} calls` },
+            { l: "Spot change", v: <span style={{ color: "#0F6E56", fontWeight: 500 }}>+{Math.abs(dv.shareChg).toFixed(1)}%</span> },
+            { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
+          ];
+        } else if (isSpotDownVolDown) {
+          description = `${dv.ticker} shares down ${Math.abs(dv.shareChg).toFixed(1)}% but put IV only ${dv.putIV.toFixed(0)}% — IV should spike into a selloff but isn't. Either the market is complacent about downside risk, or informed participants see this as a buying opportunity.`;
+          whyItMatters = `When stocks sell off, put IV normally spikes as traders scramble for protection. When it stays flat or falls, it means either the market doesn't believe the selloff will extend (informed bottom) or nobody is hedging (dangerous complacency). This "spot-down/vol-down" divergence is the inverse of the FOMO signal — it marks situations where the options market is not confirming the equity weakness.`;
+          metricsStrip = [
+            { l: "Put IV", v: `${dv.putIV.toFixed(0)}%`, s: "not spiking" },
+            { l: "Call IV", v: `${dv.callIV.toFixed(0)}%` },
+            { l: "Call dominance", v: `${dv.callDominance}%` },
+            { l: "Near-term vol", v: (dv.totalVol||0).toLocaleString(), s: "contracts" },
+            { l: "Spot change", v: <span style={{ color: "#A32D2D", fontWeight: 500 }}>{dv.shareChg.toFixed(1)}%</span> },
+            { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
+          ];
+        } else {
+          // Classic OTM divergence
+          description = isPut
+            ? `${dv.ticker} shares are up ${Math.abs(dv.shareChg).toFixed(1)}% but ${dv.dte}DTE ${fmtP(dv.strike)} puts (${dv.otmPct.toFixed(0)}% OTM) show ${dv.ivJump.toFixed(0)}% IV. Volume is ${dv.volume.toLocaleString()} vs ${dv.avgOI.toLocaleString()} avg OI (${dv.volOIRatio.toFixed(1)}x). ${dv.chainStrikesElevated}/${dv.chainTotalStrikes} strikes show elevated IV — chain-wide, not a single print.`
+            : `${dv.ticker} shares are down ${Math.abs(dv.shareChg).toFixed(1)}% but ${dv.dte}DTE ${fmtP(dv.strike)} calls (${dv.otmPct.toFixed(0)}% OTM) show ${dv.ivJump.toFixed(0)}% IV. Volume is ${dv.volume.toLocaleString()} vs ${dv.avgOI.toLocaleString()} avg OI (${dv.volOIRatio.toFixed(1)}x). ${dv.chainStrikesElevated}/${dv.chainTotalStrikes} strikes show elevated IV — chain-wide, not a single print.`;
+          whyItMatters = isPut
+            ? `Someone with size is buying OTM puts into a rising stock — paying elevated premiums to position for downside. This pattern precedes earnings misses, guidance cuts, fraud disclosures, and regulatory actions. The chain-wide IV expansion (${dv.chainStrikesElevated} strikes) confirms this isn't a one-off hedge — it's systematic positioning.`
+            : `Someone with size is buying OTM calls into a falling stock — paying elevated premiums to position for upside. This pattern precedes M&A announcements, activist involvement, FDA approvals, and earnings surprises. The chain-wide IV expansion (${dv.chainStrikesElevated} strikes) confirms this isn't a stray print — it's deliberate accumulation.`;
+          metricsStrip = [
+            { l: "IV level", v: `${dv.ivJump.toFixed(0)}%`, s: `${(dv.priorIV||0).toFixed(0)}→${(dv.currentIV||0).toFixed(0)}` },
+            { l: "Option Δ", v: `+${(dv.optPriceChg||0).toFixed(0)}%` },
+            { l: "Vol / OI", v: `${(dv.volOIRatio||0).toFixed(1)}x`, s: `${(dv.volume||0).toLocaleString()} vol` },
+            { l: "Chain spread", v: `${dv.chainStrikesElevated}/${dv.chainTotalStrikes}`, s: "strikes elevated" },
+            { l: "Eq equiv", v: <EqBadge shares={isPut ? -(dv.eqShares||0) : (dv.eqShares||0)} size="sm" /> },
+            { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
+          ];
+        }
 
         return (
           <div key={dv.ticker + idx} onClick={() => onSelect(dv.ticker)}
@@ -1280,7 +1430,7 @@ function VolDivergence({ divergences, onSelect }) {
                   {dv.shareChg > 0 ? "▲" : "▼"} {Math.abs(dv.shareChg).toFixed(1)}%
                 </span>
                 <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "4px", background: "rgba(74,144,217,0.08)" }}>{dv.at}</span>
-                <span style={{ marginLeft: "auto", fontSize: "11px", padding: "2px 10px", borderRadius: "999px", fontWeight: 500, background: isPut ? "rgba(226,75,74,0.12)" : "rgba(29,158,117,0.12)", color: accentColor }}>
+                <span style={{ marginLeft: "auto", fontSize: "11px", padding: "2px 10px", borderRadius: "999px", fontWeight: 500, background: badgeBg, color: accentColor }}>
                   {dv.type}
                 </span>
               </div>
@@ -1288,23 +1438,13 @@ function VolDivergence({ divergences, onSelect }) {
                 {dv.signal}
               </div>
               <div style={{ fontSize: "13px", lineHeight: 1.65, opacity: 0.82, fontFamily: "-apple-system,sans-serif" }}>
-                {isPut
-                  ? `${dv.ticker} shares are up ${Math.abs(dv.shareChg).toFixed(1)}% but ${dv.dte}DTE ${fmtP(dv.strike)} puts (${dv.otmPct.toFixed(0)}% OTM) are up ${dv.optPriceChg.toFixed(0)}% on a ${dv.ivJump.toFixed(0)}% IV spike. Volume is ${dv.volume.toLocaleString()} vs ${dv.avgOI.toLocaleString()} avg OI (${dv.volOIRatio.toFixed(1)}x). ${dv.chainStrikesElevated}/${dv.chainTotalStrikes} strikes show elevated IV — chain-wide, not a single print.`
-                  : `${dv.ticker} shares are down ${Math.abs(dv.shareChg).toFixed(1)}% but ${dv.dte}DTE ${fmtP(dv.strike)} calls (${dv.otmPct.toFixed(0)}% OTM) are up ${dv.optPriceChg.toFixed(0)}% on a ${dv.ivJump.toFixed(0)}% IV spike. Volume is ${dv.volume.toLocaleString()} vs ${dv.avgOI.toLocaleString()} avg OI (${dv.volOIRatio.toFixed(1)}x). ${dv.chainStrikesElevated}/${dv.chainTotalStrikes} strikes show elevated IV — chain-wide, not a single print.`
-                }
+                {description}
               </div>
             </div>
 
             {/* Metrics strip */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "1px", background: "rgba(74,144,217,0.06)" }}>
-              {[
-                { l: "IV jump", v: `+${dv.ivJump.toFixed(0)}%`, s: `${dv.priorIV.toFixed(0)}→${dv.currentIV.toFixed(0)}` },
-                { l: "Option Δ", v: `+${dv.optPriceChg.toFixed(0)}%` },
-                { l: "Vol / OI", v: `${dv.volOIRatio.toFixed(1)}x`, s: `${dv.volume.toLocaleString()} vol` },
-                { l: "Chain spread", v: `${dv.chainStrikesElevated}/${dv.chainTotalStrikes}`, s: "strikes elevated" },
-                { l: "Eq equiv", v: <EqBadge shares={isPut ? -dv.eqShares : dv.eqShares} size="sm" /> },
-                { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
-              ].map((m, i) => (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${metricsStrip.length}, 1fr)`, gap: "1px", background: "rgba(74,144,217,0.06)" }}>
+              {metricsStrip.map((m, i) => (
                 <div key={i} style={{ background: "rgba(255,255,255,0.7)", padding: "8px 10px" }}>
                   <div style={{ fontSize: "9px", textTransform: "uppercase", opacity: 0.82, letterSpacing: "0.3px", marginBottom: "2px" }}>{m.l}</div>
                   <div style={{ fontSize: "13px", fontWeight: 500 }}>{m.v}</div>
@@ -1316,12 +1456,7 @@ function VolDivergence({ divergences, onSelect }) {
             {/* What it means */}
             <div style={{ padding: "10px 16px", fontSize: "12px", lineHeight: 1.55, fontFamily: "-apple-system,sans-serif" }}>
               <div style={{ opacity: 0.828, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Why this matters</div>
-              <div style={{ opacity: 0.825 }}>
-                {isPut
-                  ? `Someone with size is buying OTM puts into a rising stock — paying elevated premiums to position for downside. This pattern precedes earnings misses, guidance cuts, fraud disclosures, and regulatory actions. The chain-wide IV expansion (${dv.chainStrikesElevated} strikes) confirms this isn't a one-off hedge — it's systematic positioning.`
-                  : `Someone with size is buying OTM calls into a falling stock — paying elevated premiums to position for upside. This pattern precedes M&A announcements, activist involvement, FDA approvals, and earnings surprises. The chain-wide IV expansion (${dv.chainStrikesElevated} strikes) confirms this isn't a stray print — it's deliberate accumulation.`
-                }
-              </div>
+              <div style={{ opacity: 0.825 }}>{whyItMatters}</div>
             </div>
           </div>
         );
@@ -1418,13 +1553,9 @@ function App() {
   const fetchPinnedWalls = useCallback(async () => {
     if (wallsPinnedFetched) return;
     setWallsPinnedFetched(true);
+    // Always fetch live for SPY/QQQ — snapshot walls are often stale or incomplete
     const pinned = ["SPY", "QQQ"];
-    const needsFetch = pinned.filter(t => {
-      const existing = data.find(d => d.ticker === t);
-      return !existing || !existing.callWall || existing.callWall <= 0 || !existing.putWall || existing.putWall <= 0;
-    });
-    if (needsFetch.length === 0) return;
-    const liveResults = await Promise.all(needsFetch.map((t, i) => fetchTickerLive(t, i)));
+    const liveResults = await Promise.all(pinned.map((t, i) => fetchTickerLive(t, i)));
     setData(prev => {
       const updated = [...prev];
       liveResults.forEach(live => {
@@ -1435,7 +1566,7 @@ function App() {
       });
       return updated;
     });
-  }, [data, wallsPinnedFetched]);
+  }, [wallsPinnedFetched]);
   const handleTab = useCallback((id) => {
     setTab(id);
     if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();

@@ -61,7 +61,9 @@ async function getQuote(ticker, apiKey) {
     const s = snap.ticker;
     const price = s.lastTrade?.p || s.min?.c || s.day?.c || 0;
     const volume = s.day?.v || 0;
-    if (price > 0) return { results: [{ c: price, vw: s.day?.vw || price, v: volume }] };
+    const prevClose = s.prevDay?.c || 0;
+    const changePerc = s.todaysChangePerc || 0;
+    if (price > 0) return { results: [{ c: price, vw: s.day?.vw || price, v: volume, prevClose, changePerc }] };
   }
 
   // 2. Fallback: prev-day aggs (yesterday's close)
@@ -292,15 +294,24 @@ async function processTicker(ticker, apiKey) {
   const quoteData = await getQuote(ticker, apiKey);
   let spot = 0;
   let equityVolume = 0;
+  let prevClose = 0;
+  let changePerc = 0;
   if (quoteData && quoteData.results && quoteData.results.length > 0) {
     spot = quoteData.results[0].c || quoteData.results[0].vw || 0;
     equityVolume = quoteData.results[0].v || 0;
+    prevClose = quoteData.results[0].prevClose || 0;
+    changePerc = quoteData.results[0].changePerc || 0;
+    if (!changePerc && prevClose > 0) {
+      changePerc = ((spot - prevClose) / prevClose) * 100;
+    }
   }
   if (spot <= 0) return { error: { ticker, error: "no quote" } };
 
   const chainData = await getChain(ticker, spot, apiKey);
   const positioning = computePositioning(ticker, spot, chainData);
   positioning.equityVolume = equityVolume;
+  positioning.changePerc = changePerc;
+  positioning.prevClose = prevClose;
   // Compute Options % of equity volume (ADV proxy using today's volume)
   if (equityVolume > 0 && positioning.optVolShares > 0) {
     positioning.optVolPctADV = (positioning.optVolShares / equityVolume) * 100;
@@ -396,23 +407,80 @@ export default async (request) => {
     errors: mergedErrors.slice(0, 30), tickers: mergedTickers,
   };
 
-  // Run vol divergence scan on complete data — flag OTM IV spikes contradicting share direction
+  // Run vol divergence scan on complete data
   if (allDone && mergedTickers.length > 10) {
     const volDivs = [];
     for (const t of mergedTickers) {
       if (!t._live || !t.spot || t.spot <= 0) continue;
-      // Check for extreme put/call flow imbalance — high DPC with positive price or low DPC with negative
+      const changePct = t.changePerc || 0;
+
+      // Signal 1: Extreme put/call flow imbalance
       const bullishShares = t.dpc < 0.5 && t.nds > 100000;
       const bearishShares = t.dpc > 1.5 && Math.abs(t.nds) > 100000;
       if (bullishShares || bearishShares) {
         volDivs.push({
-          ticker: t.ticker, spot: t.spot, dpc: t.dpc, nds: t.nds,
+          ticker: t.ticker, spot: t.spot, shareChg: changePct, isPutDiv: bearishShares,
+          divType: "otm",
           type: bearishShares ? "Heavy put flow" : "Heavy call flow",
           signal: bearishShares ? "Bearish options conviction" : "Bullish options conviction",
           severity: Math.min(100, Math.round(Math.abs(t.nds) / 10000)),
-          optVolPctADV: t.optVolPctADV || 0,
-          regime: t.regime,
+          ivJump: t.iv || 0, currentIV: t.iv || 0, priorIV: (t.iv || 0) * 0.85,
+          chainStrikesElevated: 0, chainTotalStrikes: 0,
+          at: t.ticker, _live: true,
         });
+      }
+
+      // Signal 2: Spot-up / Vol-up — call IV richer than put IV while shares rising
+      // Uses the 25Δ risk reversal already computed in positioning
+      if (changePct > 0.3 && t.rr25d && t.rr25d > 0 && t.rr25dCallIV > 0) {
+        // Positive risk reversal = call IV > put IV (abnormal for equities)
+        const severity = Math.min(100, Math.round(
+          (t.rr25d > 3 ? 25 : t.rr25d > 1 ? 15 : 5) +
+          (t.rr25dCallIV > 50 ? 20 : t.rr25dCallIV > 35 ? 12 : 5) +
+          (t.dpc < 0.6 ? 15 : t.dpc < 0.8 ? 8 : 0) + // call-dominated flow
+          (changePct > 3 ? 15 : changePct > 1.5 ? 10 : 5) +
+          10 // base for this signal
+        ));
+        if (severity >= 30) {
+          const alreadyFlagged = volDivs.find(v => v.ticker === t.ticker);
+          if (!alreadyFlagged) {
+            volDivs.push({
+              ticker: t.ticker, spot: t.spot, shareChg: changePct, isPutDiv: false,
+              divType: "spotUpVolUp",
+              type: "Spot up / vol up",
+              signal: "Speculative call chasing — FOMO driving IV higher into rally",
+              callIV: t.rr25dCallIV, putIV: t.rr25dPutIV,
+              callIVRicher: true, riskRevSpread: t.rr25d,
+              ivJump: t.rr25dCallIV, currentIV: t.rr25dCallIV, priorIV: t.rr25dCallIV * 0.85,
+              chainStrikesElevated: 0, chainTotalStrikes: 0,
+              severity, at: t.ticker, _live: true,
+            });
+          }
+        }
+      }
+
+      // Signal 3: Spot-down / Vol-down — put IV compressed while shares falling
+      if (changePct < -0.3 && t.iv > 0 && t.iv < 25 && t.rr25d && t.rr25d > -2) {
+        const severity = Math.min(100, Math.round(
+          (t.iv < 15 ? 25 : t.iv < 20 ? 15 : 5) +
+          (Math.abs(changePct) > 3 ? 20 : Math.abs(changePct) > 1.5 ? 12 : 5) +
+          15
+        ));
+        if (severity >= 30) {
+          const alreadyFlagged = volDivs.find(v => v.ticker === t.ticker);
+          if (!alreadyFlagged) {
+            volDivs.push({
+              ticker: t.ticker, spot: t.spot, shareChg: changePct, isPutDiv: true,
+              divType: "spotDownVolDown",
+              type: "Spot down / vol down",
+              signal: "IV compressed into selloff — complacency or informed bottom",
+              callIV: t.rr25dCallIV || 0, putIV: t.rr25dPutIV || t.iv,
+              ivJump: t.iv, currentIV: t.iv, priorIV: t.iv * 1.15,
+              chainStrikesElevated: 0, chainTotalStrikes: 0,
+              severity, at: t.ticker, _live: true,
+            });
+          }
+        }
       }
     }
     snapshot.volDivergences = volDivs.sort((a, b) => b.severity - a.severity).slice(0, 20);
