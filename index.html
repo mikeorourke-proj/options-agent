@@ -36,6 +36,31 @@ const { useState, useEffect, useCallback, useMemo, useRef } = React;
 // API keys are stored in Netlify environment variables — never in the browser
 let USE_LIVE = true;
 
+// ─── MARKET HOURS & AUTO-REFRESH ─────────────────────────────────
+const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
+function getMarketState() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = et.getDay(); // 0=Sun, 6=Sat
+  const h = et.getHours();
+  const m = et.getMinutes();
+  const mins = h * 60 + m; // minutes since midnight ET
+  const isWeekday = day >= 1 && day <= 5;
+  const preMarket = isWeekday && mins >= 540 && mins < 570; // 9:00-9:30
+  const marketOpen = isWeekday && mins >= 570 && mins < 960; // 9:30-16:00
+  const postMarket = isWeekday && mins >= 960 && mins < 1080; // 16:00-18:00
+  return {
+    isMarketOpen: marketOpen,
+    isPreMarket: preMarket,
+    isPostMarket: postMarket,
+    isWeekend: !isWeekday,
+    shouldPoll: marketOpen, // only poll during regular hours
+    label: marketOpen ? "LIVE" : preMarket ? "PRE-MKT" : postMarket ? "POST-MKT" : "CLOSED",
+    nextPollLabel: marketOpen ? "" : preMarket ? "Updates at 9:30 AM ET" : postMarket ? "Holding EOD readings" : "Holding EOD readings",
+  };
+}
+
 async function fetchPoly(endpoint, ticker) {
   try {
     const r = await fetch(`/.netlify/functions/polygon?endpoint=${endpoint}&ticker=${ticker}`);
@@ -1489,30 +1514,36 @@ function App() {
   const [volDiv, setVolDiv] = useState([]);
   const [volDivLoading, setVolDivLoading] = useState(false);
   const [volDivScanned, setVolDivScanned] = useState(false);
-  const refresh = useCallback(async ()=>{
-    setLastRef(new Date());
+  const [marketState, setMarketState] = useState(() => getMarketState());
+  const [nextRefresh, setNextRefresh] = useState(null);
+  const [wallsLoading, setWallsLoading] = useState(false);
+  const pollRef = useRef(null);
+  const countdownRef = useRef(null);
+
+  // Core data refresh — fetches snapshot then optionally refreshes SPY/QQQ walls live
+  const refresh = useCallback(async (opts = {}) => {
+    const { silent = false, refreshWalls = false } = opts;
+    if (!silent) setLastRef(new Date());
+    const ms = getMarketState();
+    setMarketState(ms);
+
     try {
-      // Read latest snapshot from Netlify Blobs via the snapshot function
       const r = await fetch("/.netlify/functions/snapshot");
       if (!r.ok) throw new Error("No snapshot available");
       const snapshot = await r.json();
       if (snapshot && snapshot.tickers && snapshot.tickers.length > 0) {
-        // Check if snapshot is from today
         const snapDateStr = snapshot.date || "";
         const todayStr = new Date().toISOString().slice(0, 10);
         if (snapDateStr === todayStr) {
           setSnapDate(snapshot.capturedAt ? new Date(snapshot.capturedAt).toLocaleString() : snapshot.date);
         } else {
-          // Stale snapshot — don't show yesterday's date, mark as loaded from prior session
           setSnapDate(snapshot.capturedAt ? `${snapshot.date} (prior session)` : `${snapshot.date} (prior session)`);
         }
-        // Map snapshot data to the format the dashboard expects
         const mapped = snapshot.tickers.map((t, i) => {
           const base = emptyTicker(t.ticker);
           return { ...base, ...t, at: assetType(t.ticker), trades: t.sweeps || [], _live: t._live };
         });
         setData(mapped);
-        // Load vol divergences from snapshot if available
         if (snapshot.volDivergences && snapshot.volDivergences.length > 0) {
           setVolDiv(snapshot.volDivergences);
         } else {
@@ -1521,7 +1552,6 @@ function App() {
       }
     } catch(e) {
       console.warn("Snapshot load failed, trying live:", e);
-      // Fallback: fetch live for watchlist
       try {
         const liveResults = await Promise.all(
           DEFAULT_WATCHLIST.map((t, i) => fetchTickerLive(t, i))
@@ -1530,12 +1560,93 @@ function App() {
         setSnapDate("live");
       } catch(e2) { console.warn("Live fallback failed:", e2); }
     }
-  },[]);
-  useEffect(()=>{refresh();},[refresh]);
-  const lookup = useCallback(async (ticker)=>{
+
+    // During market hours, always refresh SPY/QQQ walls live after loading snapshot
+    if (refreshWalls || ms.shouldPoll) {
+      refreshPinnedWalls();
+    }
+  }, []);
+
+  // Refresh SPY/QQQ walls live — no one-time gate, runs on every poll cycle
+  const refreshPinnedWalls = useCallback(async () => {
+    setWallsLoading(true);
+    const pinned = ["SPY", "QQQ"];
+    try {
+      const liveResults = await Promise.all(pinned.map((t, i) => fetchTickerLive(t, i)));
+      setData(prev => {
+        const updated = [...prev];
+        liveResults.forEach(live => {
+          if (!live || !live.spot) return;
+          const idx = updated.findIndex(d => d.ticker === live.ticker);
+          if (idx >= 0) updated[idx] = { ...updated[idx], ...live };
+          else updated.push(live);
+        });
+        return updated;
+      });
+    } catch(e) {
+      console.warn("Failed to fetch pinned walls:", e);
+    }
+    setWallsLoading(false);
+  }, []);
+
+  // Initial load
+  useEffect(() => { refresh({ refreshWalls: true }); }, [refresh]);
+
+  // Auto-polling: every 15 min during market hours, stop after close
+  useEffect(() => {
+    // Clear any existing interval
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+
+    const ms = getMarketState();
+    if (!ms.shouldPoll) {
+      // Not market hours — check every 60s if market has opened
+      pollRef.current = setInterval(() => {
+        const current = getMarketState();
+        setMarketState(current);
+        if (current.shouldPoll) {
+          // Market just opened — trigger refresh and restart the effect
+          refresh({ silent: true, refreshWalls: true });
+          setNextRefresh(new Date(Date.now() + POLL_INTERVAL_MS));
+        }
+      }, 60000);
+      return () => {
+        clearInterval(pollRef.current);
+        clearInterval(countdownRef.current);
+      };
+    }
+
+    // Market is open — set up polling
+    setNextRefresh(new Date(Date.now() + POLL_INTERVAL_MS));
+
+    pollRef.current = setInterval(() => {
+      const current = getMarketState();
+      setMarketState(current);
+      if (current.shouldPoll) {
+        refresh({ silent: true, refreshWalls: true });
+        setNextRefresh(new Date(Date.now() + POLL_INTERVAL_MS));
+      } else {
+        // Market closed — stop polling, do one final refresh to lock in EOD
+        refresh({ silent: true });
+        clearInterval(pollRef.current);
+        setNextRefresh(null);
+      }
+    }, POLL_INTERVAL_MS);
+
+    // Countdown timer updates every 30s
+    countdownRef.current = setInterval(() => {
+      setMarketState(getMarketState());
+    }, 30000);
+
+    return () => {
+      clearInterval(pollRef.current);
+      clearInterval(countdownRef.current);
+    };
+  }, [refresh]);
+
+  const lookup = useCallback(async (ticker) => {
     setTab("lookup");
     setRecent(p=>[ticker,...p.filter(t=>t!==ticker)].slice(0,8));
-    // Always fetch live from Polygon for the freshest data
     const live = await fetchTickerLive(ticker, 999);
     setLookupD(live);
   },[]);
@@ -1553,36 +1664,12 @@ function App() {
     } catch(e) { console.warn("Vol div scan failed:", e); }
     setVolDivLoading(false);
   }, [data, volDivLoading]);
-  const [wallsPinnedFetched, setWallsPinnedFetched] = useState(false);
-  const [wallsLoading, setWallsLoading] = useState(false);
-  const fetchPinnedWalls = useCallback(async () => {
-    if (wallsPinnedFetched || wallsLoading) return;
-    setWallsLoading(true);
-    // Always fetch live for SPY/QQQ — snapshot walls are often stale or incomplete
-    const pinned = ["SPY", "QQQ"];
-    try {
-      const liveResults = await Promise.all(pinned.map((t, i) => fetchTickerLive(t, i)));
-      setData(prev => {
-        const updated = [...prev];
-        liveResults.forEach(live => {
-          if (!live || !live.spot) return;
-          const idx = updated.findIndex(d => d.ticker === live.ticker);
-          if (idx >= 0) updated[idx] = { ...updated[idx], ...live };
-          else updated.push(live);
-        });
-        return updated;
-      });
-      setWallsPinnedFetched(true);
-    } catch(e) {
-      console.warn("Failed to fetch pinned walls:", e);
-    }
-    setWallsLoading(false);
-  }, [wallsPinnedFetched, wallsLoading]);
+
   const handleTab = useCallback((id) => {
     setTab(id);
     if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();
-    if (id === "walls") fetchPinnedWalls();
-  }, [volDivScanned, volDiv, scanVolDiv, fetchPinnedWalls]);
+    if (id === "walls") refreshPinnedWalls();
+  }, [volDivScanned, volDiv, scanVolDiv, refreshPinnedWalls]);
   const wallProxCount = useMemo(() => {
     return data.filter(d => {
       if (!d.spot || d.spot <= 0) return false;
@@ -1595,14 +1682,40 @@ function App() {
 
   const isLive = data.some(d=>d._live);
 
+  // Countdown to next refresh
+  const countdownText = useMemo(() => {
+    if (!nextRefresh || !marketState.shouldPoll) return marketState.nextPollLabel || "";
+    const diff = nextRefresh - Date.now();
+    if (diff <= 0) return "Refreshing...";
+    const m = Math.floor(diff / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return `Next refresh ${m}m ${s < 10 ? "0" : ""}${s}s`;
+  }, [nextRefresh, marketState]);
+
+  // Market status badge color and label
+  const statusColor = marketState.isMarketOpen
+    ? (isLive ? "#0F6E56" : "#BA7517")
+    : (marketState.isPreMarket ? "#BA7517" : "#888780");
+  const statusBg = marketState.isMarketOpen
+    ? (isLive ? "rgba(29,158,117,0.12)" : "rgba(186,117,23,0.1)")
+    : (marketState.isPreMarket ? "rgba(186,117,23,0.1)" : "rgba(128,128,128,0.08)");
+  const statusLabel = marketState.isMarketOpen
+    ? (isLive ? "● LIVE" : "● UPDATING")
+    : (marketState.isPreMarket ? "◐ PRE-MKT" : marketState.isPostMarket ? "◑ EOD HOLD" : "◌ CLOSED");
+
   return <div>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"10px"}}>
       <div><div style={{fontSize:"10px",textTransform:"uppercase",letterSpacing:"1px",opacity:0.35,marginBottom:"2px",color:"#4A90D9"}}>JonesTrading · End-of-day options positioning</div><div style={{fontSize:"20px",fontWeight:500,fontFamily:"-apple-system,BlinkMacSystemFont,sans-serif",color:"#1a2a3a"}}>Agent v1</div></div>
-      <div style={{textAlign:"right",display:"flex",alignItems:"center",gap:"8px"}}><span style={{fontSize:"10px",padding:"2px 8px",borderRadius:"4px",background: isLive ? "rgba(29,158,117,0.12)" : "rgba(163,45,45,0.1)",color: isLive ? "#0F6E56" : "#A32D2D"}}>{isLive ? "● LIVE" : "◌ STALE"}</span><button onClick={refresh} style={{background:"none",border:"1px solid rgba(74,144,217,0.25)",borderRadius:"6px",padding:"4px 12px",fontSize:"12px",cursor:"pointer",color:"#2B6CB0"}}>Refresh</button>{lastRef&&<div style={{fontSize:"10px",opacity:0.3,marginTop:"2px"}}>{lastRef.toLocaleTimeString()}</div>}</div>
+      <div style={{textAlign:"right",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
+        <span style={{fontSize:"10px",padding:"2px 8px",borderRadius:"4px",background:statusBg,color:statusColor,whiteSpace:"nowrap",fontWeight:500}}>{statusLabel}</span>
+        <button onClick={() => refresh({ refreshWalls: true })} style={{background:"none",border:"1px solid rgba(74,144,217,0.25)",borderRadius:"6px",padding:"4px 12px",fontSize:"12px",cursor:"pointer",color:"#2B6CB0"}}>Refresh</button>
+        <div style={{fontSize:"10px",opacity:0.3,whiteSpace:"nowrap"}}>{lastRef ? lastRef.toLocaleTimeString() : ""}</div>
+      </div>
     </div>
     <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
       <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:opex.isNear?"rgba(226,75,74,0.1)":"rgba(128,128,128,0.06)",color:opex.isNear?"#A32D2D":"inherit",display:"flex",alignItems:"center",gap:"5px",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>OPEX</span>{opex.date} · <span style={{fontWeight:500}}>{opex.days}d {opex.hours}h</span>{opex.isNear&&<span style={{fontWeight:500}}>⚠</span>}</div>
       {snapDate && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:"rgba(74,144,217,0.08)",color:"#2B6CB0",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>{snapDate === "live" ? "Live" : "Snapshot"}</span> {snapDate === "live" ? new Date().toLocaleString() : snapDate}</div>}
+      {countdownText && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"11px",background:marketState.shouldPoll?"rgba(29,158,117,0.06)":"rgba(128,128,128,0.05)",color:marketState.shouldPoll?"#0F6E56":"#888780",whiteSpace:"nowrap",fontFamily:"monospace"}}>{countdownText}</div>}
       {alerts.map(a=><span key={a.ticker} onClick={()=>lookup(a.ticker)} style={{padding:"4px 10px",borderRadius:"4px",cursor:"pointer",background:"rgba(226,75,74,0.08)",color:"#A32D2D",fontSize:"11px",whiteSpace:"nowrap"}}>{a.ticker} {a.reasons.join(" ")}</span>)}
     </div>
     <div style={{padding:"10px 14px",borderRadius:"8px",fontSize:"12px",lineHeight:1.5,border:"1px solid rgba(128,128,128,0.08)",background:"rgba(128,128,128,0.02)",fontFamily:"-apple-system,sans-serif",marginBottom:"14px"}}><span style={{fontSize:"9px",textTransform:"uppercase",opacity:0.3,letterSpacing:"0.5px"}}>Closing brief · </span>{narrative}</div>
@@ -1615,7 +1728,7 @@ function App() {
     {tab==="voldiv"&&<VolDivergence divergences={volDiv} onSelect={lookup}/>}
     {tab==="optvol"&&<OptionsVolume data={data} onSelect={lookup}/>}
     {tab==="divergence"&&<Divergence data={data}/>}
-    <div style={{marginTop:"14px",fontSize:"10px",opacity:0.45,lineHeight:1.5}}>v1 · End-of-day positioning · {data.length} watchlist · {data.filter(d=>d._live).length} live · Polygon Options Starter</div>
+    <div style={{marginTop:"14px",fontSize:"10px",opacity:0.45,lineHeight:1.5}}>v1 · {marketState.shouldPoll ? "Auto-refreshing every 15 min" : marketState.isPostMarket ? "Holding end-of-day readings" : "Updates resume next trading session"} · {data.length} watchlist · {data.filter(d=>d._live).length} live · Polygon Options Starter</div>
   </div>;
 }
 
