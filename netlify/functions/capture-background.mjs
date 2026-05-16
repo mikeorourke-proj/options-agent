@@ -114,8 +114,12 @@ function computePositioning(ticker, spot, chainData) {
     zdteVol: 0, zdtePct: 0, zdteDpc: 0, zdteNetDelta: 0, zdteCallFlow: 0, zdtePutFlow: 0,
     openVol: 0, openDpc: 0, openNetDelta: 0, openCallFlow: 0, openPutFlow: 0,
     optVolRaw: 0, optVolShares: 0, sweeps: [],
-    skewZ: 0, termSlope: 1, iv: 0, rv: 0, vrp: 0, sq: 0, dspct: 0,
+    skewZ: 0, termSlope: 1, iv: 0, sq: 0, dspct: 0,
     rr25d: 0, rr25dPutIV: 0, rr25dCallIV: 0,
+    skew25d: 0, skew25dPutIV: 0, skew25dCallIV: 0,
+    smileRatio: 0, skewCurve: "reverse", skewCurveLabel: "",
+    nearTermSkew: 0, farTermSkew: 0, skewTermSpread: 0, zdteSkew: 0,
+    ndf: 0, hvl: spot, pcp: 50,
     _live: false,
   };
 
@@ -220,6 +224,13 @@ function computePositioning(ticker, spot, chainData) {
 
   result.cdf = callDF; result.pdf = putDF;
   result.dpc = putDF / Math.max(callDF, 1); result.nds = callDF - putDF;
+  result.ndf = callDF - putDF;
+  result.hvl = result.gammaFlip;
+  const zPcp = (result.dpc - 0.8) / 0.35;
+  const tPcp = 1 / (1 + 0.2316419 * Math.abs(zPcp));
+  const d1Pcp = 0.3989422802 * Math.exp(-zPcp * zPcp / 2);
+  const pPcp = 1 - d1Pcp * tPcp * (0.3193815 + tPcp * (-0.3565638 + tPcp * (1.781478 + tPcp * (-1.821256 + tPcp * 1.330274))));
+  result.pcp = Math.max(1, Math.min(99, Math.round((zPcp >= 0 ? pPcp : 1 - pPcp) * 100)));
   result.zdteVol = zdteVol; result.zdtePct = totalVol > 0 ? (zdteVol / totalVol * 100) : 0;
   result.zdteCallFlow = zdteCF; result.zdtePutFlow = zdtePF;
   result.zdteDpc = zdtePF / Math.max(zdteCF, 1); result.zdteNetDelta = zdteCF - zdtePF;
@@ -228,13 +239,43 @@ function computePositioning(ticker, spot, chainData) {
   result.optVolRaw = totalVol; result.optVolShares = callDF + putDF;
   result.sweeps = sweeps.sort((a, b) => Math.abs(b.eqShares) - Math.abs(a.eqShares)).slice(0, 10);
 
-  // Skew Z-score
+  // Skew Z-score, 25d skew, smile ratio, skew curve classification
   const puts25d = contracts.filter(c => c.details.contract_type === "put" && c.greeks.delta && Math.abs(c.greeks.delta) > 0.20 && Math.abs(c.greeks.delta) < 0.30 && c.implied_volatility > 0);
   const calls25d = contracts.filter(c => c.details.contract_type === "call" && c.greeks.delta && c.greeks.delta > 0.20 && c.greeks.delta < 0.30 && c.implied_volatility > 0);
   if (puts25d.length > 0 && calls25d.length > 0) {
     const putIV = puts25d.reduce((s, c) => s + c.implied_volatility, 0) / puts25d.length;
     const callIV = calls25d.reduce((s, c) => s + c.implied_volatility, 0) / calls25d.length;
-    result.skewZ = ((putIV - callIV) * 100) / 3;
+    result.skew25d = (putIV - callIV) * 100;
+    result.skewZ = result.skew25d / 3;
+    result.skew25dPutIV = putIV * 100;
+    result.skew25dCallIV = callIV * 100;
+    result.smileRatio = (putIV * 100) / Math.max(callIV * 100, 0.01);
+    const putRicher = result.skew25dPutIV > result.skew25dCallIV * 1.03;
+    const callRicher = result.skew25dCallIV > result.skew25dPutIV * 1.03;
+    result.skewCurve = callRicher ? "forward" : (!putRicher && !callRicher) ? "smile" : "reverse";
+    result.skewCurveLabel = callRicher ? "Forward Skew" : (!putRicher && !callRicher) ? "Volatility Smile" : "Reverse Skew";
+  }
+
+  // Near-term vs long-term skew term structure
+  const byExpSkew = { near: { puts: [], calls: [] }, far: { puts: [], calls: [] } };
+  contracts.forEach(c => {
+    if (!c.implied_volatility || c.implied_volatility <= 0 || !c.greeks.delta) return;
+    const absDelta = Math.abs(c.greeks.delta || 0);
+    if (absDelta < 0.18 || absDelta > 0.32) return;
+    const [_ey2, _em2, _ed2] = c.details.expiration_date.split("-").map(Number);
+    const dte2 = Math.round((new Date(_ey2, _em2 - 1, _ed2) - todayMidnight) / 864e5);
+    const bucket = (dte2 >= 3 && dte2 <= 21) ? "near" : (dte2 > 21 && dte2 <= 60) ? "far" : null;
+    if (!bucket) return;
+    byExpSkew[bucket][c.details.contract_type === "put" ? "puts" : "calls"].push(c.implied_volatility * 100);
+  });
+  if (byExpSkew.near.puts.length > 0 && byExpSkew.near.calls.length > 0 && byExpSkew.far.puts.length > 0 && byExpSkew.far.calls.length > 0) {
+    const nP = byExpSkew.near.puts.reduce((s,v)=>s+v,0) / byExpSkew.near.puts.length;
+    const nC = byExpSkew.near.calls.reduce((s,v)=>s+v,0) / byExpSkew.near.calls.length;
+    const fP = byExpSkew.far.puts.reduce((s,v)=>s+v,0) / byExpSkew.far.puts.length;
+    const fC = byExpSkew.far.calls.reduce((s,v)=>s+v,0) / byExpSkew.far.calls.length;
+    result.nearTermSkew = nP - nC;
+    result.farTermSkew = fP - fC;
+    result.skewTermSpread = result.nearTermSkew - result.farTermSkew;
   }
 
   // Term structure
@@ -269,12 +310,10 @@ function computePositioning(ticker, spot, chainData) {
     result.rr25dCallIV = callIV * 100;
   }
 
-  // IV and VRP
+  // IV
   const atmC = contracts.filter(c => c.implied_volatility > 0 && c.greeks.delta && Math.abs(Math.abs(c.greeks.delta) - 0.5) < 0.15);
   if (atmC.length > 0) {
     result.iv = (atmC.reduce((s, c) => s + c.implied_volatility, 0) / atmC.length) * 100;
-    result.rv = result.iv * 0.85;
-    result.vrp = result.iv - result.rv;
   }
 
   // Squeeze score
@@ -285,7 +324,8 @@ function computePositioning(ticker, spot, chainData) {
     (flipProx < 1 ? 25 : flipProx < 2 ? 15 : flipProx < 5 ? 5 : 0) +
     (putWallDist < 2 ? 20 : putWallDist < 5 ? 10 : 0) +
     (result.skewZ > 1.5 ? 15 : result.skewZ > 1 ? 8 : 0) +
-    (result.dpc > 1.3 ? 10 : 0)
+    (result.dpc > 1.3 ? 10 : 0) +
+    (result.skewCurve === "forward" ? 10 : 0)
   ));
 
   result.dspct = Math.abs(result.netGex) / Math.max(spot, 1);
