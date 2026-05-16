@@ -4,20 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Options Positioning Intelligence — JonesTrading</title>
-<meta name="description" content="Options positioning intelligence agent. Type any ticker to see how options activity is influencing share price.">
+<meta name="description" content="Options positioning intelligence agent.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>Γ</text></svg>">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, 'Liberation Mono', monospace;
-    background: #f0f6fb;
-    color: #1a2a3a;
-    -webkit-font-smoothing: antialiased;
-  }
+  body { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', Consolas, monospace; background: #f0f6fb; color: #1a2a3a; -webkit-font-smoothing: antialiased; }
   #root { max-width: 960px; margin: 0 auto; padding: 20px 16px; }
   input, button { font-family: inherit; color: #1a2a3a; }
-
-  /* JonesTrading light blue theme overrides */
   ::selection { background: rgba(74,144,217,0.25); }
   input:focus { outline-color: #4A90D9; }
   @media (max-width: 700px) { #root { padding: 12px 10px; } }
@@ -31,357 +24,226 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
-// ─── LIVE API LAYER ────────────────────────────────────────────────
-// Calls Netlify Functions which proxy to Polygon
-// API keys are stored in Netlify environment variables — never in the browser
 let USE_LIVE = true;
-
-// ─── MARKET HOURS & AUTO-REFRESH ─────────────────────────────────
-const POLL_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 function getMarketState() {
   const now = new Date();
   const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = et.getDay(); // 0=Sun, 6=Sat
-  const h = et.getHours();
-  const m = et.getMinutes();
-  const mins = h * 60 + m; // minutes since midnight ET
+  const day = et.getDay(), mins = et.getHours() * 60 + et.getMinutes();
   const isWeekday = day >= 1 && day <= 5;
-  const preMarket = isWeekday && mins >= 540 && mins < 570; // 9:00-9:30
-  const marketOpen = isWeekday && mins >= 570 && mins < 960; // 9:30-16:00
-  const postMarket = isWeekday && mins >= 960 && mins < 1080; // 16:00-18:00
-  return {
-    isMarketOpen: marketOpen,
-    isPreMarket: preMarket,
-    isPostMarket: postMarket,
-    isWeekend: !isWeekday,
-    shouldPoll: marketOpen, // only poll during regular hours
-    label: marketOpen ? "LIVE" : preMarket ? "PRE-MKT" : postMarket ? "POST-MKT" : "CLOSED",
-    nextPollLabel: marketOpen ? "" : preMarket ? "Updates at 9:30 AM ET" : postMarket ? "Holding EOD readings" : "Holding EOD readings",
-  };
+  const preMarket = isWeekday && mins >= 540 && mins < 570;
+  const marketOpen = isWeekday && mins >= 570 && mins < 960;
+  const postMarket = isWeekday && mins >= 960 && mins < 1080;
+  return { isMarketOpen: marketOpen, isPreMarket: preMarket, isPostMarket: postMarket, isWeekend: !isWeekday, shouldPoll: marketOpen, label: marketOpen ? "LIVE" : preMarket ? "PRE-MKT" : postMarket ? "POST-MKT" : "CLOSED", nextPollLabel: marketOpen ? "" : preMarket ? "Updates at 9:30 AM ET" : "Holding EOD readings" };
 }
 
 async function fetchPoly(endpoint, ticker) {
   try {
-    const r = await fetch(`/.netlify/functions/polygon?endpoint=${endpoint}&ticker=${ticker}`);
-    if (!r.ok) throw new Error(`Poly ${r.status}`);
+    const r = await fetch('/.netlify/functions/polygon?endpoint=' + endpoint + '&ticker=' + ticker);
+    if (!r.ok) throw new Error('Poly ' + r.status);
     const data = await r.json();
     if (data.error) throw new Error(data.error);
     return data;
   } catch (e) { console.warn("Polygon:", e.message); return null; }
 }
 
-// ─── SELF-COMPUTED GEX ENGINE ──────────────────────────────────────
-// Computes GEX, gamma flip, call/put walls, max pain, regime, P/C ratio,
-// sweeps, and spot price entirely from Polygon options chain data.
-// Standard dealer assumption: dealers are short what was bought.
+// Normal CDF approximation
+function normalCDF(z) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d1 = 0.3989422802 * Math.exp(-z * z / 2);
+  const p = 1 - d1 * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return z >= 0 ? p : 1 - p;
+}
 
+function histPercentile(currentVal, historyValues) {
+  if (!historyValues || historyValues.length < 3) return null;
+  const valid = historyValues.filter(v => v !== null && v !== undefined && !isNaN(v));
+  if (valid.length < 3) return null;
+  return Math.round((valid.filter(v => v < currentVal).length / valid.length) * 100);
+}
+
+function findSimilarReadings(currentVal, historyPoints, metric, tolerance) {
+  if (!historyPoints || historyPoints.length < 5) return [];
+  const tol = tolerance || Math.abs(currentVal * 0.15) || 0.5;
+  return historyPoints.filter(p => p[metric] !== undefined && p[metric] !== null && Math.abs(p[metric] - currentVal) <= tol)
+    .sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5)
+    .map(p => ({ date: p.date, value: p[metric], spot: p.spot }));
+}
+
+// ─── SELF-COMPUTED GEX ENGINE ──────────────────────────────────────
 function computeFromChain(d, chainData) {
   if (!chainData || !chainData.results || !chainData.results.length) return d;
-  if (!d._live) return d; // Don't compute positioning without a verified spot price
+  if (!d._live) return d;
   const contracts = chainData.results;
   const now = new Date();
   const spot = d.spot;
-
-  // ── Filter to valid contracts with greeks
   const valid = contracts.filter(c => c.details && c.greeks && c.details.expiration_date && c.details.strike_price);
   if (valid.length === 0) return d;
-
-  // ── Spot price: ONLY use Polygon quote price set upstream. Never derive from ATM delta.
-  // Bad data is worse than no data.
-
-  // ── Near-term for GEX/walls/max pain: 1-60 DTE
-  // Include this week's expiry (critical near OPEX) but exclude 0DTE (noise)
-  // 0DTE GEX is computed separately in the 0DTE section
-  const MIN_DTE = 1, MAX_DTE = 60;
-  const MIN_OI = 100; // minimum open interest to count toward walls
   const todayETDate = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const todayMidnight = new Date(todayETDate.getFullYear(), todayETDate.getMonth(), todayETDate.getDate());
 
   const nearTerm = valid.filter(c => {
     const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
-    const expDate = new Date(ey, em - 1, ed);
-    const dte = Math.round((expDate - todayMidnight) / 864e5);
-    return dte >= MIN_DTE && dte <= MAX_DTE;
+    const dte = Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5);
+    return dte >= 1 && dte <= 60;
   });
 
-  // ── GEX computation (near-term only)
   let netGex = 0;
-  const strikeGex = {};
-  const strikeCallOI = {};
-  const strikePutOI = {};
-
+  const strikeGex = {}, strikeCallOI = {}, strikePutOI = {};
   nearTerm.forEach(c => {
     const isCall = c.details.contract_type === "call";
     const gamma = Math.abs(c.greeks.gamma || 0);
     const oi = c.open_interest || 0;
     const strike = c.details.strike_price;
-    if (oi < 10) return; // skip trivial OI
-
+    if (oi < 10) return;
     const contractGex = gamma * oi * 100 * d.spot * d.spot * 0.01;
     const signedGex = isCall ? contractGex : -contractGex;
     netGex += signedGex;
-
     if (!strikeGex[strike]) strikeGex[strike] = 0;
     strikeGex[strike] += signedGex;
-
     if (!strikeCallOI[strike]) strikeCallOI[strike] = 0;
     if (!strikePutOI[strike]) strikePutOI[strike] = 0;
     if (isCall) strikeCallOI[strike] += oi; else strikePutOI[strike] += oi;
   });
 
   const strikes = Object.keys(strikeGex).map(Number).sort((a, b) => a - b);
-
   if (strikes.length > 0) {
-    // ── Set GEX and regime
     d.netGex = netGex;
     d.regime = netGex > 0 ? "positive" : "negative";
     d.dspct = Math.abs(netGex) / Math.max(d.spot, 1);
 
-    // ── Gamma flip: interpolated strike where cumulative GEX crosses zero
-    let cumGex = 0;
-    let flipStrike = d.spot;
-    let foundFlip = false;
+    // Gamma Flip / HVL
+    let cumGex = 0, flipStrike = d.spot, foundFlip = false;
     for (let i = 0; i < strikes.length; i++) {
       const prevCum = cumGex;
       cumGex += strikeGex[strikes[i]];
       if ((prevCum <= 0 && cumGex > 0) || (prevCum >= 0 && cumGex < 0)) {
-        if (i > 0) {
-          const ratio = Math.abs(prevCum) / (Math.abs(prevCum) + Math.abs(cumGex));
-          flipStrike = strikes[i - 1] + (strikes[i] - strikes[i - 1]) * ratio;
-        } else {
-          flipStrike = strikes[i];
-        }
-        foundFlip = true;
-        break;
+        flipStrike = i > 0 ? strikes[i-1] + (strikes[i] - strikes[i-1]) * (Math.abs(prevCum) / (Math.abs(prevCum) + Math.abs(cumGex))) : strikes[i];
+        foundFlip = true; break;
       }
     }
-    // Sanity check: flip must be within 20% of spot, otherwise discard
-    if (!foundFlip || Math.abs(flipStrike - d.spot) / d.spot > 0.20) {
-      flipStrike = d.spot;
-    }
+    if (!foundFlip || Math.abs(flipStrike - d.spot) / d.spot > 0.20) flipStrike = d.spot;
     d.gammaFlip = flipStrike;
     d.flipDist = ((d.spot - d.gammaFlip) / d.spot) * 100;
+    d.hvl = flipStrike;
 
-    // ── Call wall: strike with highest call OI at or above spot
+    // Call wall
     let maxCallOI = 0, callWallStrike = d.spot * 1.02;
-    let totalNearCallOI = 0;
-    let callOIAboveSpot = {};
+    const callOIAboveSpot = {};
     Object.entries(strikeCallOI).forEach(([s, oi]) => {
       const sn = Number(s);
-      totalNearCallOI += oi;
-      if (sn >= d.spot * 0.98) {
-        callOIAboveSpot[sn] = oi;
-        if (oi > maxCallOI) {
-          maxCallOI = oi;
-          callWallStrike = sn;
-        }
-      }
+      if (sn >= d.spot * 0.98) { callOIAboveSpot[sn] = oi; if (oi > maxCallOI) { maxCallOI = oi; callWallStrike = sn; } }
     });
     d.callWall = callWallStrike;
-    // Confidence: wall OI as % of all call OI at/above spot (the relevant distribution)
     const totalCallOIAbove = Object.values(callOIAboveSpot).reduce((s, v) => s + v, 0);
     d.callWallConf = totalCallOIAbove > 0 ? (maxCallOI / totalCallOIAbove * 100) : 0;
     d.callWallOI = maxCallOI;
 
-    // ── Put wall: strike with highest put OI at or below spot
+    // Put wall
     let maxPutOI = 0, putWallStrike = d.spot * 0.98;
-    let totalNearPutOI = 0;
-    let putOIBelowSpot = {};
+    const putOIBelowSpot = {};
     Object.entries(strikePutOI).forEach(([s, oi]) => {
       const sn = Number(s);
-      totalNearPutOI += oi;
-      if (sn <= d.spot * 1.02) {
-        putOIBelowSpot[sn] = oi;
-        if (oi > maxPutOI) {
-          maxPutOI = oi;
-          putWallStrike = sn;
-        }
-      }
+      if (sn <= d.spot * 1.02) { putOIBelowSpot[sn] = oi; if (oi > maxPutOI) { maxPutOI = oi; putWallStrike = sn; } }
     });
     d.putWall = putWallStrike;
     const totalPutOIBelow = Object.values(putOIBelowSpot).reduce((s, v) => s + v, 0);
     d.putWallConf = totalPutOIBelow > 0 ? (maxPutOI / totalPutOIBelow * 100) : 0;
     d.putWallOI = maxPutOI;
 
-    // ── Max pain: strike where total option holder LOSSES are maximized
-    // At pin price P: call holders with strike < P have intrinsic (P - strike), put holders with strike > P have intrinsic (strike - P)
-    // Max pain = strike where SUM of holder payouts is MINIMIZED (holders lose the most)
+    // Max pain
     const nearStrikes = strikes.filter(s => Math.abs(s - d.spot) / d.spot < 0.10);
     if (nearStrikes.length === 0) nearStrikes.push(...strikes.filter(s => Math.abs(s - d.spot) / d.spot < 0.20));
     let minPayout = Infinity, maxPainStrike = d.spot;
     nearStrikes.forEach(pinPrice => {
       let totalPayout = 0;
-      // Call holders: profit if strike < pinPrice → payout = (pinPrice - strike) × OI × 100
-      Object.entries(strikeCallOI).forEach(([s, oi]) => {
-        const strike = Number(s);
-        if (pinPrice > strike) totalPayout += (pinPrice - strike) * oi * 100;
-      });
-      // Put holders: profit if strike > pinPrice → payout = (strike - pinPrice) × OI × 100
-      Object.entries(strikePutOI).forEach(([s, oi]) => {
-        const strike = Number(s);
-        if (strike > pinPrice) totalPayout += (strike - pinPrice) * oi * 100;
-      });
+      Object.entries(strikeCallOI).forEach(([s, oi]) => { if (pinPrice > Number(s)) totalPayout += (pinPrice - Number(s)) * oi * 100; });
+      Object.entries(strikePutOI).forEach(([s, oi]) => { if (Number(s) > pinPrice) totalPayout += (Number(s) - pinPrice) * oi * 100; });
       if (totalPayout < minPayout) { minPayout = totalPayout; maxPainStrike = pinPrice; }
     });
     d.maxPain = maxPainStrike;
   }
 
-  // ── Delta-weighted flow: Total, 0DTE (expired), Open (carries forward)
-  let callDeltaFlow = 0, putDeltaFlow = 0;
-  let zdteCallFlow = 0, zdtePutFlow = 0;
-  let openCallFlow = 0, openPutFlow = 0;
+  // Delta-weighted flow
+  let callDeltaFlow = 0, putDeltaFlow = 0, zdteCallFlow = 0, zdtePutFlow = 0, openCallFlow = 0, openPutFlow = 0;
   let totalVol = 0, zdteVol = 0, openVol = 0;
-  let zdteCallVol = 0, zdtePutVol = 0, openCallVol = 0, openPutVol = 0;
   const sweeps = [];
-
   valid.forEach(c => {
-    // DTE: compare dates in ET timezone to avoid UTC midnight issues
-    const expStr = c.details.expiration_date;
-    const [ey, em, ed] = expStr.split("-").map(Number);
-    const expDate = new Date(ey, em - 1, ed);
-    const dte = Math.round((expDate - todayMidnight) / 864e5);
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const dte = Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5);
     if (dte < 0 || dte > 90) return;
     const isCall = c.details.contract_type === "call";
     const delta = c.greeks.delta || 0;
     const vol = c.day ? (c.day.volume || 0) : 0;
-    const oi = c.open_interest || 0;
     const deltaShares = Math.abs(delta) * vol * 100;
     const is0dte = dte === 0;
-
     totalVol += vol;
-
-    // Total flow
-    if (isCall) { callDeltaFlow += deltaShares; } else { putDeltaFlow += deltaShares; }
-
-    // 0DTE flow
-    if (is0dte) {
-      zdteVol += vol;
-      if (isCall) { zdteCallFlow += deltaShares; zdteCallVol += vol; }
-      else { zdtePutFlow += deltaShares; zdtePutVol += vol; }
-    } else {
-      // Open (non-0DTE) flow — carries into tomorrow
-      openVol += vol;
-      if (isCall) { openCallFlow += deltaShares; openCallVol += vol; }
-      else { openPutFlow += deltaShares; openPutVol += vol; }
-    }
-
-    // High-delta sweeps
+    if (isCall) callDeltaFlow += deltaShares; else putDeltaFlow += deltaShares;
+    if (is0dte) { zdteVol += vol; if (isCall) zdteCallFlow += deltaShares; else zdtePutFlow += deltaShares; }
+    else { openVol += vol; if (isCall) openCallFlow += deltaShares; else openPutFlow += deltaShares; }
     if (Math.abs(delta) > 0.7 && vol > 100) {
-      sweeps.push({
-        type: isCall ? "C" : "P",
-        strike: c.details.strike_price,
-        delta: delta,
-        contracts: vol,
-        side: "traded",
-        eqShares: Math.abs(delta) * vol * 100 * (isCall ? 1 : -1),
-        time: is0dte ? "0DTE" : `${dte}d`,
-        oi: oi,
-        iv: c.implied_volatility || 0,
-      });
+      sweeps.push({ type: isCall ? "C" : "P", strike: c.details.strike_price, delta, contracts: vol, side: "traded", eqShares: Math.abs(delta) * vol * 100 * (isCall ? 1 : -1), time: is0dte ? "0DTE" : dte + "d", oi: c.open_interest || 0, iv: c.implied_volatility || 0 });
     }
   });
 
-  // ── Total P/C and flow
   if (callDeltaFlow > 0 || putDeltaFlow > 0) {
-    d.cdf = callDeltaFlow;
-    d.pdf = putDeltaFlow;
+    d.cdf = callDeltaFlow; d.pdf = putDeltaFlow;
     d.dpc = putDeltaFlow / Math.max(callDeltaFlow, 1);
     d.nds = callDeltaFlow - putDeltaFlow;
-    // Approximate percentile: typical delta P/C distribution centers ~0.8 with stdev ~0.35
-    // Map the current value to an approximate percentile rank
-    const mu = 0.8, sigma = 0.35;
-    const z = (d.dpc - mu) / sigma;
-    // Normal CDF approximation (Abramowitz & Stegun)
-    const t = 1 / (1 + 0.2316419 * Math.abs(z));
-    const d1 = 0.3989422802 * Math.exp(-z * z / 2);
-    const p = 1 - d1 * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-    d.pcp = Math.round(z >= 0 ? p * 100 : (1 - p) * 100);
-    d.pcp = Math.max(1, Math.min(99, d.pcp));
+    d.ndf = callDeltaFlow - putDeltaFlow;
+    const z = (d.dpc - 0.8) / 0.35;
+    d.pcp = Math.max(1, Math.min(99, Math.round(normalCDF(z) * 100)));
   }
 
-  // ── 0DTE breakdown
-  d.zdteVol = zdteVol;
-  d.zdtePct = totalVol > 0 ? (zdteVol / totalVol * 100) : 0;
-  d.zdteCallFlow = zdteCallFlow;
-  d.zdtePutFlow = zdtePutFlow;
+  d.zdteVol = zdteVol; d.zdtePct = totalVol > 0 ? (zdteVol / totalVol * 100) : 0;
+  d.zdteCallFlow = zdteCallFlow; d.zdtePutFlow = zdtePutFlow;
   d.zdteDpc = zdtePutFlow / Math.max(zdteCallFlow, 1);
   d.zdteNetDelta = zdteCallFlow - zdtePutFlow;
 
-  // ── 0DTE gamma regime: compute from 0DTE contracts in the chain
+  // 0DTE gamma regime
   let zdteGex = 0;
-  let zdteNetDeltaShares = zdteCallFlow - zdtePutFlow;
   valid.forEach(c => {
     const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
-    const expDate = new Date(ey, em - 1, ed);
-    const dte = Math.round((expDate - todayMidnight) / 864e5);
+    const dte = Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5);
     if (dte !== 0) return;
     const isCall = c.details.contract_type === "call";
     const gamma = Math.abs(c.greeks.gamma || 0);
     const oi = c.open_interest || 0;
     if (oi < 10) return;
-    const contractGex = gamma * oi * 100 * d.spot * d.spot * 0.01;
-    zdteGex += isCall ? contractGex : -contractGex;
+    zdteGex += (isCall ? 1 : -1) * gamma * oi * 100 * d.spot * d.spot * 0.01;
   });
-  d.zdg = zdteGex;
-  d.zdr = zdteGex >= 0 ? "positive" : "negative";
+  d.zdg = zdteGex; d.zdr = zdteGex >= 0 ? "positive" : "negative";
   d.zds = Math.abs(zdteGex) / Math.max(d.spot, 1);
 
-  // ── Open (carries forward) breakdown
-  d.openVol = openVol;
-  d.openCallFlow = openCallFlow;
-  d.openPutFlow = openPutFlow;
+  d.openVol = openVol; d.openCallFlow = openCallFlow; d.openPutFlow = openPutFlow;
   d.openDpc = openPutFlow / Math.max(openCallFlow, 1);
   d.openNetDelta = openCallFlow - openPutFlow;
 
-  // ── Sweeps
-  if (sweeps.length > 0) {
-    d.trades = sweeps.sort((a, b) => Math.abs(b.eqShares) - Math.abs(a.eqShares)).slice(0, 10);
-  }
+  if (sweeps.length > 0) d.trades = sweeps.sort((a, b) => Math.abs(b.eqShares) - Math.abs(a.eqShares)).slice(0, 10);
 
-  // ── Options-driven volume
   const totalDeltaShares = callDeltaFlow + putDeltaFlow;
-  // Use actual equity volume if available (from snapshot), otherwise fall back to ADV table
   const advShares = d.equityVolume > 0 ? d.equityVolume : (ADV[d.ticker] || 10) * 1e6;
-  d.optVolShares = totalDeltaShares;
-  d.optVolPctADV = (totalDeltaShares / advShares) * 100;
-  d.optVolRaw = totalVol;
+  d.optVolShares = totalDeltaShares; d.optVolPctADV = (totalDeltaShares / advShares) * 100; d.optVolRaw = totalVol;
 
-  // ── Skew Z-score: 25-delta put IV vs 25-delta call IV
+  // ═══ SKEW ENGINE — Handbook Sections 5.2-5.6 ═══
+  // 25-Delta Skew
   const puts25d = valid.filter(c => c.details.contract_type === "put" && c.greeks.delta && Math.abs(c.greeks.delta) > 0.20 && Math.abs(c.greeks.delta) < 0.30 && c.implied_volatility > 0);
   const calls25d = valid.filter(c => c.details.contract_type === "call" && c.greeks.delta && c.greeks.delta > 0.20 && c.greeks.delta < 0.30 && c.implied_volatility > 0);
   if (puts25d.length > 0 && calls25d.length > 0) {
     const putIV = puts25d.reduce((s, c) => s + c.implied_volatility, 0) / puts25d.length;
     const callIV = calls25d.reduce((s, c) => s + c.implied_volatility, 0) / calls25d.length;
-    const skewRaw = (putIV - callIV) * 100; // in vol points
-    // Normalize to approximate z-score (typical skew is 2-5 pts, so divide by ~3)
-    d.skewZ = skewRaw / 3;
+    d.skew25d = (putIV - callIV) * 100;
+    d.skewZ = d.skew25d / 3;
+    d.skew25dPutIV = putIV * 100;
+    d.skew25dCallIV = callIV * 100;
   }
 
-  // ── Term structure: front-month IV vs back-month IV
-  const byExp = {};
-  valid.forEach(c => {
-    if (!c.implied_volatility || c.implied_volatility <= 0) return;
-    const dte = Math.floor((new Date(c.details.expiration_date) - now) / 864e5);
-    if (dte < 5 || dte > 90) return;
-    const bucket = dte <= 30 ? "front" : "back";
-    if (!byExp[bucket]) byExp[bucket] = [];
-    byExp[bucket].push(c.implied_volatility);
-  });
-  if (byExp.front && byExp.front.length > 2 && byExp.back && byExp.back.length > 2) {
-    const frontIV = byExp.front.reduce((s, v) => s + v, 0) / byExp.front.length;
-    const backIV = byExp.back.reduce((s, v) => s + v, 0) / byExp.back.length;
-    d.termSlope = frontIV / Math.max(backIV, 0.01);
-  }
-
-  // ── 25-Delta Risk Reversal: IV(25Δ call) - IV(25Δ put) on nearest-to-30-DTE expiration
-  // Negative = puts richer than calls (typical for equities, protective hedging demand)
-  // Extreme negative = near-term bottom signal; less negative / positive = near-term top signal
+  // 25-Delta Risk Reversal (14-45 DTE)
   const rr25dContracts = valid.filter(c => {
     if (!c.implied_volatility || c.implied_volatility <= 0 || !c.greeks.delta) return false;
     const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
-    const expDate = new Date(ey, em - 1, ed);
-    const dte = Math.round((expDate - todayMidnight) / 864e5);
+    const dte = Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5);
     return dte >= 14 && dte <= 45;
   });
   const rr25puts = rr25dContracts.filter(c => c.details.contract_type === "put" && Math.abs(c.greeks.delta) >= 0.18 && Math.abs(c.greeks.delta) <= 0.32);
@@ -389,250 +251,172 @@ function computeFromChain(d, chainData) {
   if (rr25puts.length > 0 && rr25calls.length > 0) {
     const putIV = rr25puts.reduce((s, c) => s + c.implied_volatility, 0) / rr25puts.length;
     const callIV = rr25calls.reduce((s, c) => s + c.implied_volatility, 0) / rr25calls.length;
-    d.rr25d = (callIV - putIV) * 100; // in vol points, negative = put skew dominant
+    d.rr25d = (callIV - putIV) * 100;
     d.rr25dPutIV = putIV * 100;
     d.rr25dCallIV = callIV * 100;
-    d.rr25dATMIV = d.iv || ((putIV + callIV) / 2 * 100);
   }
 
-  // ── IV: average implied vol across ATM contracts (delta 0.35-0.65)
+  // Smile Ratio
+  if (d.skew25dPutIV > 0 && d.skew25dCallIV > 0) {
+    d.smileRatio = d.skew25dPutIV / d.skew25dCallIV;
+  }
+
+  // Skew Curve Classification (Section 5.2)
+  if (d.skew25dPutIV > 0 && d.skew25dCallIV > 0) {
+    const putRicher = d.skew25dPutIV > d.skew25dCallIV * 1.03;
+    const callRicher = d.skew25dCallIV > d.skew25dPutIV * 1.03;
+    if (callRicher) {
+      d.skewCurve = "forward"; d.skewCurveLabel = "Forward Skew";
+      d.skewCurveDesc = "OTM calls richer than puts — signals squeeze dynamics, supply constraints, or aggressive upside speculation.";
+    } else if (!putRicher && !callRicher) {
+      d.skewCurve = "smile"; d.skewCurveLabel = "Volatility Smile";
+      d.skewCurveDesc = "Both tails priced equally — large moves in either direction priced similarly.";
+    } else {
+      d.skewCurve = "reverse"; d.skewCurveLabel = "Reverse Skew";
+      d.skewCurveDesc = "Normal equity smirk — OTM puts trade richer reflecting structural demand for downside protection.";
+    }
+  }
+
+  // Near-term vs Long-term Skew Term Structure (Section 5.3)
+  const byExpSkew = { near: { puts: [], calls: [] }, far: { puts: [], calls: [] } };
+  valid.forEach(c => {
+    if (!c.implied_volatility || c.implied_volatility <= 0 || !c.greeks.delta) return;
+    const absDelta = Math.abs(c.greeks.delta || 0);
+    if (absDelta < 0.18 || absDelta > 0.32) return;
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const dte = Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5);
+    const bucket = (dte >= 3 && dte <= 21) ? "near" : (dte > 21 && dte <= 60) ? "far" : null;
+    if (!bucket) return;
+    byExpSkew[bucket][c.details.contract_type === "put" ? "puts" : "calls"].push(c.implied_volatility * 100);
+  });
+  if (byExpSkew.near.puts.length > 0 && byExpSkew.near.calls.length > 0 && byExpSkew.far.puts.length > 0 && byExpSkew.far.calls.length > 0) {
+    const nearPutIV = byExpSkew.near.puts.reduce((s,v)=>s+v,0) / byExpSkew.near.puts.length;
+    const nearCallIV = byExpSkew.near.calls.reduce((s,v)=>s+v,0) / byExpSkew.near.calls.length;
+    const farPutIV = byExpSkew.far.puts.reduce((s,v)=>s+v,0) / byExpSkew.far.puts.length;
+    const farCallIV = byExpSkew.far.calls.reduce((s,v)=>s+v,0) / byExpSkew.far.calls.length;
+    d.nearTermSkew = nearPutIV - nearCallIV;
+    d.farTermSkew = farPutIV - farCallIV;
+    d.skewTermSpread = d.nearTermSkew - d.farTermSkew;
+  }
+
+  // 0DTE Skew vs Longer-dated (Section 5.6)
+  const zdte25puts = valid.filter(c => {
+    if (c.details.contract_type !== "put" || !c.greeks.delta || !c.implied_volatility) return false;
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    return Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5) === 0 && Math.abs(c.greeks.delta) > 0.15 && Math.abs(c.greeks.delta) < 0.35;
+  });
+  const zdte25calls = valid.filter(c => {
+    if (c.details.contract_type !== "call" || !c.greeks.delta || !c.implied_volatility) return false;
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    return Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5) === 0 && c.greeks.delta > 0.15 && c.greeks.delta < 0.35;
+  });
+  if (zdte25puts.length > 0 && zdte25calls.length > 0) {
+    d.zdteSkew = zdte25puts.reduce((s,c)=>s+c.implied_volatility,0) / zdte25puts.length * 100 - zdte25calls.reduce((s,c)=>s+c.implied_volatility,0) / zdte25calls.length * 100;
+  }
+
+  // Term structure
+  const byExp = {};
+  valid.forEach(c => {
+    if (!c.implied_volatility || c.implied_volatility <= 0) return;
+    const [ey, em, ed] = c.details.expiration_date.split("-").map(Number);
+    const dte = Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5);
+    if (dte < 5 || dte > 90) return;
+    const bucket = dte <= 30 ? "front" : "back";
+    if (!byExp[bucket]) byExp[bucket] = [];
+    byExp[bucket].push(c.implied_volatility);
+  });
+  if (byExp.front && byExp.front.length > 2 && byExp.back && byExp.back.length > 2) {
+    d.termSlope = (byExp.front.reduce((s, v) => s + v, 0) / byExp.front.length) / Math.max(byExp.back.reduce((s, v) => s + v, 0) / byExp.back.length, 0.01);
+  }
+
+  // ATM IV
   const atmContracts = valid.filter(c => c.implied_volatility > 0 && c.greeks.delta && Math.abs(Math.abs(c.greeks.delta) - 0.5) < 0.15);
-  if (atmContracts.length > 0) {
-    d.iv = (atmContracts.reduce((s, c) => s + c.implied_volatility, 0) / atmContracts.length) * 100;
-  }
-  // RV: approximate from IV until we accumulate historical spot data for proper calculation
-  // Typical VRP is 2-5 points positive, so RV ≈ IV * 0.90 is a reasonable interim estimate
-  if (d.iv > 0) {
-    d.rv = d.iv * 0.90;
-  }
-  d.vrp = d.iv - d.rv;
+  if (atmContracts.length > 0) d.iv = (atmContracts.reduce((s, c) => s + c.implied_volatility, 0) / atmContracts.length) * 100;
 
-  // ── Squeeze score: composite of negative gamma proximity, put wall distance, skew
+  // Skew Signals (Table 5.4)
+  d.skewSignals = [];
+  if (d.skewTermSpread > 3) d.skewSignals.push({ type: "steepening", label: "Near-term skew steepening", desc: "Aggressive short-dated downside protection demand — imminent risk-off", severity: "high", color: "#A32D2D" });
+  if (d.skewTermSpread < -2) d.skewSignals.push({ type: "flattening", label: "Skew flattening", desc: "Reduced put demand — complacency or improving sentiment", severity: "medium", color: "#BA7517" });
+  if (d.skewCurve === "forward") d.skewSignals.push({ type: "inverted", label: "Inverted skew — calls > puts", desc: "Unusual speculative upside demand. Gamma squeeze potential.", severity: "high", color: "#E24B4A" });
+  if (d.nearTermSkew > 0 && d.farTermSkew > 0 && d.nearTermSkew > d.farTermSkew * 1.5) d.skewSignals.push({ type: "nearTermSpike", label: "Near-term skew spike", desc: "Imminent event hedging — short-lived vol spike likely", severity: "medium", color: "#BA7517" });
+  if (d.skew25d !== undefined && Math.abs(d.skew25d) < 1.0 && d.iv > 20) d.skewSignals.push({ type: "collapse", label: "Skew collapsed", desc: "Hedges unwound; vol compression and potential pinning", severity: "low", color: "#888780" });
+
+  // Skew-GEX Interaction (Section 5.5)
+  if (d.skewZ > 1 && d.regime === "negative") d.skewGexSignal = { type: "vulnerable", label: "Steep skew + neg gamma", desc: "Downside structurally vulnerable", color: "#A32D2D" };
+  else if (d.skewZ < -0.5 && d.regime === "positive") d.skewGexSignal = { type: "capped", label: "Flat skew + pos gamma", desc: "Upside supported but may cap rallies", color: "#1D9E75" };
+  else if (d.skewCurve === "forward" && d.regime === "negative") d.skewGexSignal = { type: "squeeze", label: "Forward skew + neg gamma", desc: "Gamma squeeze setup — explosive upside", color: "#E24B4A" };
+
+  // Squeeze score (enhanced)
   const flipProx = Math.abs(d.flipDist);
   const putWallDist = d.spot > 0 ? (d.spot - d.putWall) / d.spot * 100 : 10;
   d.sq = Math.min(100, Math.max(0,
-    (d.regime === "negative" ? 30 : 0) +
-    (flipProx < 1 ? 25 : flipProx < 2 ? 15 : flipProx < 5 ? 5 : 0) +
-    (putWallDist < 2 ? 20 : putWallDist < 5 ? 10 : 0) +
-    (d.skewZ > 1.5 ? 15 : d.skewZ > 1 ? 8 : 0) +
-    (d.dpc > 1.3 ? 10 : 0)
+    (d.regime === "negative" ? 30 : 0) + (flipProx < 1 ? 25 : flipProx < 2 ? 15 : flipProx < 5 ? 5 : 0) +
+    (putWallDist < 2 ? 20 : putWallDist < 5 ? 10 : 0) + (d.skewZ > 1.5 ? 15 : d.skewZ > 1 ? 8 : 0) +
+    (d.dpc > 1.3 ? 10 : 0) + (d.skewCurve === "forward" ? 10 : 0)
   ));
 
-  // ── After-hours flag: if total volume across chain is 0, mark as prior session
-  if (totalVol === 0) {
-    d._afterHours = true;
-  }
-
-  d._polyChain = true;
-  d._live = true;
+  if (totalVol === 0) d._afterHours = true;
+  d._polyChain = true; d._live = true;
   return d;
 }
 
-// Live vol divergence scanner using Polygon chain data
+// Vol divergence scanner (kept compact — same logic as before)
 async function fetchVolDivergencesLive(watchlist) {
   const results = [];
-
   for (let i = 0; i < watchlist.length; i++) {
     const ticker = watchlist[i];
-
-    // Get spot price and daily change from stock quote
     const polyQuote = await fetchPoly("quote", ticker);
-    let spot = 0, changePct = 0, prevClose = 0;
+    let spot = 0, changePct = 0;
     if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
-      const q = polyQuote.results[0];
-      spot = q.c || q.vw || 0;
-      prevClose = q.prevClose || 0;
-      changePct = q.changePerc || 0;
-      if (!changePct && prevClose > 0) {
-        changePct = ((spot - prevClose) / prevClose) * 100;
-      }
+      const q = polyQuote.results[0]; spot = q.c || q.vw || 0; changePct = q.changePerc || 0;
+      if (!changePct && q.prevClose > 0) changePct = ((spot - q.prevClose) / q.prevClose) * 100;
     }
     if (spot <= 0) continue;
-
     const chain = await fetchPoly("chain", ticker);
     if (!chain || !chain.results || chain.results.length < 5) continue;
-
     const now = new Date();
     const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
     const todayDate = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
     const contracts = chain.results.filter(c => c.details && c.greeks && c.details.expiration_date);
-
-    // ═══ SIGNAL 1: Classic OTM divergence (puts up / shares up, calls up / shares down)
     if (Math.abs(changePct) >= 0.15) {
-      const otmContracts = contracts.filter(c => {
-        const exp = c.details.expiration_date;
-        if (!exp) return false;
-        const [ey, em, ed] = exp.split("-").map(Number);
-        const dte = Math.round((new Date(ey, em - 1, ed) - todayDate) / 864e5);
-        if (dte < 14 || dte > 75) return false;
-        const strike = c.details.strike_price;
-        const otm = Math.abs(strike - spot) / spot;
-        if (otm < 0.02 || otm > 0.20) return false;
-        const isCall = c.details.contract_type === "call";
-        if (isCall && strike <= spot) return false;
-        if (!isCall && strike >= spot) return false;
-        return true;
-      });
-
-      if (otmContracts.length >= 2) {
-        const sharesUp = changePct > 0.15;
-        const targetType = sharesUp ? "put" : "call";
-        const targetContracts = otmContracts.filter(c => c.details.contract_type === targetType);
-
-        if (targetContracts.length >= 1) {
-          const ivValues = targetContracts.map(c => c.implied_volatility || 0).filter(v => v > 0);
-          if (ivValues.length >= 1) {
-            const avgIV = ivValues.reduce((s, v) => s + v, 0) / ivValues.length;
-            const volValues = targetContracts.map(c => (c.day && c.day.volume) || 0);
-            const oiValues = targetContracts.map(c => c.open_interest || 0);
-            const totalVol = volValues.reduce((s, v) => s + v, 0);
-            const totalOI = oiValues.reduce((s, v) => s + v, 0);
-            const volOIRatio = totalOI > 0 ? totalVol / totalOI : 0;
-
-            if ((totalVol >= 50 || volOIRatio >= 0.3) && avgIV >= 0.10) {
-              const topContract = targetContracts.sort((a, b) => ((b.day && b.day.volume) || 0) - ((a.day && a.day.volume) || 0))[0];
-              const topStrike = topContract.details.strike_price;
-              const topDelta = topContract.greeks.delta || 0;
-              const topDte = Math.floor((new Date(topContract.details.expiration_date) - now) / 864e5);
-              const otmPct = Math.abs(topStrike - spot) / spot * 100;
-              const ivSorted = [...ivValues].sort((a, b) => a - b);
-              const p75 = ivSorted[Math.floor(ivSorted.length * 0.5)] || avgIV;
-              const elevated = ivValues.filter(v => v >= p75 * 0.9).length;
-              const isPutDiv = targetType === "put";
-              const ivPct = avgIV * 100;
-              const severity = Math.min(100, Math.round(
-                (ivPct > 50 ? 25 : ivPct > 35 ? 15 : 5) +
-                (volOIRatio > 3 ? 25 : volOIRatio > 2 ? 15 : 5) +
-                (totalVol > 2000 ? 20 : totalVol > 500 ? 10 : 5) +
-                (elevated / targetContracts.length > 0.7 ? 20 : 10) +
-                (Math.abs(changePct) > 2 ? 10 : 5)
-              ));
-              results.push({
-                ticker, spot, shareChg: changePct, isPutDiv,
-                divType: "otm",
-                type: isPutDiv ? "Puts up / shares up" : "Calls up / shares down",
-                signal: isPutDiv ? "Informed downside positioning into strength" : "Informed upside positioning into weakness",
-                strike: topStrike, dte: topDte, otmPct,
-                ivJump: ivPct, priorIV: ivPct * 0.75, currentIV: ivPct,
-                optPriceChg: volOIRatio * 20,
-                volume: totalVol, avgOI: totalOI, volOIRatio,
-                delta: topDelta, eqShares: Math.abs(topDelta) * totalVol * 100,
-                chainStrikesElevated: elevated, chainTotalStrikes: targetContracts.length,
-                severity, at: assetType(ticker), _live: true,
-              });
+      const otm = contracts.filter(c => { const exp = c.details.expiration_date; if(!exp) return false; const [ey,em,ed]=exp.split("-").map(Number); const dte=Math.round((new Date(ey,em-1,ed)-todayDate)/864e5); if(dte<14||dte>75) return false; const otmPct=Math.abs(c.details.strike_price-spot)/spot; if(otmPct<0.02||otmPct>0.20) return false; const isC=c.details.contract_type==="call"; return isC ? c.details.strike_price>spot : c.details.strike_price<spot; });
+      if (otm.length>=2) {
+        const tType = changePct > 0.15 ? "put" : "call";
+        const tContracts = otm.filter(c => c.details.contract_type === tType);
+        if (tContracts.length >= 1) {
+          const ivs = tContracts.map(c => c.implied_volatility||0).filter(v => v > 0);
+          if (ivs.length >= 1) {
+            const avgIV = ivs.reduce((s,v)=>s+v,0)/ivs.length;
+            const tVol = tContracts.reduce((s,c)=>s+((c.day&&c.day.volume)||0),0);
+            const tOI = tContracts.reduce((s,c)=>s+(c.open_interest||0),0);
+            const voiR = tOI > 0 ? tVol/tOI : 0;
+            if ((tVol >= 50 || voiR >= 0.3) && avgIV >= 0.10) {
+              const isPut = tType === "put";
+              const sev = Math.min(100, Math.round((avgIV*100 > 50 ? 25 : 15) + (voiR > 3 ? 25 : 5) + (tVol > 2000 ? 20 : 5) + 10));
+              results.push({ ticker, spot, shareChg: changePct, isPutDiv: isPut, divType: "otm", type: isPut ? "Puts up / shares up" : "Calls up / shares down", signal: isPut ? "Informed downside into strength" : "Informed upside into weakness", severity: sev, ivJump: avgIV*100, currentIV: avgIV*100, priorIV: avgIV*75, volume: tVol, avgOI: tOI, volOIRatio: voiR, chainStrikesElevated: ivs.length, chainTotalStrikes: tContracts.length, at: assetType(ticker), _live: true });
             }
           }
         }
       }
     }
-
-    // ═══ SIGNAL 2: Spot-up / Vol-up (FOMO call chasing — Bloomberg "spot-up/vol-up" correlation)
-    // Normally spot up → IV down. When both rise, retail/momentum traders are chasing upside
-    // through long calls, bidding up premiums. This historically marks speculative excess
-    // and precedes sharp reversals. The Bloomberg chart tracks this as 1M realized correlation
-    // between NDX spot and 1M 25Δ call IV.
-    //
-    // We detect it per-stock: shares up AND ATM/OTM call IV elevated AND call volume dominance.
-    // Inverse: spot-down / vol-down = complacency into weakness (IV should spike but isn't).
     if (Math.abs(changePct) >= 0.3) {
-      // Get near-term ATM contracts (14-60 DTE, delta 0.25-0.75) to measure aggregate IV
-      const nearATM = contracts.filter(c => {
-        if (!c.implied_volatility || c.implied_volatility <= 0) return false;
-        const exp = c.details.expiration_date;
-        if (!exp) return false;
-        const [ey, em, ed] = exp.split("-").map(Number);
-        const dte = Math.round((new Date(ey, em - 1, ed) - todayDate) / 864e5);
-        if (dte < 7 || dte > 60) return false;
-        const absDelta = Math.abs(c.greeks.delta || 0);
-        return absDelta >= 0.15 && absDelta <= 0.85;
-      });
-
+      const nearATM = contracts.filter(c => { if (!c.implied_volatility || c.implied_volatility <= 0) return false; const [ey,em,ed]=c.details.expiration_date.split("-").map(Number); const dte=Math.round((new Date(ey,em-1,ed)-todayDate)/864e5); return dte>=7&&dte<=60&&Math.abs(c.greeks.delta||0)>=0.15&&Math.abs(c.greeks.delta||0)<=0.85; });
       if (nearATM.length >= 4) {
-        // Separate calls and puts
-        const nearCalls = nearATM.filter(c => c.details.contract_type === "call");
-        const nearPuts = nearATM.filter(c => c.details.contract_type === "put");
-
-        const callIVs = nearCalls.map(c => c.implied_volatility).filter(v => v > 0);
-        const putIVs = nearPuts.map(c => c.implied_volatility).filter(v => v > 0);
-        const avgCallIV = callIVs.length > 0 ? callIVs.reduce((s, v) => s + v, 0) / callIVs.length * 100 : 0;
-        const avgPutIV = putIVs.length > 0 ? putIVs.reduce((s, v) => s + v, 0) / putIVs.length * 100 : 0;
-
-        // Call volume vs put volume in the near-term
-        const callVol = nearCalls.reduce((s, c) => s + ((c.day && c.day.volume) || 0), 0);
-        const putVol = nearPuts.reduce((s, c) => s + ((c.day && c.day.volume) || 0), 0);
-        const totalNearVol = callVol + putVol;
-        const callDominance = totalNearVol > 0 ? callVol / totalNearVol : 0.5;
-
-        // 25-delta call IV specifically (the metric Bloomberg tracks)
-        const calls25d = nearCalls.filter(c => c.greeks.delta >= 0.18 && c.greeks.delta <= 0.35);
-        const avg25dCallIV = calls25d.length > 0
-          ? calls25d.reduce((s, c) => s + c.implied_volatility, 0) / calls25d.length * 100
-          : avgCallIV;
-
-        const spotUp = changePct > 0.3;
-        const spotDown = changePct < -0.3;
-
-        // Spot-up / Vol-up: shares rising AND call IV elevated (> put IV or high absolutely)
-        // Key signal: call IV > put IV is abnormal (puts normally trade richer)
-        // OR: call IV is elevated absolutely (> 30% for most stocks)
-        const callIVRicher = avgCallIV > avgPutIV && avgPutIV > 0;
-        const callIVElevated = avg25dCallIV > 25; // 25%+ is notable
-        const callChasing = callDominance > 0.60; // calls > 60% of volume
-
-        if (spotUp && (callIVRicher || (callIVElevated && callChasing))) {
-          const riskRevSpread = avgCallIV - avgPutIV;
-          // Severity: how extreme is the spot-up/vol-up
-          const severity = Math.min(100, Math.round(
-            (callIVRicher ? 25 : 0) +
-            (riskRevSpread > 3 ? 20 : riskRevSpread > 1 ? 10 : 0) +
-            (avg25dCallIV > 50 ? 20 : avg25dCallIV > 35 ? 12 : avg25dCallIV > 25 ? 5 : 0) +
-            (callDominance > 0.75 ? 20 : callDominance > 0.65 ? 12 : callDominance > 0.55 ? 5 : 0) +
-            (changePct > 3 ? 15 : changePct > 1.5 ? 10 : 5)
-          ));
-
-          // Don't duplicate if already flagged by Signal 1
-          const alreadyFlagged = results.find(r => r.ticker === ticker);
-          if (!alreadyFlagged && severity >= 25) {
-            results.push({
-              ticker, spot, shareChg: changePct, isPutDiv: false,
-              divType: "spotUpVolUp",
-              type: "Spot up / vol up",
-              signal: "Speculative call chasing — FOMO driving IV higher into rally",
-              callIV: avg25dCallIV, putIV: avgPutIV, callIVRicher, riskRevSpread,
-              callDominance: Math.round(callDominance * 100),
-              callVol, putVol, totalVol: totalNearVol,
-              ivJump: avg25dCallIV, currentIV: avg25dCallIV, priorIV: avg25dCallIV * 0.85,
-              chainStrikesElevated: callIVRicher ? calls25d.length : 0,
-              chainTotalStrikes: nearCalls.length,
-              severity, at: assetType(ticker), _live: true,
-            });
-          }
+        const nC = nearATM.filter(c => c.details.contract_type === "call");
+        const nP = nearATM.filter(c => c.details.contract_type === "put");
+        const aCIV = nC.length>0 ? nC.reduce((s,c)=>s+c.implied_volatility,0)/nC.length*100 : 0;
+        const aPIV = nP.length>0 ? nP.reduce((s,c)=>s+c.implied_volatility,0)/nP.length*100 : 0;
+        const cVol = nC.reduce((s,c)=>s+((c.day&&c.day.volume)||0),0);
+        const pVol = nP.reduce((s,c)=>s+((c.day&&c.day.volume)||0),0);
+        const tNV = cVol+pVol; const cDom = tNV>0?cVol/tNV:0.5;
+        const cIVR = aCIV > aPIV && aPIV > 0;
+        if (changePct>0.3 && (cIVR || (aCIV>25 && cDom>0.60))) {
+          const sev = Math.min(100, Math.round((cIVR?25:0)+(aCIV>50?20:aCIV>35?12:5)+(cDom>0.75?20:5)+(changePct>3?15:5)));
+          if (!results.find(r=>r.ticker===ticker) && sev>=25) results.push({ ticker, spot, shareChg: changePct, isPutDiv: false, divType: "spotUpVolUp", type: "Spot up / vol up", signal: "Speculative call chasing", callIV: aCIV, putIV: aPIV, callIVRicher: cIVR, callDominance: Math.round(cDom*100), severity: sev, ivJump: aCIV, currentIV: aCIV, priorIV: aCIV*0.85, chainStrikesElevated: 0, chainTotalStrikes: nC.length, at: assetType(ticker), _live: true });
         }
-
-        // Spot-down / Vol-down: shares falling but IV compressing (complacency)
-        // Normally shares down → put IV spikes. If it doesn't, the market is mispricing risk.
-        if (spotDown && avgPutIV > 0 && avgPutIV < 25 && !callIVRicher) {
-          const severity = Math.min(100, Math.round(
-            (avgPutIV < 15 ? 25 : avgPutIV < 20 ? 15 : 5) +
-            (Math.abs(changePct) > 3 ? 20 : Math.abs(changePct) > 1.5 ? 12 : 5) +
-            (callDominance < 0.35 ? 10 : 0) +
-            15 // base for this rare signal
-          ));
-          const alreadyFlagged = results.find(r => r.ticker === ticker);
-          if (!alreadyFlagged && severity >= 30) {
-            results.push({
-              ticker, spot, shareChg: changePct, isPutDiv: true,
-              divType: "spotDownVolDown",
-              type: "Spot down / vol down",
-              signal: "IV compressed into selloff — complacency or informed bottom",
-              callIV: avgCallIV, putIV: avgPutIV,
-              ivJump: avgPutIV, currentIV: avgPutIV, priorIV: avgPutIV * 1.15,
-              chainStrikesElevated: 0, chainTotalStrikes: nearPuts.length,
-              callDominance: Math.round(callDominance * 100),
-              callVol, putVol, totalVol: totalNearVol,
-              severity, at: assetType(ticker), _live: true,
-            });
-          }
+        if (changePct<-0.3 && aPIV>0 && aPIV<25 && !cIVR) {
+          const sev = Math.min(100, Math.round((aPIV<15?25:5)+(Math.abs(changePct)>3?20:5)+15));
+          if (!results.find(r=>r.ticker===ticker) && sev>=30) results.push({ ticker, spot, shareChg: changePct, isPutDiv: true, divType: "spotDownVolDown", type: "Spot down / vol down", signal: "IV compressed into selloff", callIV: aCIV, putIV: aPIV, severity: sev, ivJump: aPIV, currentIV: aPIV, priorIV: aPIV*1.15, chainStrikesElevated: 0, chainTotalStrikes: nP.length, at: assetType(ticker), _live: true });
         }
       }
     }
@@ -640,114 +424,42 @@ async function fetchVolDivergencesLive(watchlist) {
   return results.sort((a, b) => b.severity - a.severity);
 }
 
-// Fetch live data for a single ticker — all from Polygon
 async function fetchTickerLive(ticker, idx) {
   const base = emptyTicker(ticker);
-
-  // Step 1: Get spot price from Polygon snapshot (real-time with stock feed, or 15-min delayed)
   const polyQuote = await fetchPoly("quote", ticker);
-  let spotPrice = 0;
-  let equityVol = 0;
-  let prevClose = 0;
-  let changePerc = 0;
+  let spotPrice = 0, equityVol = 0, prevClose = 0, changePerc = 0;
   if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
-    const q = polyQuote.results[0];
-    spotPrice = q.c || q.vw || 0;
-    equityVol = q.v || 0;
-    prevClose = q.prevClose || 0;
-    changePerc = q.changePerc || 0;
+    const q = polyQuote.results[0]; spotPrice = q.c||q.vw||0; equityVol = q.v||0; prevClose = q.prevClose||0; changePerc = q.changePerc||0;
   }
-  if (spotPrice <= 0) {
-    base._error = "no quote";
-    return base;
-  }
-
-  // Step 2: Fetch chain filtered around the spot price
-  // SPY/QQQ/IWM have strikes at every $1 — use tighter range to avoid pagination issues
+  if (spotPrice <= 0) { base._error = "no quote"; return base; }
   const tightRange = ["SPY","QQQ","IWM","DIA","SPX","NDX"].includes(ticker);
-  const rangeParam = tightRange ? `chain&spot=${spotPrice}&range=tight` : `chain&spot=${spotPrice}`;
-  const chain = await fetchPoly(rangeParam, ticker);
-
-  // Step 3: Use Polygon snapshot price directly — real-time with stock feed subscription
-  base.spot = spotPrice;
-  base.equityVolume = equityVol;
-  base.prevClose = prevClose;
-  base.changePerc = changePerc;
-  base._live = true;
-  base._priceSource = polyQuote.priceSource || "snapshot";
-
-  let d = computeFromChain(base, chain);
-  return d;
+  const chain = await fetchPoly(tightRange ? "chain&spot=" + spotPrice + "&range=tight" : "chain&spot=" + spotPrice, ticker);
+  base.spot = spotPrice; base.equityVolume = equityVol; base.prevClose = prevClose; base.changePerc = changePerc; base._live = true;
+  base._priceSource = (polyQuote && polyQuote.priceSource) || "snapshot";
+  return computeFromChain(base, chain);
 }
 
-
-const DEFAULT_WATCHLIST = [
-  "SPY","QQQ","IWM","AAPL","MSFT","NVDA","TSLA","META","AMZN","GOOGL",
-  "AMD","NFLX","JPM","GS","XLF","XLK","XLE","COIN","GME","MARA",
-  "SMCI","ARM","PLTR","SOFI","RIVN"
-];
-const KNOWN = [
-  ...DEFAULT_WATCHLIST,"GOOG","INTC","MU","AVGO","QCOM","CRM","ORCL","ADBE",
-  "PYPL","SQ","SHOP","SNAP","UBER","LYFT","RBLX","DIS","BA","CAT","DE","XOM",
-  "CVX","COP","OXY","WMT","TGT","COST","HD","LOW","V","MA","UNH","JNJ","PFE",
-  "MRNA","LLY","ABBV","SPX","NDX","RUT","DIA","XLB","XLC","XLI","XLP","XLRE",
-  "XLU","XLV","XLY","ARKK","SOXL","TQQQ","SQQQ","UVXY","TLT","HYG","GLD",
-  "SLV","USO","MSTR","RIOT","HOOD","AFRM","LCID","NIO","F","GM","BABA","ROKU"
-];
+const DEFAULT_WATCHLIST = ["SPY","QQQ","IWM","AAPL","MSFT","NVDA","TSLA","META","AMZN","GOOGL","AMD","NFLX","JPM","GS","XLF","XLK","XLE","COIN","GME","MARA","SMCI","ARM","PLTR","SOFI","RIVN"];
+const KNOWN = [...DEFAULT_WATCHLIST,"GOOG","INTC","MU","AVGO","QCOM","CRM","ORCL","ADBE","PYPL","SQ","SHOP","SNAP","UBER","LYFT","RBLX","DIS","BA","CAT","DE","XOM","CVX","COP","OXY","WMT","TGT","COST","HD","LOW","V","MA","UNH","JNJ","PFE","MRNA","LLY","ABBV","SPX","NDX","RUT","DIA","XLB","XLC","XLI","XLP","XLRE","XLU","XLV","XLY","ARKK","SOXL","TQQQ","SQQQ","UVXY","TLT","HYG","GLD","SLV","USO","MSTR","RIOT","HOOD","AFRM","LCID","NIO","F","GM","BABA","ROKU","NBIS","SMH"];
 const OPEX = ["2026-01-16","2026-02-20","2026-03-20","2026-04-17","2026-05-15","2026-06-19","2026-07-17","2026-08-21","2026-09-18","2026-10-16","2026-11-20","2026-12-18"];
 
-const fmtS = n => { const a = Math.abs(Math.round(n)); return a >= 1e6 ? `${Math.round(a/1e6)}M shs` : a >= 1e3 ? `${Math.round(a/1e3)}K shs` : `${a} shs`; };
-const fmtEq = n => ({ dir: n >= 0 ? "B" : "S", label: `${n >= 0 ? "B" : "S"} ${fmtS(n)}` });
-const fmtD = n => { const a = Math.abs(n); const s = n < 0 ? "-" : ""; return a >= 1e9 ? `${s}$${(a/1e9).toFixed(1)}B` : a >= 1e6 ? `${s}$${(a/1e6).toFixed(0)}M` : a >= 1e3 ? `${s}$${(a/1e3).toFixed(0)}K` : `${s}$${a.toFixed(0)}`; };
-const fmtPct = n => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
-const fmtP = n => `$${n.toFixed(2)}`;
+const fmtS = n => { const a = Math.abs(Math.round(n)); return a >= 1e6 ? Math.round(a/1e6) + "M shs" : a >= 1e3 ? Math.round(a/1e3) + "K shs" : a + " shs"; };
+const fmtEq = n => ({ dir: n >= 0 ? "B" : "S", label: (n >= 0 ? "B " : "S ") + fmtS(n) });
+const fmtD = n => { const a = Math.abs(n); const s = n < 0 ? "-" : ""; return a >= 1e9 ? s + "$" + (a/1e9).toFixed(1) + "B" : a >= 1e6 ? s + "$" + (a/1e6).toFixed(0) + "M" : a >= 1e3 ? s + "$" + (a/1e3).toFixed(0) + "K" : s + "$" + a.toFixed(0); };
+const fmtPct = n => (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
+const fmtP = n => "$" + n.toFixed(2);
 
 function assetType(t) {
   if (["SPX","NDX","RUT","VIX"].includes(t)) return "Index";
-  if (["SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLB","XLC","XLI","XLP","XLRE","XLU","XLV","XLY","ARKK","SOXL","TQQQ","SQQQ","UVXY","TLT","HYG","GLD","SLV","USO"].includes(t)) return "ETF";
+  if (["SPY","QQQ","IWM","DIA","XLF","XLK","XLE","XLB","XLC","XLI","XLP","XLRE","XLU","XLV","XLY","ARKK","SOXL","TQQQ","SQQQ","UVXY","TLT","HYG","GLD","SLV","USO","SMH","RSP","XBI"].includes(t)) return "ETF";
   return "Stock";
 }
-// ADV in millions of shares — used for Options % of ADV calculation
-// Will be replaced with Polygon-sourced data in Priority 3
-
-// Approximate market caps ($B) and avg daily volume (shares M) — updated periodically
-// Used to normalize 0DTE impact: which names have the biggest gamma relative to their size
-const MCAP = {SPY:0,QQQ:0,IWM:0,AAPL:3200,MSFT:3400,NVDA:3500,TSLA:1100,META:1500,AMZN:2200,GOOGL:2100,AMD:250,NFLX:330,JPM:700,GS:180,MU:180,COIN:70,GME:12,MARA:8,SMCI:25,ARM:200,PLTR:300,SOFI:12,RIVN:15,XLF:0,XLK:0,XLE:0,AVGO:800,QCOM:180,CRM:280,BA:140,V:600,MA:430,UNH:520,LLY:750,ABBV:330};
-const ADV = {SPY:80,QQQ:50,IWM:30,AAPL:55,MSFT:25,NVDA:300,TSLA:100,META:20,AMZN:40,GOOGL:25,AMD:50,NFLX:5,JPM:10,GS:3,MU:50,COIN:15,GME:10,MARA:30,SMCI:20,ARM:8,PLTR:60,SOFI:30,RIVN:15,XLF:25,XLK:8,XLE:15,AVGO:5,QCOM:8,CRM:5,BA:8,V:7,MA:3,UNH:3,LLY:3,ABBV:5};
-
-// Compute relative 0DTE impact score
-// Combines: shares-as-%-of-ADV and shares-as-%-of-float (via mcap/price)
-function compute0dteImpact(d) {
-  const eqShares = d.zds || 0;
-  const advShares = d.equityVolume > 0 ? d.equityVolume : (ADV[d.ticker] || 10) * 1e6;
-  const mcap = (MCAP[d.ticker] || 50) * 1e9;
-  const approxFloat = mcap / Math.max(d.spot, 1);
-  const pctOfADV = (eqShares / advShares) * 100;
-  const pctOfFloat = (eqShares / Math.max(approxFloat, 1)) * 100;
-  const score = (pctOfADV * 0.7) + (pctOfFloat * 0.3 * 100);
-  return { score, pctOfADV, pctOfFloat, eqShares };
-}
+const MCAP = {SPY:0,QQQ:0,IWM:0,AAPL:3200,MSFT:3400,NVDA:3500,TSLA:1100,META:1500,AMZN:2200,GOOGL:2100,AMD:250,NFLX:330,JPM:700,GS:180,MU:180,COIN:70,GME:12,MARA:8,SMCI:25,ARM:200,PLTR:300,SOFI:12,RIVN:15};
+const ADV = {SPY:80,QQQ:50,IWM:30,AAPL:55,MSFT:25,NVDA:300,TSLA:100,META:20,AMZN:40,GOOGL:25,AMD:50,NFLX:5,JPM:10,GS:3,MU:50,COIN:15,GME:10,MARA:30,SMCI:20,ARM:8,PLTR:60,SOFI:30,RIVN:15,XLF:25,XLK:8,XLE:15};
 
 function emptyTicker(ticker) {
-  return {
-    ticker, spot: 0, netGex: 0, regime: "positive", gammaFlip: 0, flipDist: 0,
-    callWall: 0, putWall: 0, callWallConf: 0, callWallOI: 0, putWallConf: 0, putWallOI: 0,
-    maxPain: 0, dspct: 0, sq: 0, skewZ: 0, termSlope: 1, cdf: 0, pdf: 0,
-    rr25d: 0, rr25dPutIV: 0, rr25dCallIV: 0, rr25dATMIV: 0,
-    dpc: 0, nds: 0, pcp: 50, pcr: 0, iv: 0, rv: 0, vrp: 0,
-    zdg: 0, zdr: "positive", zds: 0,
-    zdteVol: 0, zdtePct: 0, zdteDpc: 0, zdteNetDelta: 0, zdteCallFlow: 0, zdtePutFlow: 0,
-    openVol: 0, openDpc: 0, openNetDelta: 0, openCallFlow: 0, openPutFlow: 0,
-    optVolRaw: 0, optVolShares: 0, optVolPctADV: 0,
-    trades: [], sweeps: [], at: assetType(ticker), _live: false,
-  };
+  return { ticker, spot: 0, netGex: 0, regime: "positive", gammaFlip: 0, flipDist: 0, hvl: 0, callWall: 0, putWall: 0, callWallConf: 0, callWallOI: 0, putWallConf: 0, putWallOI: 0, maxPain: 0, dspct: 0, sq: 0, skewZ: 0, skew25d: 0, skew25dPutIV: 0, skew25dCallIV: 0, smileRatio: 0, skewCurve: "reverse", skewCurveLabel: "", skewCurveDesc: "", nearTermSkew: 0, farTermSkew: 0, skewTermSpread: 0, zdteSkew: 0, skewSignals: [], skewGexSignal: null, termSlope: 1, rr25d: 0, rr25dPutIV: 0, rr25dCallIV: 0, cdf: 0, pdf: 0, dpc: 0, nds: 0, ndf: 0, pcp: 50, iv: 0, zdg: 0, zdr: "positive", zds: 0, zdteVol: 0, zdtePct: 0, zdteDpc: 0, zdteNetDelta: 0, zdteCallFlow: 0, zdtePutFlow: 0, openVol: 0, openDpc: 0, openNetDelta: 0, openCallFlow: 0, openPutFlow: 0, optVolRaw: 0, optVolShares: 0, optVolPctADV: 0, trades: [], at: assetType(ticker), _live: false };
 }
-
-// ─── VOL DIVERGENCE SCANNER ────────────────────────────────────────
-// Flags: OTM puts up while shares up, or OTM calls up while shares down
-// These are rare — most scans return empty. When they fire, it's the most important signal.
-// LIVE: Polygon GET /v3/snapshot/options/{underlyingAsset} → compare IV vs prior session
-// genVolDivergences removed — using fetchVolDivergencesLive instead
 
 function nextOpex() {
   const today = new Date().toISOString().slice(0, 10);
@@ -755,83 +467,83 @@ function nextOpex() {
   return { date: "2026-12-18", days: 99, hours: 0, isNear: false };
 }
 
+function exportTickerCSV(ticker, historyData, currentData) {
+  const rows = [["Date","Spot","Net GEX","Regime","Gamma Flip","Flip Dist%","Call Wall","Put Wall","Max Pain","DPC","25d Skew","Skew Z","Risk Rev","Smile Ratio","Term Slope","Squeeze","NDF","0DTE%","IV","Skew Curve","Near Skew","Far Skew","Skew Spread"]];
+  (historyData || []).forEach(p => rows.push([p.date, p.spot, p.netGex, p.regime, p.gammaFlip||"", (p.flipDist||0).toFixed(2), p.callWall||"", p.putWall||"", p.maxPain||"", (p.dpc||0).toFixed(3), (p.skew25d||0).toFixed(2), (p.skewZ||0).toFixed(2), (p.rr25d||0).toFixed(2), (p.smileRatio||0).toFixed(3), (p.termSlope||0).toFixed(3), (p.sq||0).toFixed(0), p.ndf||p.nds||"", (p.zdtePct||0).toFixed(1), (p.iv||0).toFixed(1), p.skewCurve||"", (p.nearTermSkew||0).toFixed(2), (p.farTermSkew||0).toFixed(2), (p.skewTermSpread||0).toFixed(2)]));
+  if (currentData) { const d = currentData; rows.push(["TODAY", d.spot, d.netGex, d.regime, d.gammaFlip, d.flipDist.toFixed(2), d.callWall, d.putWall, d.maxPain, d.dpc.toFixed(3), (d.skew25d||0).toFixed(2), d.skewZ.toFixed(2), d.rr25d.toFixed(2), (d.smileRatio||0).toFixed(3), d.termSlope.toFixed(3), d.sq.toFixed(0), d.ndf||d.nds, (d.zdtePct||0).toFixed(1), (d.iv||0).toFixed(1), d.skewCurve||"", (d.nearTermSkew||0).toFixed(2), (d.farTermSkew||0).toFixed(2), (d.skewTermSpread||0).toFixed(2)]); }
+  const csv = rows.map(r => r.join(",")).join("\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = ticker + "_options_data.csv"; a.click();
+}
+
 function buildSummary(d) {
-  const opex = nextOpex();
-  const lines = [];
-  let score = 0;
-  const factors = [];
+  const opex = nextOpex(); const lines = []; let score = 0; const factors = [];
   const eq = fmtEq(d.regime==="positive" ? d.dspct : -d.dspct);
-
   if (d.regime === "positive") {
-    lines.push(`${d.ticker} is in positive gamma — dealers are suppressing moves with ${eq.label} of counter-trend hedging per 1% move. Gamma flip at ${fmtP(d.gammaFlip)}, spot ${Math.abs(d.flipDist).toFixed(1)}% ${d.flipDist>0?"above":"below"}. Call wall resistance at ${fmtP(d.callWall)} (${(d.callWallConf||0).toFixed(0)}% concentration), put wall support at ${fmtP(d.putWall)} (${(d.putWallConf||0).toFixed(0)}% concentration).`);
-    score += 10;
-    factors.push({ sig: "Gamma regime", det: `Positive — ${eq.label} counter-trend per 1%`, imp: "suppressing", dir: "neutral" });
+    lines.push(d.ticker + " positive gamma — dealers suppressing with " + eq.label + " counter-trend/1%. Flip/HVL " + fmtP(d.gammaFlip) + ", spot " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + ". Walls: call " + fmtP(d.callWall) + " (" + (d.callWallConf||0).toFixed(0) + "%), put " + fmtP(d.putWall) + " (" + (d.putWallConf||0).toFixed(0) + "%).");
+    score += 10; factors.push({ sig: "Gamma regime", det: "Positive — " + eq.label + " counter-trend", imp: "suppressing", dir: "neutral" });
   } else {
-    lines.push(`${d.ticker} is in negative gamma — dealers are amplifying moves with ${eq.label} of pro-trend hedging per 1% move. Gamma flip at ${fmtP(d.gammaFlip)}, spot ${Math.abs(d.flipDist).toFixed(1)}% ${d.flipDist>0?"above":"below"}. Call wall resistance at ${fmtP(d.callWall)} (${(d.callWallConf||0).toFixed(0)}% concentration), put wall support at ${fmtP(d.putWall)} (${(d.putWallConf||0).toFixed(0)}% concentration).`);
-    score -= 15;
-    factors.push({ sig: "Gamma regime", det: `Negative — ${eq.label} pro-trend per 1%`, imp: "amplifying", dir: "bearish" });
+    lines.push(d.ticker + " negative gamma — dealers amplifying with " + eq.label + " pro-trend/1%. Flip/HVL " + fmtP(d.gammaFlip) + ", spot " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + ". Walls: call " + fmtP(d.callWall) + " (" + (d.callWallConf||0).toFixed(0) + "%), put " + fmtP(d.putWall) + " (" + (d.putWallConf||0).toFixed(0) + "%).");
+    score -= 15; factors.push({ sig: "Gamma regime", det: "Negative — " + eq.label + " pro-trend", imp: "amplifying", dir: "bearish" });
   }
-
-  if (Math.abs(d.flipDist) < 1) { score += d.flipDist<0?-15:-5; factors.push({ sig: "Flip proximity", det: `${Math.abs(d.flipDist).toFixed(1)}% from flip — regime change imminent`, imp: "critical", dir: "volatile" }); }
-
+  if (Math.abs(d.flipDist) < 1) { score += d.flipDist<0?-15:-5; factors.push({ sig: "Flip proximity", det: Math.abs(d.flipDist).toFixed(1) + "% from flip — regime change imminent", imp: "critical", dir: "volatile" }); }
   const p2 = [];
-  if (d.dpc > 1.5) { p2.push(`delta-weighted P/C at ${d.dpc.toFixed(2)} (${d.pcp}th pct) with net ${fmtEq(-Math.abs(d.nds)).label} bearish flow`); score -= 15; factors.push({ sig: "Delta-weighted P/C", det: `${d.dpc.toFixed(2)} (${d.pcp}th pct) — ${fmtEq(-Math.abs(d.nds)).label} bearish`, imp: "bearish", dir: "bearish" }); }
-  else if (d.dpc < 0.6) { p2.push(`delta-weighted P/C at ${d.dpc.toFixed(2)} (${d.pcp}th pct) with net ${fmtEq(Math.abs(d.nds)).label} bullish flow`); score += 15; factors.push({ sig: "Delta-weighted P/C", det: `${d.dpc.toFixed(2)} (${d.pcp}th pct) — ${fmtEq(Math.abs(d.nds)).label} bullish`, imp: "bullish", dir: "bullish" }); }
-  else { p2.push(`delta-weighted P/C at ${d.dpc.toFixed(2)} (balanced)`); factors.push({ sig: "Delta-weighted P/C", det: `${d.dpc.toFixed(2)} (${d.pcp}th pct) — balanced`, imp: "neutral", dir: "neutral" }); }
-  if (Math.abs(d.skewZ) > 2) { const sk = d.skewZ>0?"bearish":"bullish"; p2.push(`skew at ${d.skewZ.toFixed(1)}σ (${sk} outlier)`); score += d.skewZ>0?-10:10; factors.push({ sig: "Skew outlier", det: `${d.skewZ.toFixed(1)}σ — ${sk==="bearish"?"heavy put skew":"call skew elevated"}`, imp: "outlier", dir: sk }); }
-  if (d.sq > 60) { const sd = d.regime==="negative"?"downside":"upside"; p2.push(`squeeze score ${Math.round(d.sq)} (${sd} setup)`); score += d.regime==="negative"?-15:15; factors.push({ sig: "Squeeze", det: `Score ${Math.round(d.sq)} — ${sd} squeeze`, imp: "high", dir: d.regime==="negative"?"bearish":"bullish" }); }
+  if (d.dpc > 1.5) { p2.push("P/C " + d.dpc.toFixed(2) + " (" + d.pcp + "th) bearish"); score -= 15; factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " (" + d.pcp + "th pct) bearish", imp: "bearish", dir: "bearish" }); }
+  else if (d.dpc < 0.6) { p2.push("P/C " + d.dpc.toFixed(2) + " (" + d.pcp + "th) bullish"); score += 15; factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " (" + d.pcp + "th pct) bullish", imp: "bullish", dir: "bullish" }); }
+  else { factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " balanced", imp: "neutral", dir: "neutral" }); }
+  if (Math.abs(d.skewZ) > 2) { const sk = d.skewZ>0?"bearish":"bullish"; p2.push("skew " + d.skewZ.toFixed(1) + "σ (" + sk + ")"); score += d.skewZ>0?-10:10; factors.push({ sig: "Skew outlier", det: d.skewZ.toFixed(1) + "σ " + sk, imp: "outlier", dir: sk }); }
+  if (d.sq > 60) { score += d.regime==="negative"?-15:15; factors.push({ sig: "Squeeze", det: "Score " + Math.round(d.sq), imp: "high", dir: d.regime==="negative"?"bearish":"bullish" }); }
   if (p2.length) lines.push(p2.join(", ") + ".");
 
-  if (Math.abs(d.pcr) > 50000) { const a = d.pcr<0?"bearish":"bullish"; score += d.pcr>0?5:-5; factors.push({ sig: "P/C momentum", det: `${a} — ${fmtEq(d.pcr).label} daily shift`, imp: a, dir: a }); }
-  if (Math.abs(d.zdg) > 5e8) { const zs = d.zdr==="negative"?-d.zds:d.zds; score += d.zdr==="negative"?-10:5; factors.push({ sig: "0DTE gamma", det: `${d.zdr} — ${fmtEq(zs).label} expiring`, imp: d.zdr==="negative"?"amplifying":"suppressing", dir: d.zdr==="negative"?"volatile":"neutral" }); }
+  if (d.skewGexSignal) { factors.push({ sig: "Skew × GEX", det: d.skewGexSignal.label, imp: d.skewGexSignal.type==="vulnerable"?"bearish":"neutral", dir: d.skewGexSignal.type==="vulnerable"?"bearish":"neutral" }); if (d.skewGexSignal.type==="vulnerable") score -= 10; if (d.skewGexSignal.type==="squeeze") score += 10; }
+  if (d.skewSignals.length > 0) { factors.push({ sig: "Skew signal", det: d.skewSignals[0].label, imp: d.skewSignals[0].severity==="high"?"critical":"neutral", dir: d.skewSignals[0].type==="steepening"?"bearish":"neutral" }); if (d.skewSignals[0].type==="steepening") score -= 8; }
+
+  if (Math.abs(d.zdg) > 5e8) { const zs = d.zdr==="negative"?-d.zds:d.zds; score += d.zdr==="negative"?-10:5; factors.push({ sig: "0DTE gamma", det: d.zdr + " — " + fmtEq(zs).label + " expiring", imp: d.zdr==="negative"?"amplifying":"suppressing", dir: d.zdr==="negative"?"volatile":"neutral" }); }
   const bigT = d.trades.filter(t => Math.abs(t.eqShares)>30000);
-  if (bigT.length) { const net = bigT.reduce((s,t) => s+(t.side==="bought"?Math.abs(t.eqShares):-Math.abs(t.eqShares)),0); score += net>0?8:-8; factors.push({ sig: "Sweeps", det: `${bigT.length} prints, net ${fmtEq(net).label}`, imp: net>0?"bullish":"bearish", dir: net>0?"bullish":"bearish" }); }
+  if (bigT.length) { const net = bigT.reduce((s,t)=>s+(t.side==="bought"?Math.abs(t.eqShares):-Math.abs(t.eqShares)),0); score += net>0?8:-8; factors.push({ sig: "Sweeps", det: bigT.length + " prints, net " + fmtEq(net).label, imp: net>0?"bullish":"bearish", dir: net>0?"bullish":"bearish" }); }
   const pd = ((d.maxPain-d.spot)/d.spot)*100;
-  if (Math.abs(pd) > 1) { score += pd>0?5:-5; factors.push({ sig: "Max pain", det: `Pin ${fmtP(d.maxPain)} (${pd>0?"+":""}${pd.toFixed(1)}%) — pull ${pd>0?"up":"down"} into OPEX`, imp: "pin", dir: pd>0?"bullish":"bearish" }); }
-  if (d.vrp > 10) factors.push({ sig: "VRP", det: `+${d.vrp.toFixed(0)}pts — options expensive`, imp: "elevated", dir: "neutral" });
-  else if (d.vrp < -5) factors.push({ sig: "VRP", det: `${d.vrp.toFixed(0)}pts — options cheap`, imp: "compressed", dir: "volatile" });
+  if (Math.abs(pd) > 1) { score += pd>0?5:-5; factors.push({ sig: "Max pain", det: "Pin " + fmtP(d.maxPain) + " (" + (pd>0?"+":"") + pd.toFixed(1) + "%)", imp: "pin", dir: pd>0?"bullish":"bearish" }); }
 
-  const p3 = [];
-  if (Math.abs(d.zdg)>5e8) p3.push(`0DTE ${d.zdr} gamma (${fmtEq(d.zdr==="negative"?-d.zds:d.zds).label} expiring)`);
-  if (opex.isNear) p3.push(`OPEX in ${opex.days}d ${opex.hours}h — gamma amplified`);
-  if (bigT.length) { const net = bigT.reduce((s,t) => s+(t.side==="bought"?Math.abs(t.eqShares):-Math.abs(t.eqShares)),0); p3.push(`${bigT.length} sweep${bigT.length>1?"s":""} (net ${fmtEq(net).label})`); }
-  if (p3.length) lines.push(p3.join("; ") + ".");
-
-  // Time-aware verdict: "into tomorrow" only after market close (4pm ET)
   const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const hoursET = nowET.getHours() + nowET.getMinutes() / 60;
-  const isAfterClose = hoursET >= 16 || nowET.getDay() === 0 || nowET.getDay() === 6;
+  const isAfterClose = nowET.getHours() >= 16 || nowET.getDay() === 0 || nowET.getDay() === 6;
   const timeframe = isAfterClose ? "into tomorrow" : "this session";
-
   score = Math.max(-100, Math.min(100, score));
   let verdict, vc, vbg;
-  if (score > 30) { verdict = `Options positioned as bullish tailwind ${timeframe}`; vc = "#0F6E56"; vbg = "rgba(29,158,117,0.08)"; }
-  else if (score > 10) { verdict = `Mild bullish positioning bias ${timeframe}`; vc = "#1D9E75"; vbg = "rgba(29,158,117,0.05)"; }
-  else if (score > -10) { verdict = `Options positioning neutral ${timeframe}`; vc = "#888780"; vbg = "rgba(128,128,128,0.05)"; }
-  else if (score > -30) { verdict = `Mild bearish positioning pressure ${timeframe}`; vc = "#BA7517"; vbg = "rgba(186,117,23,0.06)"; }
-  else { verdict = `Options positioned as bearish headwind ${timeframe}`; vc = "#A32D2D"; vbg = "rgba(226,75,74,0.08)"; }
+  if (score > 30) { verdict = "Bullish tailwind " + timeframe; vc = "#0F6E56"; vbg = "rgba(29,158,117,0.08)"; }
+  else if (score > 10) { verdict = "Mild bullish bias " + timeframe; vc = "#1D9E75"; vbg = "rgba(29,158,117,0.05)"; }
+  else if (score > -10) { verdict = "Neutral positioning " + timeframe; vc = "#888780"; vbg = "rgba(128,128,128,0.05)"; }
+  else if (score > -30) { verdict = "Mild bearish pressure " + timeframe; vc = "#BA7517"; vbg = "rgba(186,117,23,0.06)"; }
+  else { verdict = "Bearish headwind " + timeframe; vc = "#A32D2D"; vbg = "rgba(226,75,74,0.08)"; }
   return { score, verdict, vc, vbg, lines, factors };
 }
 
+// ─── UI COMPONENTS ──────────────────────────────────────────────────
 function EqBadge({ shares, size = "sm" }) {
   const { dir, label } = fmtEq(shares); const b = dir === "B";
-  const s = { sm: { fontSize: "11px", padding: "1px 7px" }, md: { fontSize: "13px", padding: "2px 10px" }, lg: { fontSize: "16px", padding: "4px 14px", fontWeight: 500 } };
+  const s = { sm: { fontSize: "11px", padding: "1px 7px" }, md: { fontSize: "13px", padding: "2px 10px" } };
   return <span style={{ ...s[size], borderRadius: "4px", fontFamily: "'SF Mono',monospace", display: "inline-block", whiteSpace: "nowrap", background: b?"rgba(29,158,117,0.12)":"rgba(226,75,74,0.12)", color: b?"#0F6E56":"#A32D2D" }}>{label}</span>;
 }
 function Regime({ r: reg }) { const p = reg==="positive"; return <span style={{ fontSize: "11px", padding: "2px 10px", borderRadius: "999px", fontWeight: 500, background: p?"rgba(99,153,34,0.14)":"rgba(226,75,74,0.12)", color: p?"#3B6D11":"#A32D2D" }}>{reg}</span>; }
-function Metric({ label, value, sub, accent, info, snapshot, onChart }) {
-  const [open, setOpen] = useState(false);
-  return <div onClick={() => { if (info) setOpen(!open); }} style={{ background: open ? "rgba(128,128,128,0.09)" : "rgba(128,128,128,0.06)", borderRadius: "8px", padding: "10px 12px", minWidth: 0, cursor: info ? "pointer" : "default", transition: "background 0.15s", position: "relative" }}>
+function Squeeze({ score }) { const c = score>70?"#E24B4A":score>40?"#BA7517":"#1D9E75"; return <div style={{ display: "flex", alignItems: "center", gap: "8px" }}><div style={{ flex: 1, height: "6px", borderRadius: "3px", background: "rgba(74,144,217,0.12)", overflow: "hidden" }}><div style={{ width: score + "%", height: "100%", borderRadius: "3px", background: c }} /></div><span style={{ fontSize: "12px", fontWeight: 500, color: c, minWidth: "24px" }}>{Math.round(score)}</span></div>; }
+
+// Enhanced Metric: clickable name = definition, clickable value = reading interpretation, percentile badge
+function Metric({ label, value, sub, accent, info, snapshot, onChart, percentile, readingInfo }) {
+  const [openInfo, setOpenInfo] = useState(false);
+  const [openReading, setOpenReading] = useState(false);
+  return <div style={{ background: openInfo||openReading ? "rgba(128,128,128,0.09)" : "rgba(128,128,128,0.06)", borderRadius: "8px", padding: "10px 12px", minWidth: 0, transition: "background 0.15s" }}>
     <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-      <div style={{ fontSize: "10px", opacity: 0.828, marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.3px", flex: 1 }}>{label}</div>
-      {onChart && <span onClick={e => { e.stopPropagation(); onChart(); }} style={{ fontSize: "10px", opacity: 0.4, cursor: "pointer", marginBottom: "2px", padding: "0 2px" }} title="View time series">📈</span>}
-      {info && <span style={{ fontSize: "10px", opacity: open ? 0.5 : 0.25, transition: "opacity 0.15s" }}>ⓘ</span>}
+      <div onClick={() => { if (info) { setOpenInfo(!openInfo); setOpenReading(false); } }} style={{ fontSize: "10px", opacity: 0.828, marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.3px", flex: 1, cursor: info ? "pointer" : "default", borderBottom: info ? "1px dashed rgba(74,144,217,0.3)" : "none", paddingBottom: "1px" }}>{label}</div>
+      {percentile !== null && percentile !== undefined && <span style={{ fontSize: "9px", padding: "1px 5px", borderRadius: "3px", background: percentile > 85 || percentile < 15 ? "rgba(226,75,74,0.12)" : percentile > 70 || percentile < 30 ? "rgba(186,117,23,0.1)" : "rgba(128,128,128,0.08)", color: percentile > 85 || percentile < 15 ? "#A32D2D" : percentile > 70 || percentile < 30 ? "#BA7517" : "#888780", fontWeight: 500, marginBottom: "2px" }}>{percentile}th</span>}
+      {onChart && <span onClick={e => { e.stopPropagation(); onChart(); }} style={{ fontSize: "10px", opacity: 0.4, cursor: "pointer", marginBottom: "2px" }} title="View time series">📈</span>}
+      {info && <span onClick={() => { setOpenInfo(!openInfo); setOpenReading(false); }} style={{ fontSize: "10px", opacity: openInfo ? 0.5 : 0.25, cursor: "pointer" }}>ⓘ</span>}
     </div>
-    <div style={{ fontSize: "17px", fontWeight: 500, color: accent||"inherit" }}>{value}</div>
+    <div onClick={() => { if (readingInfo) { setOpenReading(!openReading); setOpenInfo(false); } }} style={{ fontSize: "17px", fontWeight: 500, color: accent||"inherit", cursor: readingInfo ? "pointer" : "default" }}>{value}</div>
     {sub && <div style={{ fontSize: "11px", opacity: 0.828, marginTop: "2px" }}>{sub}</div>}
-    {open && info && <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(74,144,217,0.12)" }}>
+    {openInfo && info && <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(74,144,217,0.12)" }}>
       <div style={{ fontSize: "12px", lineHeight: 1.55, opacity: 0.828, fontFamily: "-apple-system,sans-serif", marginBottom: snapshot ? "6px" : 0 }}>{info}</div>
       {snapshot && <div style={{ fontSize: "11px", lineHeight: 1.5, opacity: 0.82, fontFamily: "'SF Mono',monospace", background: "rgba(74,144,217,0.06)", borderRadius: "5px", padding: "6px 8px" }}>{snapshot}</div>}
+    </div>}
+    {openReading && readingInfo && <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(186,117,23,0.15)" }}>
+      <div style={{ fontSize: "12px", lineHeight: 1.55, opacity: 0.828, fontFamily: "-apple-system,sans-serif", color: "#BA7517" }}>{readingInfo}</div>
     </div>}
   </div>;
 }
@@ -839,108 +551,47 @@ function Metric({ label, value, sub, accent, info, snapshot, onChart }) {
 function TimeSeriesModal({ ticker, metric, label, unit, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    fetch(`/.netlify/functions/snapshot?ticker=${ticker}&history=true`)
-      .then(r => r.json())
-      .then(d => { setData(d.points || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [ticker]);
-
-  if (loading) return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "24px", minWidth: "320px", maxWidth: "600px", width: "90%" }} onClick={e => e.stopPropagation()}><div style={{ textAlign: "center", opacity: 0.6 }}>Loading history...</div></div></div>;
-
-  if (!data || data.length === 0) return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "24px", minWidth: "320px" }} onClick={e => e.stopPropagation()}><div style={{ textAlign: "center", opacity: 0.6 }}>No historical data yet — time series builds as daily snapshots accumulate.</div><button onClick={onClose} style={{ marginTop: "12px", background: "rgba(74,144,217,0.12)", border: "none", borderRadius: "6px", padding: "6px 16px", cursor: "pointer", display: "block", margin: "12px auto 0" }}>Close</button></div></div>;
-
+  useEffect(() => { fetch("/.netlify/functions/snapshot?ticker=" + ticker + "&history=true").then(r => r.json()).then(d => { setData(d.points || []); setLoading(false); }).catch(() => setLoading(false)); }, [ticker]);
+  if (loading) return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "24px", minWidth: "320px" }} onClick={e => e.stopPropagation()}>Loading...</div></div>;
+  if (!data || data.length === 0) return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}><div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "24px", minWidth: "320px" }} onClick={e => e.stopPropagation()}>No data yet.<button onClick={onClose} style={{ marginTop: "12px", background: "rgba(74,144,217,0.12)", border: "none", borderRadius: "6px", padding: "6px 16px", cursor: "pointer", display: "block", margin: "12px auto 0" }}>Close</button></div></div>;
   const values = data.map(d => d[metric] || 0);
-  const maxVal = Math.max(...values, 0.01);
-  const minVal = Math.min(...values, 0);
-  const range = maxVal - minVal || 1;
-  const chartW = 520, chartH = 160, padL = 45, padR = 10, padT = 10, padB = 28;
-  const plotW = chartW - padL - padR, plotH = chartH - padT - padB;
-
-  const pts = data.map((d, i) => {
-    const x = padL + (i / Math.max(data.length - 1, 1)) * plotW;
-    const y = padT + plotH - ((d[metric] || 0) - minVal) / range * plotH;
-    return { x, y, d };
-  });
-  const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
-
-  // Color zones for Options % of ADV
-  const zoneColors = metric === "optVolPctADV" ? [
-    { threshold: 20, color: "#A32D2D", label: ">20% dominant" },
-    { threshold: 10, color: "#BA7517", label: "10-20% significant" },
-    { threshold: 0, color: "#0F6E56", label: "<10% equity-driven" }
-  ] : null;
-
+  const maxV = Math.max(...values, 0.01), minV = Math.min(...values, 0), range = maxV - minV || 1;
+  const W = 520, H = 160, pL = 45, pR = 10, pT = 10, pB = 28, pW = W-pL-pR, pH = H-pT-pB;
+  const pts = data.map((d, i) => ({ x: pL + (i / Math.max(data.length-1,1)) * pW, y: pT + pH - ((d[metric]||0) - minV) / range * pH, d }));
+  const pathD = pts.map((p, i) => (i===0?"M":"L") + p.x + "," + p.y).join(" ");
   return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
     <div style={{ background: "#f0f6fb", borderRadius: "12px", padding: "20px", maxWidth: "620px", width: "92%" }} onClick={e => e.stopPropagation()}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <div>
-          <div style={{ fontSize: "14px", fontWeight: 600 }}>{ticker} — {label}</div>
-          <div style={{ fontSize: "11px", opacity: 0.6 }}>{data.length} trading days</div>
-        </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", opacity: 0.5 }}>✕</button>
-      </div>
-      <svg viewBox={`0 0 ${chartW} ${chartH}`} style={{ width: "100%", height: "auto", fontFamily: "'SF Mono', monospace" }}>
-        {/* Grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1].map(pct => {
-          const y = padT + plotH * (1 - pct);
-          const val = minVal + range * pct;
-          return <g key={pct}><line x1={padL} x2={chartW - padR} y1={y} y2={y} stroke="rgba(128,128,128,0.15)" /><text x={padL - 4} y={y + 3} textAnchor="end" fontSize="8" fill="rgba(0,0,0,0.4)">{val.toFixed(1)}{unit||""}</text></g>;
-        })}
-        {/* Zone backgrounds for ADV */}
-        {zoneColors && <>
-          {maxVal > 20 && <rect x={padL} y={padT + plotH - (maxVal - 20) / range * plotH} width={plotW} height={Math.min((maxVal - 20) / range * plotH, plotH)} fill="rgba(163,45,45,0.06)" />}
-          {maxVal > 10 && <rect x={padL} y={padT + plotH - (Math.min(maxVal, 20) - 10) / range * plotH} width={plotW} height={(Math.min(maxVal, 20) - Math.max(minVal, 10)) / range * plotH} fill="rgba(186,117,23,0.06)" />}
-        </>}
-        {/* Line */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}><div><div style={{ fontSize: "14px", fontWeight: 600 }}>{ticker} — {label}</div><div style={{ fontSize: "11px", opacity: 0.6 }}>{data.length} days</div></div><button onClick={onClose} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", opacity: 0.5 }}>✕</button></div>
+      <svg viewBox={"0 0 " + W + " " + H} style={{ width: "100%", height: "auto", fontFamily: "'SF Mono', monospace" }}>
+        {[0,0.25,0.5,0.75,1].map(pct => { const y = pT + pH*(1-pct); return <g key={pct}><line x1={pL} x2={W-pR} y1={y} y2={y} stroke="rgba(128,128,128,0.15)" /><text x={pL-4} y={y+3} textAnchor="end" fontSize="8" fill="rgba(0,0,0,0.4)">{(minV+range*pct).toFixed(1)}{unit||""}</text></g>; })}
         <path d={pathD} fill="none" stroke="#4A90D9" strokeWidth="2" />
-        {/* Dots */}
-        {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="3" fill={zoneColors ? (p.d[metric] > 20 ? "#A32D2D" : p.d[metric] > 10 ? "#BA7517" : "#0F6E56") : "#4A90D9"} stroke="#f0f6fb" strokeWidth="1.5"><title>{p.d.date}: {(p.d[metric]||0).toFixed(2)}{unit||""}</title></circle>)}
-        {/* Date labels */}
-        {pts.filter((_, i) => i === 0 || i === pts.length - 1 || i === Math.floor(pts.length / 2)).map(p => <text key={p.d.date} x={p.x} y={chartH - 4} textAnchor="middle" fontSize="8" fill="rgba(0,0,0,0.4)">{p.d.date.slice(5)}</text>)}
+        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3" fill="#4A90D9" stroke="#f0f6fb" strokeWidth="1.5"><title>{p.d.date}: {(p.d[metric]||0).toFixed(2)}</title></circle>)}
+        {pts.filter((_,i)=>i===0||i===pts.length-1||i===Math.floor(pts.length/2)).map(p=><text key={p.d.date} x={p.x} y={H-4} textAnchor="middle" fontSize="8" fill="rgba(0,0,0,0.4)">{p.d.date.slice(5)}</text>)}
       </svg>
-      {/* Legend for zones */}
-      {zoneColors && <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "8px" }}>
-        {zoneColors.map(z => <div key={z.threshold} style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", opacity: 0.7 }}><span style={{ width: "8px", height: "8px", borderRadius: "50%", background: z.color, display: "inline-block" }} />{z.label}</div>)}
-      </div>}
     </div>
   </div>;
 }
-function Squeeze({ score }) { const c = score>70?"#E24B4A":score>40?"#BA7517":"#1D9E75"; return <div style={{ display: "flex", alignItems: "center", gap: "8px" }}><div style={{ flex: 1, height: "6px", borderRadius: "3px", background: "rgba(74,144,217,0.12)", overflow: "hidden" }}><div style={{ width: `${score}%`, height: "100%", borderRadius: "3px", background: c }} /></div><span style={{ fontSize: "12px", fontWeight: 500, color: c, minWidth: "24px" }}>{Math.round(score)}</span></div>; }
 
 function SummaryMetrics({ d }) {
   const [openIdx, setOpenIdx] = useState(null);
   const metrics = [
-    { l: "Dealer flow/1%", v: <EqBadge shares={d.regime==="positive"?d.dspct:-d.dspct} size="sm"/>,
-      info: "How many equivalent shares dealers must trade per 1% move in the underlying. When gamma is positive, dealers sell into rallies and buy dips — dampening moves. When negative, they chase — amplifying moves. Larger numbers mean heavier dealer activity per move.",
-      snapshot: `Regime: ${d.regime} · Dealer flow/1%: ${fmtEq(d.regime==="positive"?d.dspct:-d.dspct).label} · Dealers ${d.regime === "positive" ? "sell rallies, buy dips (suppressing)" : "sell drops, chase rallies (amplifying)"}` },
-    { l: "Gamma flip", v: fmtP(d.gammaFlip), s: fmtPct(d.flipDist),
-      info: "The price where net dealer gamma changes from positive to negative. Above the flip, dealers suppress moves. Below the flip, dealers amplify moves. Distance from spot to flip tells you how close the market is to changing regime.",
-      snapshot: `Flip strike: ${fmtP(d.gammaFlip)} · Spot: ${fmtP(d.spot)} · Distance: ${d.flipDist >= 0 ? "+" : ""}${d.flipDist.toFixed(2)}% · ${Math.abs(d.flipDist) < 2 ? "Very close to flip — regime change risk" : Math.abs(d.flipDist) < 5 ? "Moderately close to flip" : "Comfortably in current regime"}` },
-    { l: "Squeeze", v: <Squeeze score={d.sq}/>,
-      info: "Composite squeeze score (0–100) measuring short-squeeze potential from options positioning. Combines put wall proximity, negative gamma intensity, skew, and dealer short interest. Above 70 = high squeeze risk (explosive upside). Below 30 = relaxed, no squeeze pressure.",
-      snapshot: `Squeeze score: ${Math.round(d.sq)} · ${d.sq > 70 ? "High squeeze risk — dealers short gamma, put walls close" : d.sq > 40 ? "Moderate squeeze potential — watch for catalyst" : "Low squeeze risk — positioning is relaxed"}` },
-    { l: "Δ P/C", v: d.dpc.toFixed(2), s: `${d.pcp}th pct`,
-      info: "Delta-weighted put/call ratio — measures directional conviction by weighting each contract's volume by its delta. Unlike raw P/C, this captures actual share-equivalent exposure. Below 0.7 = strong bullish flow. Above 1.3 = strong bearish flow. Percentile ranks today vs. the trailing distribution.",
-      snapshot: `Δ P/C: ${d.dpc.toFixed(2)} · Percentile: ${d.pcp}th · Call Δ flow: ${fmtEq(d.cdf).label} · Put Δ flow: ${fmtEq(d.pdf).label} · Net: ${fmtEq(d.nds).label} ${d.nds > 0 ? "bullish" : "bearish"}` },
-    { l: "0DTE", v: <><Regime r={d.zdr}/>{" "}<EqBadge shares={d.zdr==="negative"?-d.zds:d.zds} size="sm"/></>,
-      info: "Zero-days-to-expiration options activity — contracts that expire at today's close. Shows the regime (positive = dampening, negative = amplifying) and net delta-weighted flow of expiring contracts. High 0DTE activity means today's tape is driven by intraday gamma that vanishes overnight.",
-      snapshot: `0DTE regime: ${d.zdr} · Net Δ: ${fmtEq(d.zdr==="negative"?-d.zds:d.zds).label} · 0DTE vol: ${(d.zdteVol||0).toLocaleString()} contracts · ${(d.zdtePct||0).toFixed(0)}% of total volume · Call Δ: ${fmtEq(d.zdteCallFlow||0).label} · Put Δ: ${fmtEq(d.zdtePutFlow||0).label}` },
+    { l: "Dealer flow/1%", v: <EqBadge shares={d.regime==="positive"?d.dspct:-d.dspct} size="sm"/>, info: "Equivalent shares dealers trade per 1% move. Positive gamma = counter-trend. Negative = pro-trend." },
+    { l: "Flip / HVL", v: fmtP(d.gammaFlip), s: fmtPct(d.flipDist), info: "High Volatility Level — where dealer gamma changes sign. This IS the volatility regime boundary." },
+    { l: "Squeeze", v: <Squeeze score={d.sq}/>, info: "Composite score (0-100) combining negative gamma, put walls, skew, and forward skew." },
+    { l: "Δ P/C", v: d.dpc.toFixed(2), s: d.pcp + "th pct", info: "Delta-weighted put/call ratio. <0.7 = bullish. >1.3 = bearish." },
+    { l: "NDF", v: <EqBadge shares={d.ndf||d.nds||0} size="sm"/>, info: "Net Delta Flow — aggregate directional exposure from all options trades. The share-equivalent of today's directional conviction." },
   ];
   return <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: "1px", background: "rgba(74,144,217,0.06)" }}>
     {metrics.map((m, i) => {
       const isOpen = openIdx === i;
-      return <div key={i} onClick={() => setOpenIdx(isOpen ? null : i)} style={{ background: isOpen ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.7)", padding: "10px", cursor: "pointer", transition: "background 0.15s", gridColumn: isOpen ? "1 / -1" : undefined }}>
+      return <div key={i} onClick={() => setOpenIdx(isOpen ? null : i)} style={{ background: isOpen ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.7)", padding: "10px", cursor: "pointer", gridColumn: isOpen ? "1 / -1" : undefined }}>
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-          <div style={{ fontSize: "9px", textTransform: "uppercase", opacity: 0.82, letterSpacing: "0.3px", marginBottom: "3px", flex: 1, borderBottom: "1px dashed rgba(74,144,217,0.3)", paddingBottom: "1px", display: "inline" }}>{m.l}</div>
-          <span style={{ fontSize: "9px", opacity: isOpen ? 0.5 : 0.25, transition: "opacity 0.15s", marginBottom: "3px" }}>ⓘ</span>
+          <div style={{ fontSize: "9px", textTransform: "uppercase", opacity: 0.82, letterSpacing: "0.3px", marginBottom: "3px", flex: 1, borderBottom: "1px dashed rgba(74,144,217,0.3)", paddingBottom: "1px" }}>{m.l}</div>
+          <span style={{ fontSize: "9px", opacity: isOpen ? 0.5 : 0.25, marginBottom: "3px" }}>ⓘ</span>
         </div>
         <div style={{ fontSize: "13px", fontWeight: 500 }}>{m.v}</div>
-        {m.s && <div style={{ fontSize: "10px", opacity: 0.82555 }}>{m.s}</div>}
-        {isOpen && <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(74,144,217,0.12)" }}>
-          <div style={{ fontSize: "12px", lineHeight: 1.55, opacity: 0.828, fontFamily: "-apple-system,sans-serif", marginBottom: m.snapshot ? "6px" : 0 }}>{m.info}</div>
-          {m.snapshot && <div style={{ fontSize: "11px", lineHeight: 1.5, opacity: 0.82, fontFamily: "'SF Mono',monospace", background: "rgba(74,144,217,0.06)", borderRadius: "5px", padding: "6px 8px" }}>{m.snapshot}</div>}
-        </div>}
+        {m.s && <div style={{ fontSize: "10px", opacity: 0.82 }}>{m.s}</div>}
+        {isOpen && <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid rgba(74,144,217,0.12)", fontSize: "12px", lineHeight: 1.55, opacity: 0.828, fontFamily: "-apple-system,sans-serif" }}>{m.info}</div>}
       </div>;
     })}
   </div>;
@@ -950,161 +601,146 @@ function TickerSearch({ onLookup, recentLookups }) {
   const [input, setInput] = useState(""); const [sugg, setSugg] = useState([]); const [focused, setFocused] = useState(false); const ref = useRef(null);
   const handle = val => { const v = val.toUpperCase().replace(/[^A-Z.]/g,""); setInput(v); setSugg(v ? KNOWN.filter(t => t.startsWith(v)).slice(0,8) : []); };
   const go = t => { const tk = (t||input).toUpperCase().trim(); if (tk) { onLookup(tk); setInput(""); setSugg([]); ref.current?.blur(); } };
-  return (
-    <div style={{ position: "relative", marginBottom: "16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", border: focused?"1.5px solid rgba(74,144,217,0.6)":"1.5px solid rgba(128,128,128,0.2)", borderRadius: "10px", padding: "10px 16px", background: "rgba(74,144,217,0.03)" }}>
-        <span style={{ fontSize: "18px", opacity: 0.825555 }}>⌕</span>
-        <input ref={ref} value={input} onChange={e => handle(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => { setFocused(false); setSugg([]); }, 150)} onKeyDown={e => { if(e.key==="Enter")go(); if(e.key==="Escape"){setInput("");setSugg([]);ref.current?.blur();}}}
-          placeholder="Type any ticker — AAPL, SPY, TSLA, GME..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: "16px", fontFamily: "'SF Mono',monospace", fontWeight: 500, letterSpacing: "0.5px" }} />
-        {input && <button onClick={() => go()} style={{ background: "rgba(74,144,217,0.12)", border: "none", borderRadius: "6px", padding: "5px 16px", fontSize: "13px", cursor: "pointer", fontWeight: 500, color: "#2B6CB0" }}>Analyze</button>}
-      </div>
-      {sugg.length > 0 && focused && <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, marginTop: "4px", border: "1px solid rgba(74,144,217,0.15)", borderRadius: "8px", overflow: "hidden", background: "#f0f6fb" }}>
-        {sugg.map(s => <div key={s} onMouseDown={() => go(s)} style={{ padding: "8px 14px", fontSize: "14px", cursor: "pointer", fontFamily: "monospace", borderBottom: "1px solid rgba(74,144,217,0.07)" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(128,128,128,0.05)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}><span style={{ fontWeight: 500 }}>{s}</span><span style={{ opacity: 0.828, marginLeft: "8px", fontSize: "11px" }}>{assetType(s)}</span></div>)}
-      </div>}
-      {recentLookups.length > 0 && !focused && <div style={{ display: "flex", gap: "6px", marginTop: "8px", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "11px", opacity: 0.828, padding: "3px 0" }}>Recent:</span>
-        {recentLookups.map(t => <button key={t} onClick={() => go(t)} style={{ background: "rgba(74,144,217,0.06)", border: "none", borderRadius: "4px", padding: "3px 10px", fontSize: "12px", cursor: "pointer", fontFamily: "monospace", fontWeight: 500 }}>{t}</button>)}
-      </div>}
+  return <div style={{ position: "relative", marginBottom: "16px" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", border: focused?"1.5px solid rgba(74,144,217,0.6)":"1.5px solid rgba(128,128,128,0.2)", borderRadius: "10px", padding: "10px 16px", background: "rgba(74,144,217,0.03)" }}>
+      <span style={{ fontSize: "18px", opacity: 0.82 }}>⌕</span>
+      <input ref={ref} value={input} onChange={e => handle(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setTimeout(() => { setFocused(false); setSugg([]); }, 150)} onKeyDown={e => { if(e.key==="Enter")go(); if(e.key==="Escape"){setInput("");setSugg([]);ref.current?.blur();}}} placeholder="Type any ticker..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: "16px", fontFamily: "'SF Mono',monospace", fontWeight: 500 }} />
+      {input && <button onClick={() => go()} style={{ background: "rgba(74,144,217,0.12)", border: "none", borderRadius: "6px", padding: "5px 16px", fontSize: "13px", cursor: "pointer", fontWeight: 500, color: "#2B6CB0" }}>Analyze</button>}
     </div>
-  );
+    {sugg.length > 0 && focused && <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, marginTop: "4px", border: "1px solid rgba(74,144,217,0.15)", borderRadius: "8px", overflow: "hidden", background: "#f0f6fb" }}>
+      {sugg.map(s => <div key={s} onMouseDown={() => go(s)} style={{ padding: "8px 14px", fontSize: "14px", cursor: "pointer", fontFamily: "monospace", borderBottom: "1px solid rgba(74,144,217,0.07)" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(128,128,128,0.05)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}><span style={{ fontWeight: 500 }}>{s}</span> <span style={{ opacity: 0.6, fontSize: "11px" }}>{assetType(s)}</span></div>)}
+    </div>}
+    {recentLookups.length > 0 && !focused && <div style={{ display: "flex", gap: "6px", marginTop: "8px", flexWrap: "wrap" }}>
+      <span style={{ fontSize: "11px", opacity: 0.82, padding: "3px 0" }}>Recent:</span>
+      {recentLookups.map(t => <button key={t} onClick={() => go(t)} style={{ background: "rgba(74,144,217,0.06)", border: "none", borderRadius: "4px", padding: "3px 10px", fontSize: "12px", cursor: "pointer", fontFamily: "monospace", fontWeight: 500 }}>{t}</button>)}
+    </div>}
+  </div>;
 }
 
 function VerdictCard({ d, onClose }) {
   const [tsChart, setTsChart] = useState(null);
-  if (!d.spot || d.spot <= 0 || d._error) {
-    return <div style={{ border: "1px solid rgba(163,45,45,0.2)", borderRadius: "12px", padding: "20px", marginBottom: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div><span style={{ fontSize: "22px", fontWeight: 500 }}>{d.ticker}</span><span style={{ fontSize: "13px", opacity: 0.6, marginLeft: "10px" }}>{d._error || "No data available"}</span></div>
-        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", opacity: 0.5 }}>×</button>
-      </div>
-      <div style={{ fontSize: "12px", opacity: 0.6, marginTop: "8px", fontFamily: "-apple-system,sans-serif" }}>Could not retrieve quote or options chain data for this ticker. It may not be covered by your Polygon plan, or the market may be closed.</div>
-    </div>;
-  }
+  const [histData, setHistData] = useState(null);
+  useEffect(() => { if (d.ticker && d.spot > 0) fetch("/.netlify/functions/snapshot?ticker=" + d.ticker + "&history=true").then(r => r.json()).then(res => setHistData(res.points || [])).catch(() => setHistData([])); }, [d.ticker]);
+
+  const pct = useCallback((metric) => { if (!histData || histData.length < 5) return null; return histPercentile(d[metric], histData.map(p => p[metric])); }, [histData, d]);
+  const rCtx = useCallback((metric, val) => {
+    if (!histData || histData.length < 5) return null;
+    const p = pct(metric); const sim = findSimilarReadings(val, histData, metric);
+    let ctx = p !== null ? p + "th percentile over " + histData.length + " days." : "";
+    if (sim.length > 0) ctx += " Similar: " + sim.slice(0,3).map(s => s.date + " (spot " + fmtP(s.spot) + ")").join(", ");
+    return ctx || null;
+  }, [histData, pct]);
+
+  if (!d.spot || d.spot <= 0 || d._error) return <div style={{ border: "1px solid rgba(163,45,45,0.2)", borderRadius: "12px", padding: "20px", marginBottom: "16px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><div><span style={{ fontSize: "22px", fontWeight: 500 }}>{d.ticker}</span><span style={{ fontSize: "13px", opacity: 0.6, marginLeft: "10px" }}>{d._error || "No data"}</span></div><button onClick={onClose} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", opacity: 0.5 }}>×</button></div></div>;
+
   const v = useMemo(() => buildSummary(d), [d]);
   const dc = { bullish: "#0F6E56", bearish: "#A32D2D", neutral: "#888780", volatile: "#BA7517" };
-  const ib = { suppressing:"rgba(29,158,117,0.06)", amplifying:"rgba(226,75,74,0.06)", bullish:"rgba(29,158,117,0.06)", bearish:"rgba(226,75,74,0.06)", neutral:"rgba(128,128,128,0.04)", outlier:"rgba(186,117,23,0.06)", critical:"rgba(226,75,74,0.08)", high:"rgba(186,117,23,0.06)", pin:"rgba(83,74,183,0.06)", elevated:"rgba(186,117,23,0.04)", compressed:"rgba(128,128,128,0.04)" };
+  const ib = { suppressing:"rgba(29,158,117,0.06)", amplifying:"rgba(226,75,74,0.06)", bullish:"rgba(29,158,117,0.06)", bearish:"rgba(226,75,74,0.06)", neutral:"rgba(128,128,128,0.04)", outlier:"rgba(186,117,23,0.06)", critical:"rgba(226,75,74,0.08)", high:"rgba(186,117,23,0.06)", pin:"rgba(83,74,183,0.06)" };
+
   return (<>
     <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "12px", overflow: "hidden", marginBottom: "16px" }}>
+      {/* HEADER with 25Δ RR and Skew Curve promoted */}
       <div style={{ padding: "20px 20px 16px", background: v.vbg, borderBottom: "1px solid rgba(74,144,217,0.1)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px", flexWrap: "wrap" }}>
-              <span style={{ fontSize: "30px", fontWeight: 500, fontFamily: "'SF Mono',monospace", letterSpacing: "-0.5px" }}>{d.ticker}</span>
-              <span style={{ fontSize: "18px", opacity: 0.825 }}>{fmtP(d.spot)}</span>
+              <span style={{ fontSize: "30px", fontWeight: 500, fontFamily: "'SF Mono',monospace" }}>{d.ticker}</span>
+              <span style={{ fontSize: "18px", opacity: 0.82 }}>{fmtP(d.spot)}</span>
               <Regime r={d.regime} />
               <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: "rgba(74,144,217,0.08)" }}>{d.at}</span>
               {d._afterHours && <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "4px", background: "rgba(186,117,23,0.1)", color: "#BA7517", fontWeight: 500 }}>PRIOR SESSION</span>}
+              {d.rr25d !== 0 && <span style={{ fontSize: "11px", padding: "3px 10px", borderRadius: "4px", fontWeight: 500, background: d.rr25d < -8 ? "rgba(29,158,117,0.12)" : d.rr25d > -1 ? "rgba(226,75,74,0.12)" : "rgba(74,144,217,0.08)", color: d.rr25d < -8 ? "#0F6E56" : d.rr25d > -1 ? "#A32D2D" : "#2B6CB0" }}>25Δ RR: {d.rr25d > 0 ? "+" : ""}{d.rr25d.toFixed(1)}{pct("rr25d") !== null ? " · " + pct("rr25d") + "th" : ""}</span>}
+              {d.skewCurveLabel && <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "4px", fontWeight: 500, background: d.skewCurve === "forward" ? "rgba(226,75,74,0.15)" : d.skewCurve === "smile" ? "rgba(186,117,23,0.1)" : "rgba(128,128,128,0.06)", color: d.skewCurve === "forward" ? "#A32D2D" : d.skewCurve === "smile" ? "#BA7517" : "#888780", border: d.skewCurve === "forward" ? "1px solid rgba(226,75,74,0.3)" : "none" }}>{d.skewCurveLabel}</span>}
             </div>
             <div style={{ fontSize: "17px", fontWeight: 500, color: v.vc, marginBottom: "12px" }}>{v.verdict}</div>
-            <div style={{ fontSize: "13.5px", lineHeight: 1.7, opacity: 0.85, fontFamily: "-apple-system,sans-serif", maxWidth: "620px" }}>
-              {v.lines.map((l,i) => <span key={i}>{l}{i<v.lines.length-1?" ":""}</span>)}
-            </div>
+            <div style={{ fontSize: "13.5px", lineHeight: 1.7, opacity: 0.85, fontFamily: "-apple-system,sans-serif", maxWidth: "620px" }}>{v.lines.map((l,i) => <span key={i}>{l} </span>)}</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", opacity: 0.82, padding: "4px", flexShrink: 0 }}>×</button>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
+            <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", opacity: 0.82, padding: "4px" }}>×</button>
+            <button onClick={() => { if (histData) exportTickerCSV(d.ticker, histData, d); }} style={{ background: "rgba(74,144,217,0.08)", border: "none", borderRadius: "4px", padding: "3px 8px", fontSize: "10px", cursor: "pointer", color: "#2B6CB0" }} title="Download CSV">⬇ CSV</button>
+          </div>
         </div>
         <div style={{ marginTop: "16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", opacity: 0.828, textTransform: "uppercase", letterSpacing: "0.3px", marginBottom: "4px" }}><span>bearish headwind</span><span>neutral</span><span>bullish tailwind</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", opacity: 0.82, textTransform: "uppercase", marginBottom: "4px" }}><span>bearish</span><span>neutral</span><span>bullish</span></div>
           <div style={{ position: "relative", height: "8px", borderRadius: "4px", background: "linear-gradient(to right, #E24B4A, #BA7517, #888780, #1D9E75, #0F6E56)" }}>
-            <div style={{ position: "absolute", top: "-4px", left: `${(v.score+100)/2}%`, transform: "translateX(-50%)", width: "16px", height: "16px", borderRadius: "50%", background: "white", border: `3px solid ${v.vc}`, boxShadow: "0 1px 4px rgba(0,0,0,0.15)" }} />
+            <div style={{ position: "absolute", top: "-4px", left: ((v.score+100)/2) + "%", transform: "translateX(-50%)", width: "16px", height: "16px", borderRadius: "50%", background: "white", border: "3px solid " + v.vc, boxShadow: "0 1px 4px rgba(0,0,0,0.15)" }} />
           </div>
-          <div style={{ textAlign: "center", marginTop: "6px", fontSize: "12px", opacity: 0.82555 }}>Conviction: {v.score>0?"+":""}{v.score}</div>
+          <div style={{ textAlign: "center", marginTop: "6px", fontSize: "12px", opacity: 0.82 }}>Conviction: {v.score>0?"+":""}{v.score}</div>
         </div>
       </div>
+
+      {/* Skew Signals Strip (Table 5.4) */}
+      {(d.skewSignals.length > 0 || d.skewGexSignal) && <div style={{ padding: "8px 20px", background: "rgba(186,117,23,0.04)", borderBottom: "1px solid rgba(74,144,217,0.08)" }}>
+        <div style={{ fontSize: "9px", textTransform: "uppercase", opacity: 0.5, marginBottom: "4px" }}>Skew signals</div>
+        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {d.skewSignals.map((sig, i) => <span key={i} style={{ fontSize: "11px", padding: "3px 10px", borderRadius: "4px", background: sig.severity === "high" ? "rgba(226,75,74,0.1)" : "rgba(186,117,23,0.1)", color: sig.color }} title={sig.desc}>{sig.label}</span>)}
+          {d.skewGexSignal && <span style={{ fontSize: "11px", padding: "3px 10px", borderRadius: "4px", background: "rgba(74,144,217,0.08)", color: d.skewGexSignal.color, fontWeight: 500 }} title={d.skewGexSignal.desc}>{d.skewGexSignal.label}</span>}
+        </div>
+        {d.skewTermSpread > 3 && <div style={{ fontSize: "11px", marginTop: "4px", color: "#A32D2D", fontFamily: "-apple-system,sans-serif" }}>⚠ Near-term skew steepening vs long-term (+{d.skewTermSpread.toFixed(1)}pts) — risk-off signal</div>}
+      </div>}
+
       <SummaryMetrics d={d} />
-      
+
+      {/* GEX Levels */}
       <div style={{ padding: "10px 20px 14px", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "6px" }}>
-        <Metric label="Net GEX" value={fmtD(d.netGex)}
-          info="Net Gamma Exposure — the total gamma dealers hold across all strikes. When positive, dealers hedge against the trend (suppressing moves). When negative, dealers hedge with the trend (amplifying moves)."
-          snapshot={`Call gamma: ${fmtD(Math.abs(d.netGex) * (d.netGex > 0 ? 0.7 : 0.3))} · Put gamma: ${fmtD(-Math.abs(d.netGex) * (d.netGex > 0 ? 0.3 : 0.7))} · Net: ${fmtD(d.netGex)} · Regime: ${d.regime} · Dealers ${d.regime === "positive" ? "sell into rallies, buy dips" : "sell into drops, chase rallies"}`}
-          onChart={() => setTsChart({ metric: "netGex", label: "Net GEX", unit: "" })} />
-        <Metric label="Call wall" value={fmtP(d.callWall)} sub={d.callWallConf ? `${d.callWallConf.toFixed(0)}% of call OI · ${(d.callWallOI||0).toLocaleString()} contracts` : undefined} accent={d.callWallConf > 15 ? "#0F6E56" : d.callWallConf > 8 ? undefined : "#BA7517"}
-          info="The strike with the highest call open interest — acts as a resistance level. Dealers who sold these calls must sell shares as price approaches, creating overhead supply. Confidence = what % of total near-term call OI sits at this strike. Above 15% = strong wall, below 8% = diffuse, less reliable."
-          snapshot={`Highest call OI strike: ${fmtP(d.callWall)} · ${((d.callWall - d.spot) / d.spot * 100).toFixed(1)}% above spot · ${(d.callWallOI||0).toLocaleString()} contracts (${(d.callWallConf||0).toFixed(1)}% of near-term call OI) · Confidence: ${d.callWallConf > 15 ? "HIGH — concentrated, strong resistance" : d.callWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`}
-          onChart={() => setTsChart({ metric: "callWall", label: "Call Wall", unit: "" })} />
-        <Metric label="Put wall" value={fmtP(d.putWall)} sub={d.putWallConf ? `${d.putWallConf.toFixed(0)}% of put OI · ${(d.putWallOI||0).toLocaleString()} contracts` : undefined} accent={d.putWallConf > 15 ? "#0F6E56" : d.putWallConf > 8 ? undefined : "#BA7517"}
-          info="The strike with the highest put open interest — acts as a support level. Dealers who sold these puts must buy shares as price approaches, creating a floor. Confidence = what % of total near-term put OI sits at this strike. Above 15% = strong wall, below 8% = diffuse, less reliable."
-          snapshot={`Highest put OI strike: ${fmtP(d.putWall)} · ${((d.spot - d.putWall) / d.spot * 100).toFixed(1)}% below spot · ${(d.putWallOI||0).toLocaleString()} contracts (${(d.putWallConf||0).toFixed(1)}% of near-term put OI) · Confidence: ${d.putWallConf > 15 ? "HIGH — concentrated, strong support" : d.putWallConf > 8 ? "MODERATE — visible but not dominant" : "LOW — diffuse OI, wall may not hold"}`}
-          onChart={() => setTsChart({ metric: "putWall", label: "Put Wall", unit: "" })} />
-        <Metric label="Max pain" value={fmtP(d.maxPain)} sub={`${((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% from spot`}
-          info="The strike price where total option holder losses are maximized — price tends to gravitate here into expiration as dealers hedge and time decay accelerates."
-          snapshot={`Pin target: ${fmtP(d.maxPain)} · Spot ${d.maxPain > d.spot ? "below" : "above"} by ${Math.abs((d.maxPain-d.spot)/d.spot*100).toFixed(1)}% · Magnetic pull ${d.maxPain > d.spot ? "upward" : "downward"} · Effect strengthens ${nextOpex().days <= 3 ? "NOW — OPEX imminent" : `into OPEX (${nextOpex().days}d away)`}`}
-          onChart={() => setTsChart({ metric: "maxPain", label: "Max Pain", unit: "" })} />
-        <Metric label="Skew z" value={d.skewZ.toFixed(2)} accent={Math.abs(d.skewZ)>2?"#E24B4A":undefined}
-          info="25-delta risk reversal z-score — measures how expensive puts are vs calls relative to recent history. High positive = unusual put demand (fear). High negative = unusual call demand (greed)."
-          snapshot={`25Δ skew: ${d.skewZ.toFixed(2)}σ vs 30/60/90d rolling · ${Math.abs(d.skewZ) > 2 ? "OUTLIER — " : ""}${d.skewZ > 0 ? "Put protection bid elevated, downside hedging heavy" : d.skewZ < -1 ? "Call demand elevated, upside positioning aggressive" : "Balanced put/call pricing"}`}
-          onChart={() => setTsChart({ metric: "skewZ", label: "Skew Z-Score", unit: "σ" })} />
-        <Metric label="25Δ Risk Rev" value={d.rr25d !== 0 ? `${d.rr25d > 0 ? "+" : ""}${d.rr25d.toFixed(1)}` : "—"} accent={d.rr25d < -8 ? "#0F6E56" : d.rr25d > -1 ? "#A32D2D" : undefined}
-          sub={d.rr25d !== 0 ? `${d.rr25dCallIV.toFixed(0)}c / ${d.rr25dPutIV.toFixed(0)}p` : "no data"}
-          info="25-delta risk reversal: IV(25Δ call) minus IV(25Δ put). Measures relative demand for downside vs upside protection. Normally negative for equities (puts are richer). Extremes are contrarian: deeply negative readings (-8 or beyond) often mark near-term bottoms as hedging demand peaks. Less negative or positive readings often mark near-term tops. Based on Borochin & Zhao (2022): positive risk-neutral skewness predicts next-month price rebounds."
-          snapshot={`25Δ call IV: ${d.rr25dCallIV.toFixed(1)}% · 25Δ put IV: ${d.rr25dPutIV.toFixed(1)}% · Risk reversal: ${d.rr25d > 0 ? "+" : ""}${d.rr25d.toFixed(1)}pts · ${d.rr25d < -8 ? "EXTREME put skew — contrarian bullish signal, hedging demand at peak" : d.rr25d < -4 ? "Elevated put demand — downside protection being bid" : d.rr25d > -1 ? "Call skew elevated — upside speculation heavy, contrarian bearish" : "Normal put skew — structural hedging, no signal"}`}
-          onChart={() => setTsChart({ metric: "rr25d", label: "25Δ Risk Reversal", unit: "pts" })} />
-        <Metric label="Term structure" value={d.termSlope.toFixed(2)} sub={d.termSlope<0.85?"backwardation":d.termSlope>1.15?"steep contango":"normal"}
-          info="Ratio of front-month to back-month implied volatility. Below 0.85 (backwardation) signals near-term fear or an event. Above 1.15 (steep contango) signals calm now but uncertainty ahead."
-          snapshot={`Front IV / back IV: ${d.termSlope.toFixed(2)} · ${d.termSlope < 0.85 ? "Backwardation — near-term IV spiking, traders pricing imminent risk" : d.termSlope > 1.15 ? "Steep contango — near-term calm, back months pricing future risk" : "Normal contango — no unusual term structure signal"}`}
-          onChart={() => setTsChart({ metric: "termSlope", label: "Term Structure", unit: "" })} />
-        <Metric label="VRP" value={`${d.vrp.toFixed(1)}pts`} sub={`IV ${d.iv.toFixed(0)} / RV ${d.rv.toFixed(0)}`} accent={d.vrp>10?"#1D9E75":d.vrp<-5?"#E24B4A":undefined}
-          info="Volatility Risk Premium — implied vol minus realized vol. When positive, options are expensive vs actual movement (sellers favored). When negative, options are cheap (buyers favored, vol expansion likely)."
-          snapshot={`IV: ${d.iv.toFixed(1)}% · Realized vol: ${d.rv.toFixed(1)}% · Premium: ${d.vrp > 0 ? "+" : ""}${d.vrp.toFixed(1)}pts · ${d.vrp > 10 ? "Options overpriced — vol sellers have edge, crush likely" : d.vrp < -5 ? "Options underpriced — vol expansion risk, buyers have edge" : "Fair value — no clear edge either side"}`}
-          onChart={() => setTsChart({ metric: "vrp", label: "Volatility Risk Premium", unit: "pts" })} />
-        <Metric label="P/C momentum" value={<EqBadge shares={d.pcr} size="sm"/>} sub="daily shift"
-          info="Daily rate of change in the delta-weighted put/call ratio — shows whether bearish or bullish conviction is accelerating. Expressed as the equity equivalent of that shift."
-          snapshot={`Today's Δ-wtd P/C: ${d.dpc.toFixed(2)} · Daily change: ${fmtEq(d.pcr).label} · ${d.pcp}th percentile · ${Math.abs(d.pcr) > 100000 ? "Significant momentum shift — " : ""}${d.pcr < 0 ? "Bearish conviction accelerating" : d.pcr > 0 ? "Bullish conviction building" : "Flat"}`}
-          onChart={() => setTsChart({ metric: "pcr", label: "P/C Momentum", unit: "" })} />
+        <Metric label="Net GEX" value={fmtD(d.netGex)} percentile={pct("netGex")} info="Net Gamma Exposure. Positive = suppress. Negative = amplify." readingInfo={rCtx("netGex", d.netGex)} onChart={() => setTsChart({ metric: "netGex", label: "Net GEX" })} />
+        <Metric label="Call wall" value={fmtP(d.callWall)} sub={d.callWallConf ? d.callWallConf.toFixed(0) + "% OI · " + (d.callWallOI||0).toLocaleString() + " cts" : undefined} accent={d.callWallConf > 15 ? "#0F6E56" : "#BA7517"} percentile={pct("callWall")} info="Highest call OI strike — resistance." readingInfo={rCtx("callWall", d.callWall)} onChart={() => setTsChart({ metric: "callWall", label: "Call Wall" })} />
+        <Metric label="Put wall" value={fmtP(d.putWall)} sub={d.putWallConf ? d.putWallConf.toFixed(0) + "% OI · " + (d.putWallOI||0).toLocaleString() + " cts" : undefined} accent={d.putWallConf > 15 ? "#0F6E56" : "#BA7517"} percentile={pct("putWall")} info="Highest put OI strike — support." readingInfo={rCtx("putWall", d.putWall)} onChart={() => setTsChart({ metric: "putWall", label: "Put Wall" })} />
+        <Metric label="Max pain" value={fmtP(d.maxPain)} sub={((d.maxPain-d.spot)/d.spot*100).toFixed(1) + "% from spot"} percentile={pct("maxPain")} info="Strike where option holder losses are maximized. Magnetic pull into OPEX." readingInfo={rCtx("maxPain", d.maxPain)} onChart={() => setTsChart({ metric: "maxPain", label: "Max Pain" })} />
       </div>
-      <div style={{ padding: "0 20px 6px" }}>
-        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.5, letterSpacing: "0.4px", marginBottom: "6px" }}>Options flow breakdown — Total · 0DTE (expired) · Open (carries forward)</div>
+
+      {/* Skew & Vol Row — Sections 5.2-5.6 */}
+      <div style={{ padding: "0 20px 6px" }}><div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.5, marginBottom: "6px" }}>Volatility skew · §5.2-5.6</div></div>
+      <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "6px" }}>
+        <Metric label="25Δ Skew" value={d.skew25d !== undefined ? d.skew25d.toFixed(1) + "pts" : "—"} sub={d.skew25dPutIV > 0 ? "P" + d.skew25dPutIV.toFixed(0) + " / C" + d.skew25dCallIV.toFixed(0) : undefined} accent={Math.abs(d.skewZ||0)>2?"#E24B4A":undefined} percentile={pct("skew25d")} info="25Δ put IV minus call IV. The institutional standard for measuring skew." readingInfo={rCtx("skew25d", d.skew25d||0)} onChart={() => setTsChart({ metric: "skew25d", label: "25Δ Skew", unit: "pts" })} />
+        <Metric label="Smile ratio" value={d.smileRatio > 0 ? d.smileRatio.toFixed(2) : "—"} sub={d.smileRatio > 0 ? (d.smileRatio > 1.05 ? "puts richer" : d.smileRatio < 0.97 ? "calls richer ⚠" : "balanced") : undefined} accent={d.smileRatio > 0 && d.smileRatio < 0.97 ? "#E24B4A" : undefined} percentile={pct("smileRatio")} info="OTM put IV / OTM call IV at 25Δ. Rising = fear. Declining toward 1.0 = complacency. Below 1.0 = calls richer (forward skew)." readingInfo={rCtx("smileRatio", d.smileRatio||0)} onChart={() => setTsChart({ metric: "smileRatio", label: "Smile Ratio" })} />
+        <Metric label="25Δ Risk Rev" value={d.rr25d !== 0 ? (d.rr25d > 0 ? "+" : "") + d.rr25d.toFixed(1) : "—"} accent={d.rr25d < -8 ? "#0F6E56" : d.rr25d > -1 ? "#A32D2D" : undefined} sub={d.rr25d !== 0 ? d.rr25dCallIV.toFixed(0) + "c / " + d.rr25dPutIV.toFixed(0) + "p" : ""} percentile={pct("rr25d")} info="IV(25Δ call) - IV(25Δ put). Extreme negative = contrarian bullish (Borochin & Zhao). Less negative/positive = contrarian bearish." readingInfo={rCtx("rr25d", d.rr25d)} onChart={() => setTsChart({ metric: "rr25d", label: "25Δ Risk Rev", unit: "pts" })} />
+        <Metric label="Term structure" value={d.termSlope.toFixed(2)} sub={d.termSlope<0.85?"backwardation":d.termSlope>1.15?"steep contango":"normal"} percentile={pct("termSlope")} info="Front / back month IV ratio. <0.85 = near-term fear. >1.15 = future risk." readingInfo={rCtx("termSlope", d.termSlope)} onChart={() => setTsChart({ metric: "termSlope", label: "Term Slope" })} />
       </div>
+
+      {/* Skew Term Structure */}
       <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "6px" }}>
-        <Metric label="Total Δ P/C" value={d.dpc.toFixed(2)} sub={<EqBadge shares={d.nds||0} size="sm"/>}
-          info="Delta-weighted put/call ratio across ALL contracts traded today. Below 0.7 = call-dominated (bullish flow). Above 1.3 = put-dominated (bearish flow). Net Δ shows the equity equivalent of the imbalance."
-          snapshot={`Call Δ flow: ${fmtEq(d.cdf||0).label} · Put Δ flow: ${fmtEq(d.pdf||0).label} · Ratio: ${d.dpc.toFixed(2)} · Net: ${fmtEq(d.nds||0).label}`}
-          onChart={() => setTsChart({ metric: "dpc", label: "Total Δ P/C", unit: "" })} />
-        <Metric label="0DTE Δ P/C" value={(d.zdteDpc||0).toFixed(2)} sub={<><span style={{fontSize:"10px",opacity:0.5}}>{(d.zdtePct||0).toFixed(0)}% of volume · </span><EqBadge shares={d.zdteNetDelta||0} size="sm"/></>} accent={(d.zdtePct||0) > 50 ? "#A32D2D" : undefined}
-          info="Delta-weighted put/call ratio for 0DTE contracts only — these expired at today's close and no longer exist. Shows the intraday gamma story. High 0DTE % means the tape was driven by expiring options, not structural positioning."
-          snapshot={`0DTE call Δ: ${fmtEq(d.zdteCallFlow||0).label} · 0DTE put Δ: ${fmtEq(d.zdtePutFlow||0).label} · Ratio: ${(d.zdteDpc||0).toFixed(2)} · Net: ${fmtEq(d.zdteNetDelta||0).label} · 0DTE was ${(d.zdtePct||0).toFixed(0)}% of total volume`}
-          onChart={() => setTsChart({ metric: "zdteDpc", label: "0DTE Δ P/C", unit: "" })} />
-        <Metric label="Open Δ P/C" value={(d.openDpc||0).toFixed(2)} sub={<EqBadge shares={d.openNetDelta||0} size="sm"/>} accent={(d.openDpc||0) > 1.3 ? "#A32D2D" : (d.openDpc||0) < 0.7 ? "#0F6E56" : undefined}
-          info="Delta-weighted put/call ratio for non-0DTE contracts — this is the structural positioning that carries forward beyond today's session. This is the most important flow metric for next-session outlook. Below 0.7 = bullish structural positioning. Above 1.3 = bearish structural positioning."
-          snapshot={`Open call Δ: ${fmtEq(d.openCallFlow||0).label} · Open put Δ: ${fmtEq(d.openPutFlow||0).label} · Ratio: ${(d.openDpc||0).toFixed(2)} · Net: ${fmtEq(d.openNetDelta||0).label} · This positioning carries forward`}
-          onChart={() => setTsChart({ metric: "openDpc", label: "Open Δ P/C", unit: "" })} />
+        <Metric label="Near-term skew" value={d.nearTermSkew !== undefined ? d.nearTermSkew.toFixed(1) + "pts" : "—"} sub="3-21 DTE" info="25Δ skew for near-term expirations." readingInfo={rCtx("nearTermSkew", d.nearTermSkew||0)} />
+        <Metric label="Long-term skew" value={d.farTermSkew !== undefined ? d.farTermSkew.toFixed(1) + "pts" : "—"} sub="21-60 DTE" info="25Δ skew for longer-dated expirations." readingInfo={rCtx("farTermSkew", d.farTermSkew||0)} />
+        <Metric label="Skew term spread" value={d.skewTermSpread !== undefined ? (d.skewTermSpread > 0 ? "+" : "") + d.skewTermSpread.toFixed(1) + "pts" : "—"} accent={d.skewTermSpread > 3 ? "#A32D2D" : d.skewTermSpread < -2 ? "#1D9E75" : undefined} sub={d.skewTermSpread > 3 ? "⚠ risk-off" : d.skewTermSpread < -2 ? "risk-on" : "neutral"} info="Near skew minus far skew. Positive = near-term steeper = risk-off. Per Handbook §5.3, this steepening is a 'particularly strong risk-off signal.'" readingInfo={rCtx("skewTermSpread", d.skewTermSpread||0)} />
       </div>
+
+      {/* Flow Breakdown */}
+      <div style={{ padding: "0 20px 6px" }}><div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.5, marginBottom: "6px" }}>Flow · Total · 0DTE · Open</div></div>
       <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "6px" }}>
-        <Metric label="Options % of ADV" value={`${(d.optVolPctADV||0).toFixed(1)}%`} sub={`${fmtEq(d.optVolShares||0).label} delta-equiv`} accent={(d.optVolPctADV||0) > 20 ? "#A32D2D" : (d.optVolPctADV||0) > 10 ? "#BA7517" : "#0F6E56"}
-          info="Percentage of average daily equity volume attributable to options dealer hedging. Above 20% = options dominant on the tape. 10-20% = significant. Below 10% = equity-driven."
-          snapshot={`Delta-equiv shares: ${fmtEq(d.optVolShares||0).label} · ADV: ${d.equityVolume > 0 ? (d.equityVolume/1e6).toFixed(1)+"M shares (actual)" : (ADV[d.ticker]||10)+"M shares (est)"} · Ratio: ${(d.optVolPctADV||0).toFixed(1)}% · ${(d.optVolPctADV||0) > 20 ? "OPTIONS DOMINANT" : (d.optVolPctADV||0) > 10 ? "Significant influence" : "Equity-driven"}`}
-          onChart={() => setTsChart({ metric: "optVolPctADV", label: "Options % of ADV", unit: "%" })} />
-        <Metric label="0DTE % of volume" value={`${(d.zdtePct||0).toFixed(0)}%`} sub={`${(d.zdteVol||0).toLocaleString()} contracts`}
-          info="What percentage of today's total options activity was 0DTE. Above 50% means the tape was dominated by intraday gamma — that flow is now gone. Below 20% means positioning was structural and carries forward."
-          snapshot={`0DTE contracts: ${(d.zdteVol||0).toLocaleString()} · Total contracts: ${(d.optVolRaw||0).toLocaleString()} · Ratio: ${(d.zdtePct||0).toFixed(1)}%`}
-          onChart={() => setTsChart({ metric: "zdtePct", label: "0DTE % of Volume", unit: "%" })} />
-        <Metric label="Dealer hedge est." value={<EqBadge shares={(d.regime==="positive" ? d.dspct : -d.dspct)||0} size="sm"/>} sub="per 1% move"
-          info="Estimated shares dealers must trade to rehedge per 1% move in the underlying. In positive gamma they trade against the move (stabilizing). In negative gamma they trade with the move (destabilizing)."
-          snapshot={`Regime: ${d.regime} · Per 1% move: ${fmtEq(d.regime==="positive" ? d.dspct : -d.dspct).label} · ${d.regime==="positive" ? "Counter-trend — dealers sell rallies, buy dips" : "Pro-trend — dealers chase moves, amplifying direction"}`}
-          onChart={() => setTsChart({ metric: "dspct", label: "Dealer Hedge Est.", unit: " shs" })} />
+        <Metric label="Total Δ P/C" value={d.dpc.toFixed(2)} sub={<EqBadge shares={d.nds||0} size="sm"/>} percentile={pct("dpc")} info="Delta-weighted P/C all contracts." readingInfo={rCtx("dpc", d.dpc)} onChart={() => setTsChart({ metric: "dpc", label: "Total Δ P/C" })} />
+        <Metric label="0DTE Δ P/C" value={(d.zdteDpc||0).toFixed(2)} sub={<><span style={{fontSize:"10px",opacity:0.5}}>{(d.zdtePct||0).toFixed(0)}% vol · </span><EqBadge shares={d.zdteNetDelta||0} size="sm"/></>} accent={(d.zdtePct||0) > 50 ? "#A32D2D" : undefined} info="0DTE delta P/C — expired at close. High 0DTE% = intraday-driven tape." readingInfo={rCtx("zdteDpc", d.zdteDpc||0)} onChart={() => setTsChart({ metric: "zdteDpc", label: "0DTE Δ P/C" })} />
+        <Metric label="Open Δ P/C" value={(d.openDpc||0).toFixed(2)} sub={<EqBadge shares={d.openNetDelta||0} size="sm"/>} accent={(d.openDpc||0) > 1.3 ? "#A32D2D" : (d.openDpc||0) < 0.7 ? "#0F6E56" : undefined} info="Non-0DTE positioning — carries forward. Most important for next-session outlook." readingInfo={rCtx("openDpc", d.openDpc||0)} onChart={() => setTsChart({ metric: "openDpc", label: "Open Δ P/C" })} />
       </div>
+
+      {/* Options Volume Row */}
+      <div style={{ padding: "0 20px 14px", display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "6px" }}>
+        <Metric label="Options % ADV" value={(d.optVolPctADV||0).toFixed(1) + "%"} sub={fmtEq(d.optVolShares||0).label + " Δ-equiv"} accent={(d.optVolPctADV||0) > 20 ? "#A32D2D" : (d.optVolPctADV||0) > 10 ? "#BA7517" : "#0F6E56"} percentile={pct("optVolPctADV")} info=">20% = options dominant. 10-20% = significant. <10% = equity-driven." readingInfo={rCtx("optVolPctADV", d.optVolPctADV||0)} onChart={() => setTsChart({ metric: "optVolPctADV", label: "Opts % ADV", unit: "%" })} />
+        <Metric label="0DTE % vol" value={(d.zdtePct||0).toFixed(0) + "%"} sub={(d.zdteVol||0).toLocaleString() + " cts"} info="% of options volume that was 0DTE. >50% = intraday-driven." readingInfo={rCtx("zdtePct", d.zdtePct||0)} onChart={() => setTsChart({ metric: "zdtePct", label: "0DTE %", unit: "%" })} />
+        <Metric label="Dealer hedge" value={<EqBadge shares={(d.regime==="positive" ? d.dspct : -d.dspct)||0} size="sm"/>} sub="per 1% move" info="Est. shares dealers trade per 1% move." readingInfo={rCtx("dspct", d.dspct||0)} onChart={() => setTsChart({ metric: "dspct", label: "Dealer Hedge" })} />
+      </div>
+
+      {/* Signal Breakdown */}
       <div style={{ padding: "0 20px 14px" }}>
-        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, letterSpacing: "0.4px", marginBottom: "8px" }}>Signal breakdown — how options influence {d.ticker} shares</div>
-        {v.factors.map((f,i) => (
-          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "7px 10px", marginBottom: "3px", borderRadius: "6px", background: ib[f.imp]||"rgba(128,128,128,0.03)" }}>
-            <span style={{ width: "6px", height: "6px", borderRadius: "50%", marginTop: "6px", flexShrink: 0, background: dc[f.dir]||"#888" }} />
-            <div><span style={{ fontSize: "12px", fontWeight: 500 }}>{f.sig}</span><span style={{ fontSize: "12px", opacity: 0.75, marginLeft: "6px" }}>{f.det}</span></div>
-          </div>
-        ))}
+        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px" }}>Signal breakdown</div>
+        {v.factors.map((f,i) => <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "7px 10px", marginBottom: "3px", borderRadius: "6px", background: ib[f.imp]||"rgba(128,128,128,0.03)" }}>
+          <span style={{ width: "6px", height: "6px", borderRadius: "50%", marginTop: "6px", flexShrink: 0, background: dc[f.dir]||"#888" }} />
+          <div><span style={{ fontSize: "12px", fontWeight: 500 }}>{f.sig}</span><span style={{ fontSize: "12px", opacity: 0.75, marginLeft: "6px" }}>{f.det}</span></div>
+        </div>)}
       </div>
+
+      {/* Sweeps */}
       {d.trades.length > 0 && <div style={{ padding: "0 20px 16px" }}>
-        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.828, letterSpacing: "0.3px", marginBottom: "6px" }}>High-delta sweeps today</div>
+        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.82, marginBottom: "6px" }}>High-delta sweeps</div>
         <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
-          {d.trades.sort((a,b)=>Math.abs(b.eqShares)-Math.abs(a.eqShares)).map((tr,i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 12px", fontSize: "13px", borderBottom: i<d.trades.length-1?"1px solid rgba(128,128,128,0.05)":"none" }}>
-              <span style={{ opacity: 0.85, fontSize: "11px", minWidth: "36px" }}>{tr.time}</span>
-              <span style={{ fontFamily: "monospace", fontSize: "12px", minWidth: "18px" }}>{tr.type}</span>
-              <span style={{ minWidth: "56px" }}>{fmtP(tr.strike)}</span>
-              <span style={{ opacity: 0.828, fontSize: "12px", minWidth: "38px" }}>Δ{Math.abs(tr.delta).toFixed(2)}</span>
-              <span style={{ minWidth: "46px" }}>×{tr.contracts.toLocaleString()}</span>
-              <span style={{ fontSize: "11px", opacity: 0.828, minWidth: "34px" }}>{tr.side}</span>
-              <span style={{ marginLeft: "auto" }}><EqBadge shares={tr.side==="bought"?Math.abs(tr.eqShares):-Math.abs(tr.eqShares)} size="sm"/></span>
-            </div>
-          ))}
+          {d.trades.sort((a,b)=>Math.abs(b.eqShares)-Math.abs(a.eqShares)).map((tr,i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 12px", fontSize: "13px", borderBottom: i<d.trades.length-1?"1px solid rgba(128,128,128,0.05)":"none" }}>
+            <span style={{ opacity: 0.85, fontSize: "11px", minWidth: "36px" }}>{tr.time}</span>
+            <span style={{ fontFamily: "monospace", fontSize: "12px", minWidth: "18px" }}>{tr.type}</span>
+            <span style={{ minWidth: "56px" }}>{fmtP(tr.strike)}</span>
+            <span style={{ opacity: 0.82, fontSize: "12px" }}>Δ{Math.abs(tr.delta).toFixed(2)}</span>
+            <span>×{tr.contracts.toLocaleString()}</span>
+            <span style={{ marginLeft: "auto" }}><EqBadge shares={tr.eqShares} size="sm"/></span>
+          </div>)}
         </div>
       </div>}
     </div>
@@ -1112,623 +748,306 @@ function VerdictCard({ d, onClose }) {
   </>);
 }
 
-function OptionsVolume({ data, onSelect }) {
-  const sorted = useMemo(() => [...data].filter(d => d.optVolRaw > 0 || d.optVolPctADV > 0).sort((a,b) => {
-    // Sort by ADV% if available, otherwise by raw contract volume
-    if (a.optVolPctADV > 0 && b.optVolPctADV > 0) return b.optVolPctADV - a.optVolPctADV;
-    if (a.optVolPctADV > 0) return -1;
-    if (b.optVolPctADV > 0) return 1;
-    return (b.optVolRaw||0) - (a.optVolRaw||0);
-  }).slice(0, 30), [data]);
-
-  return <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", overflow: "hidden" }}>
-    {/* Header row */}
-    <div style={{ display: "grid", gridTemplateColumns: "54px 58px 56px 56px 56px 80px 56px 56px 80px 64px", padding: "6px 10px", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.2px", opacity: 0.6, fontWeight: 500, background: "rgba(74,144,217,0.04)", borderBottom: "1px solid rgba(74,144,217,0.12)" }}>
-      <span>Ticker</span>
-      <span style={{textAlign:"right"}}>Opts %<br/>ADV</span>
-      <span style={{textAlign:"right"}}>Total<br/>Δ P/C</span>
-      <span style={{textAlign:"right"}}>Total<br/>Net Δ</span>
-      <span style={{textAlign:"right"}}>0DTE<br/>%</span>
-      <span style={{textAlign:"right"}}>0DTE<br/>Δ P/C · Net Δ</span>
-      <span style={{textAlign:"right"}}>Open<br/>Δ P/C</span>
-      <span style={{textAlign:"right"}}>Open<br/>Net Δ</span>
-      <span style={{textAlign:"right"}}>Regime</span>
-      <span style={{textAlign:"right"}}>Contracts</span>
+// ─── SCANNER TAB ────────────────────────────────────────────────────
+function Scanner({ data, onSelect }) {
+  const sorted = [...data].filter(d => d.spot > 0).sort((a, b) => Math.abs(b.netGex) - Math.abs(a.netGex));
+  if (sorted.length === 0) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Loading scanner...</div>;
+  return <div style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "10px", overflow: "hidden" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "70px 70px 70px 60px 50px 50px 70px 60px 60px 1fr", padding: "8px 12px", fontSize: "9px", textTransform: "uppercase", opacity: 0.5, background: "rgba(74,144,217,0.04)", borderBottom: "1px solid rgba(74,144,217,0.08)" }}>
+      <span>Ticker</span><span>Spot</span><span>Regime</span><span>Flip%</span><span>Sq</span><span>P/C</span><span>25Δ Skew</span><span>Smile</span><span>RR</span><span>NDF</span>
     </div>
-    {sorted.map((d, i) => {
-      const advColor = d.optVolPctADV > 20 ? "#A32D2D" : d.optVolPctADV > 10 ? "#BA7517" : "#0F6E56";
-      const zdteColor = d.zdtePct > 50 ? "#A32D2D" : d.zdtePct > 30 ? "#BA7517" : "inherit";
-      return <div key={d.ticker} onClick={() => onSelect(d.ticker)} style={{
-        display: "grid", gridTemplateColumns: "54px 58px 56px 56px 56px 80px 56px 56px 80px 64px",
-        padding: "6px 10px", alignItems: "center", fontSize: "12px", cursor: "pointer",
-        borderBottom: i < sorted.length - 1 ? "1px solid rgba(74,144,217,0.07)" : "none"
-      }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.03)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-        <span style={{ fontWeight: 500 }}>{d.ticker}</span>
-        <span style={{ textAlign: "right", fontWeight: 500, color: advColor }}>{d.optVolPctADV.toFixed(1)}%</span>
-        <span style={{ textAlign: "right", fontFamily: "monospace", fontSize: "11px" }}>{d.dpc.toFixed(2)}</span>
-        <span style={{ textAlign: "right" }}><EqBadge shares={d.nds||0} size="sm"/></span>
-        <span style={{ textAlign: "right", fontFamily: "monospace", fontSize: "11px", color: zdteColor }}>{d.zdtePct.toFixed(0)}%</span>
-        <span style={{ textAlign: "right", fontSize: "11px" }}>
-          <span style={{ fontFamily: "monospace" }}>{d.zdteDpc.toFixed(2)}</span>
-          {" "}<EqBadge shares={d.zdteNetDelta||0} size="sm"/>
-        </span>
-        <span style={{ textAlign: "right", fontFamily: "monospace", fontSize: "11px" }}>{d.openDpc.toFixed(2)}</span>
-        <span style={{ textAlign: "right" }}><EqBadge shares={d.openNetDelta||0} size="sm"/></span>
-        <span style={{ textAlign: "right" }}><Regime r={d.regime}/></span>
-        <span style={{ textAlign: "right", fontSize: "11px", opacity: 0.6 }}>{(d.optVolRaw||0).toLocaleString()}</span>
-      </div>;
-    })}
-  </div>;
-}
-
-function Sweeps({ data, onSelect }) {
-  const all = useMemo(()=>{const t=[];data.forEach(d=>d.trades.forEach(tr=>t.push({...tr,ticker:d.ticker})));return t.sort((a,b)=>Math.abs(b.eqShares)-Math.abs(a.eqShares)).slice(0,20);},[data]);
-  if(!all.length) return <div style={{padding:"20px",opacity:0.4,textAlign:"center"}}>No high-delta sweeps detected</div>;
-  return <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",overflow:"hidden"}}>
-    <div style={{display:"grid",gridTemplateColumns:"56px 32px 66px 50px 66px 42px 100px",padding:"8px 12px",fontSize:"10px",textTransform:"uppercase",letterSpacing:"0.3px",opacity:0.45,fontWeight:500,background:"rgba(128,128,128,0.04)",borderBottom:"1px solid rgba(128,128,128,0.1)"}}><span>Ticker</span><span>T</span><span>Strike</span><span>Δ</span><span>Qty</span><span>Side</span><span style={{textAlign:"right"}}>Eq equiv</span></div>
-    {all.map((tr,i)=><div key={i} onClick={()=>onSelect(tr.ticker)} style={{display:"grid",gridTemplateColumns:"56px 32px 66px 50px 66px 42px 100px",padding:"7px 12px",alignItems:"center",fontSize:"13px",borderBottom:i<all.length-1?"1px solid rgba(128,128,128,0.07)":"none",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(128,128,128,0.03)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-      <span style={{fontWeight:500}}>{tr.ticker}</span><span style={{fontFamily:"monospace",fontSize:"12px"}}>{tr.type}</span><span>{fmtP(tr.strike)}</span><span style={{fontFamily:"monospace",fontSize:"12px"}}>{Math.abs(tr.delta).toFixed(2)}</span><span>{tr.contracts.toLocaleString()}</span><span style={{fontSize:"11px",opacity:0.6}}>{tr.side}</span><span style={{textAlign:"right"}}><EqBadge shares={tr.side==="bought"?Math.abs(tr.eqShares):-Math.abs(tr.eqShares)} size="sm"/></span>
+    {sorted.map((d, i) => <div key={d.ticker} onClick={() => onSelect(d.ticker)} style={{ display: "grid", gridTemplateColumns: "70px 70px 70px 60px 50px 50px 70px 60px 60px 1fr", padding: "7px 12px", fontSize: "12px", cursor: "pointer", borderBottom: i < sorted.length-1 ? "1px solid rgba(74,144,217,0.05)" : "none", background: i % 2 ? "rgba(74,144,217,0.02)" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e => e.currentTarget.style.background=i%2?"rgba(74,144,217,0.02)":"transparent"}>
+      <span style={{ fontWeight: 500 }}>{d.ticker}</span>
+      <span>{fmtP(d.spot)}</span>
+      <span><Regime r={d.regime} /></span>
+      <span style={{ color: Math.abs(d.flipDist) < 2 ? "#A32D2D" : "inherit" }}>{d.flipDist > 0 ? "+" : ""}{d.flipDist.toFixed(1)}%</span>
+      <span style={{ color: d.sq > 60 ? "#E24B4A" : d.sq > 30 ? "#BA7517" : "#1D9E75" }}>{Math.round(d.sq)}</span>
+      <span style={{ color: d.dpc > 1.3 ? "#A32D2D" : d.dpc < 0.7 ? "#0F6E56" : "inherit" }}>{d.dpc.toFixed(2)}</span>
+      <span>{(d.skew25d||0).toFixed(1)}</span>
+      <span>{d.smileRatio > 0 ? d.smileRatio.toFixed(2) : "—"}</span>
+      <span style={{ color: d.rr25d < -8 ? "#0F6E56" : d.rr25d > -1 ? "#A32D2D" : "inherit" }}>{d.rr25d !== 0 ? d.rr25d.toFixed(1) : "—"}</span>
+      <span><EqBadge shares={d.ndf||d.nds||0} size="sm"/></span>
     </div>)}
   </div>;
 }
 
-function Divergence({ data }) {
-  const idx=data.filter(d=>["SPY","QQQ","IWM","SMH","DIA","XLF","XLK","XLE","RSP"].includes(d.ticker));
-  const stk=data.filter(d=>d.at==="Stock");
-  const nN=stk.filter(d=>d.regime==="negative").length,nP=stk.filter(d=>d.regime==="positive").length;
-  const iR=idx.length>0&&idx.filter(d=>d.regime==="positive").length>idx.length/2?"positive":"negative";
-  const div=(iR==="positive"&&nN>nP)||(iR==="negative"&&nN<nP);
-  const negPctStk = stk.length > 0 ? Math.round(nN / stk.length * 100) : 0;
-  const negIdx = idx.filter(d=>d.regime==="negative");
-  const posIdx = idx.filter(d=>d.regime==="positive");
-
-  // Top squeeze names
-  const topSqueeze = [...stk].sort((a,b) => b.sq - a.sq).slice(0, 5);
-  // Most bearish P/C
-  const topBearish = [...stk].filter(d => d.dpc > 0.8).sort((a,b) => b.dpc - a.dpc).slice(0, 5);
-  // Most bullish P/C
-  const topBullish = [...stk].filter(d => d.dpc < 0.5 && d.dpc > 0).sort((a,b) => a.dpc - b.dpc).slice(0, 5);
-
-  return <div>
-    <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",padding:"16px",marginBottom:"12px"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"12px"}}><span style={{fontSize:"13px",fontWeight:500}}>Index vs component gamma regime</span><span style={{fontSize:"11px",padding:"2px 10px",borderRadius:"999px",fontWeight:500,background:div?"rgba(226,75,74,0.12)":"rgba(29,158,117,0.12)",color:div?"#A32D2D":"#0F6E56"}}>{div?"diverging":"aligned"}</span></div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"}}>
-        <div style={{background:"rgba(128,128,128,0.05)",borderRadius:"8px",padding:"10px"}}>
-          <div style={{fontSize:"10px",opacity:0.45,textTransform:"uppercase",marginBottom:"6px"}}>ETFs / Indices</div>
-          {idx.map(d => <div key={d.ticker} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:"12px",padding:"2px 0"}}>
-            <span style={{fontWeight:500}}>{d.ticker}</span>
-            <Regime r={d.regime}/>
-          </div>)}
-        </div>
-        <div style={{background:"rgba(128,128,128,0.05)",borderRadius:"8px",padding:"10px"}}>
-          <div style={{fontSize:"10px",opacity:0.45,textTransform:"uppercase",marginBottom:"6px"}}>Single stocks</div>
-          <div style={{fontSize:"20px",fontWeight:500,marginBottom:"4px"}}><span style={{color:"#3B6D11"}}>{nP}</span> <span style={{fontSize:"12px",opacity:0.5}}>pos</span> / <span style={{color:"#A32D2D"}}>{nN}</span> <span style={{fontSize:"12px",opacity:0.5}}>neg</span></div>
-          <div style={{fontSize:"11px",opacity:0.5}}>{negPctStk}% in negative gamma</div>
-        </div>
-      </div>
-      {div&&<div style={{fontSize:"12px",opacity:0.7,lineHeight:1.5,padding:"8px 10px",background:"rgba(226,75,74,0.04)",borderRadius:"6px",marginTop:"10px"}}>Divergence: ETFs in {iR} gamma while {iR==="positive"?nN:nP}/{stk.length} components are in {iR==="positive"?"negative":"positive"} — structural tension that tends to resolve with sharp moves toward the component signal.</div>}
-      {!div&&<div style={{fontSize:"12px",opacity:0.5,lineHeight:1.5,padding:"8px 10px",marginTop:"10px"}}>ETFs and single-stock gamma regimes are aligned — no structural tension detected.</div>}
+// ─── OPTIONS VOLUME TAB ─────────────────────────────────────────────
+function OptionsVolume({ data, onSelect }) {
+  const sorted = [...data].filter(d => d.optVolRaw > 0).sort((a, b) => (b.optVolPctADV||0) - (a.optVolPctADV||0));
+  if (sorted.length === 0) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>No volume data yet.</div>;
+  return <div style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "10px", overflow: "hidden" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "70px 70px 80px 100px 80px 1fr", padding: "8px 12px", fontSize: "9px", textTransform: "uppercase", opacity: 0.5, background: "rgba(74,144,217,0.04)", borderBottom: "1px solid rgba(74,144,217,0.08)" }}>
+      <span>Ticker</span><span>Spot</span><span>Opts %ADV</span><span>Δ-equiv shares</span><span>Contracts</span><span>Regime</span>
     </div>
+    {sorted.map((d, i) => <div key={d.ticker} onClick={() => onSelect(d.ticker)} style={{ display: "grid", gridTemplateColumns: "70px 70px 80px 100px 80px 1fr", padding: "7px 12px", fontSize: "12px", cursor: "pointer", borderBottom: i < sorted.length-1 ? "1px solid rgba(74,144,217,0.05)" : "none" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <span style={{ fontWeight: 500 }}>{d.ticker}</span>
+      <span>{fmtP(d.spot)}</span>
+      <span style={{ fontWeight: 500, color: (d.optVolPctADV||0) > 20 ? "#A32D2D" : (d.optVolPctADV||0) > 10 ? "#BA7517" : "#0F6E56" }}>{(d.optVolPctADV||0).toFixed(1)}%</span>
+      <span><EqBadge shares={d.optVolShares||0} size="sm"/></span>
+      <span>{(d.optVolRaw||0).toLocaleString()}</span>
+      <span><Regime r={d.regime}/></span>
+    </div>)}
+  </div>;
+}
 
-    {topSqueeze.length > 0 && <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",padding:"16px",marginBottom:"12px"}}>
-      <div style={{fontSize:"13px",fontWeight:500,marginBottom:"10px"}}>Highest squeeze scores</div>
-      {topSqueeze.map(d => <div key={d.ticker} style={{display:"flex",alignItems:"center",gap:"8px",fontSize:"12px",padding:"3px 0"}}>
-        <span style={{fontWeight:500,width:"48px"}}>{d.ticker}</span>
-        <div style={{flex:1}}><Squeeze score={d.sq}/></div>
-        <Regime r={d.regime}/>
+// ─── WALL PROXIMITY TAB ─────────────────────────────────────────────
+function WallProximity({ data, onSelect, onFetchWalls }) {
+  const [autoFetched, setAutoFetched] = useState(false);
+  useEffect(() => {
+    if (!autoFetched) {
+      const spyD = data.find(d => d.ticker === "SPY");
+      const qqqD = data.find(d => d.ticker === "QQQ");
+      if ((spyD && spyD.callWall === 0) || (qqqD && qqqD.callWall === 0)) {
+        if (onFetchWalls) { onFetchWalls(["SPY","QQQ"]); setAutoFetched(true); }
+      }
+    }
+  }, [data, autoFetched, onFetchWalls]);
+
+  const callProx = data.filter(d => d.spot > 0 && d.callWall > 0).map(d => ({ ...d, dist: (d.callWall - d.spot) / d.spot * 100, wallType: "call" })).filter(d => d.dist >= -1 && d.dist <= 2.5);
+  const putProx = data.filter(d => d.spot > 0 && d.putWall > 0).map(d => ({ ...d, dist: (d.spot - d.putWall) / d.spot * 100, wallType: "put" })).filter(d => d.dist >= -1 && d.dist <= 2.5);
+  const pinSPY = data.find(d => d.ticker === "SPY");
+  const pinQQQ = data.find(d => d.ticker === "QQQ");
+  const addPinned = (arr, wallType) => {
+    [pinSPY, pinQQQ].forEach(p => { if (p && p.spot > 0 && !arr.find(a => a.ticker === p.ticker)) {
+      const dist = wallType === "call" ? (p.callWall - p.spot) / p.spot * 100 : (p.spot - p.putWall) / p.spot * 100;
+      arr.push({ ...p, dist, wallType });
+    }});
+    return arr.sort((a, b) => a.dist - b.dist);
+  };
+  const callFinal = addPinned(callProx, "call");
+  const putFinal = addPinned(putProx, "put");
+
+  const WallCol = ({ items, title, wallKey, confKey, oiKey }) => <div style={{ flex: 1 }}>
+    <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
+    {items.length === 0 ? <div style={{ opacity: 0.4, fontSize: "12px" }}>No tickers within 2.5%</div> :
+    <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
+      {items.map((d, i) => <div key={d.ticker} onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", borderBottom: i<items.length-1?"1px solid rgba(74,144,217,0.05)":"none" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+        <span style={{ fontWeight: 500, minWidth: "45px" }}>{d.ticker}</span>
+        <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
+        <span style={{ minWidth: "55px" }}>→ {fmtP(d[wallKey])}</span>
+        <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
+        <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d[confKey]||0).toFixed(0)}% · {(d[oiKey]||0).toLocaleString()}</span>
       </div>)}
     </div>}
+  </div>;
 
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
-      {topBullish.length > 0 && <div style={{border:"1px solid rgba(29,158,117,0.2)",borderRadius:"10px",padding:"12px"}}>
-        <div style={{fontSize:"11px",opacity:0.5,textTransform:"uppercase",marginBottom:"8px"}}>Most bullish Δ P/C</div>
-        {topBullish.map(d => <div key={d.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:"12px",padding:"2px 0"}}>
-          <span style={{fontWeight:500}}>{d.ticker}</span>
-          <span style={{color:"#0F6E56",fontFamily:"monospace"}}>{d.dpc.toFixed(2)}</span>
-        </div>)}
-      </div>}
-      {topBearish.length > 0 && <div style={{border:"1px solid rgba(226,75,74,0.2)",borderRadius:"10px",padding:"12px"}}>
-        <div style={{fontSize:"11px",opacity:0.5,textTransform:"uppercase",marginBottom:"8px"}}>Most bearish Δ P/C</div>
-        {topBearish.map(d => <div key={d.ticker} style={{display:"flex",justifyContent:"space-between",fontSize:"12px",padding:"2px 0"}}>
-          <span style={{fontWeight:500}}>{d.ticker}</span>
-          <span style={{color:"#A32D2D",fontFamily:"monospace"}}>{d.dpc.toFixed(2)}</span>
-        </div>)}
-      </div>}
-    </div>
+  return <div style={{ display: "flex", gap: "16px" }}>
+    <WallCol items={putFinal} title="Put Walls (Support)" wallKey="putWall" confKey="putWallConf" oiKey="putWallOI" />
+    <WallCol items={callFinal} title="Call Walls (Resistance)" wallKey="callWall" confKey="callWallConf" oiKey="callWallOI" />
   </div>;
 }
 
-// ─── WALL PROXIMITY SCREEN ───────────────────────────────────────
-function WallProximity({ data, onSelect, loading }) {
-  const PINNED = ["SPY", "QQQ"];
-
-  const { putHits, callHits, putPinned, callPinned } = useMemo(() => {
-    const putHits = [], callHits = [], putPinned = [], callPinned = [];
-    const pinnedTickers = {};
-    data.forEach(d => {
-      if (!d.spot || d.spot <= 0) return;
-      const isPinned = PINNED.includes(d.ticker);
-      if (isPinned) pinnedTickers[d.ticker] = d;
-
-      // Put wall — noData only if wall is 0 AND no OI data
-      const hasPut = d.putWall > 0 && (d.putWallOI > 0 || d.putWallConf > 0);
-      if (hasPut || isPinned) {
-        const wall = d.putWall || 0;
-        const dist = wall > 0 ? ((d.spot - wall) / d.spot) * 100 : 999;
-        const row = {
-          ticker: d.ticker, spot: d.spot, wall,
-          conf: d.putWallConf || 0, oi: d.putWallOI || 0, dist,
-          regime: d.regime, at: d.at, noData: !hasPut,
-          status: !hasPut ? "—" : dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
-        };
-        if (isPinned) putPinned.push(row);
-        else if (hasPut && d.putWallConf >= 20 && Math.abs(dist) <= 2.5) putHits.push(row);
-      }
-
-      // Call wall — noData only if wall is 0 AND no OI data
-      const hasCall = d.callWall > 0 && (d.callWallOI > 0 || d.callWallConf > 0);
-      if (hasCall || isPinned) {
-        const wall = d.callWall || 0;
-        const dist = wall > 0 ? ((wall - d.spot) / d.spot) * 100 : 999;
-        const row = {
-          ticker: d.ticker, spot: d.spot, wall,
-          conf: d.callWallConf || 0, oi: d.callWallOI || 0, dist,
-          regime: d.regime, at: d.at, noData: !hasCall,
-          status: !hasCall ? "—" : dist < -0.25 ? "broken" : dist < 0.5 ? "testing" : "approaching",
-        };
-        if (isPinned) callPinned.push(row);
-        else if (hasCall && d.callWallConf >= 20 && Math.abs(dist) <= 2.5) callHits.push(row);
-      }
-    });
-    // Ensure both pinned tickers are present even if not in data
-    PINNED.forEach(t => {
-      if (!pinnedTickers[t]) {
-        const stub = { ticker: t, spot: 0, wall: 0, conf: 0, oi: 0, dist: 999, regime: "positive", at: "ETF", noData: true, status: "—" };
-        putPinned.push(stub);
-        callPinned.push(stub);
-      }
-    });
-    putPinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
-    callPinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
-    putHits.sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist));
-    callHits.sort((a, b) => Math.abs(a.dist) - Math.abs(b.dist));
-    return { putHits, callHits, putPinned, callPinned };
-  }, [data]);
-
-  const total = putHits.length + callHits.length;
-
-  const statusBadge = (s) => {
-    const colors = { testing: { bg: "rgba(226,75,74,0.12)", color: "#A32D2D" }, approaching: { bg: "rgba(186,117,23,0.1)", color: "#BA7517" }, broken: { bg: "rgba(128,128,128,0.1)", color: "#666" } };
-    const c = colors[s] || colors.approaching;
-    return <span style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", background: c.bg, color: c.color, fontWeight: 500, textTransform: "uppercase" }}>{s}</span>;
-  };
-
-  const WallRow = ({ h, accent, borderAccent, bgAccent, onSelect, isLast }) => (
-    <div onClick={() => onSelect(h.ticker)} style={{
-      padding: "8px 12px", cursor: "pointer",
-      borderBottom: isLast ? "none" : `1px solid ${borderAccent}`,
-    }} onMouseEnter={e => e.currentTarget.style.background = bgAccent} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontWeight: 600, fontSize: "13px" }}>{h.ticker}</span>
-          <Regime r={h.regime}/>
-          {!h.noData && h.conf >= 20 && Math.abs(h.dist) <= 2.5 && statusBadge(h.status)}
-        </div>
-        <span style={{ fontSize: "12px", fontWeight: 500, fontFamily: "monospace" }}>{h.spot > 0 ? `$${h.spot.toFixed(2)}` : "—"}</span>
-      </div>
-      {h.noData ? (
-        <div style={{ fontSize: "11px", opacity: 0.4 }}>{loading ? "Fetching live chain data..." : "Wall data unavailable — look up ticker for live calc"}</div>
-      ) : (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: "11px" }}>
-          <div>
-            <span style={{ opacity: 0.5 }}>Wall </span>
-            <span style={{ fontWeight: 500, color: accent }}>${h.wall.toFixed(2)}</span>
-            <span style={{ opacity: 0.5 }}> · {h.conf.toFixed(0)}% of OI</span>
-            <span style={{ opacity: 0.4 }}> · {h.oi.toLocaleString()} cts</span>
-          </div>
-          <span style={{ fontWeight: 500, fontFamily: "monospace", color: Math.abs(h.dist) < 0.5 ? accent : "inherit" }}>
-            {h.dist > 0 ? "+" : ""}{h.dist.toFixed(1)}%
-          </span>
-        </div>
-      )}
-    </div>
-  );
-
-  const WallColumn = ({ pinned, hits, type, onSelect }) => {
-    const isCall = type === "call";
-    const accent = isCall ? "#A32D2D" : "#0F6E56";
-    const bgAccent = isCall ? "rgba(226,75,74,0.03)" : "rgba(29,158,117,0.03)";
-    const borderAccent = isCall ? "rgba(226,75,74,0.2)" : "rgba(29,158,117,0.2)";
-    const pinnedBg = isCall ? "rgba(226,75,74,0.06)" : "rgba(29,158,117,0.06)";
-    return <div style={{ border: `1px solid ${borderAccent}`, borderRadius: "10px", overflow: "hidden" }}>
-      <div style={{ padding: "10px 12px", background: bgAccent, borderBottom: `1px solid ${borderAccent}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: "12px", fontWeight: 600, color: accent }}>{isCall ? "Call Wall" : "Put Wall"} · {isCall ? "Resistance" : "Support"}</div>
-          <div style={{ fontSize: "10px", opacity: 0.5, marginTop: "1px" }}>{hits.length} alert{hits.length !== 1 ? "s" : ""} within 2.5%</div>
-        </div>
-      </div>
-      {/* Pinned SPY/QQQ — always shown */}
-      {pinned.map((h, i) => (
-        <div key={h.ticker} style={{ background: pinnedBg, borderBottom: `1px solid ${borderAccent}` }}>
-          <WallRow h={h} accent={accent} borderAccent={borderAccent} bgAccent={pinnedBg} onSelect={onSelect} isLast={false}/>
-        </div>
-      ))}
-      {/* Proximity alerts */}
-      {hits.length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: "11px", opacity: 0.4 }}>No other tickers within 2.5%</div>}
-      {hits.map((h, i) => (
-        <WallRow key={h.ticker} h={h} accent={accent} borderAccent={borderAccent} bgAccent={bgAccent} onSelect={onSelect} isLast={i === hits.length - 1}/>
-      ))}
-    </div>;
-  };
-
+// ─── VOL DIVERGENCE TAB ─────────────────────────────────────────────
+function VolDivergence({ divs, loading, onScan }) {
+  if (loading) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Scanning {DEFAULT_WATCHLIST.length} tickers for vol divergences...</div>;
   return <div>
-    <div style={{ fontSize: "12px", opacity: 0.6, lineHeight: 1.5, padding: "8px 12px", background: "rgba(74,144,217,0.04)", borderRadius: "8px", marginBottom: "12px" }}>
-      SPY/QQQ walls always shown. {total > 0 ? `${total} other ticker${total !== 1 ? "s" : ""} within 2.5% of a concentrated wall (≥20% OI).` : "No other tickers currently within 2.5% of a concentrated wall."} Breaches can trigger accelerated moves as dealer hedges unwind.
-      {loading && <span style={{ marginLeft: "6px", color: "#4A90D9", fontWeight: 500 }}>⏳ Fetching live SPY/QQQ walls...</span>}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+      <div style={{ fontSize: "11px", opacity: 0.6 }}>{divs.length} divergence{divs.length !== 1 ? "s" : ""} found</div>
+      <button onClick={onScan} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: "pointer", color: "#2B6CB0" }}>Rescan</button>
     </div>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-      <WallColumn pinned={putPinned} hits={putHits} type="put" onSelect={onSelect}/>
-      <WallColumn pinned={callPinned} hits={callHits} type="call" onSelect={onSelect}/>
+    {divs.length === 0 ? <div style={{ padding: "20px", textAlign: "center", opacity: 0.4, fontSize: "13px" }}>No divergences detected — markets aligned.</div> :
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      {divs.map((dv, i) => <div key={i} style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "8px", padding: "12px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+          <span style={{ fontSize: "16px", fontWeight: 500 }}>{dv.ticker}</span>
+          <span style={{ fontSize: "12px", opacity: 0.7 }}>{fmtP(dv.spot)}</span>
+          <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: dv.isPutDiv ? "rgba(226,75,74,0.1)" : "rgba(29,158,117,0.1)", color: dv.isPutDiv ? "#A32D2D" : "#0F6E56", fontWeight: 500 }}>{dv.type}</span>
+          <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", fontWeight: 500, background: dv.severity > 60 ? "rgba(226,75,74,0.12)" : dv.severity > 35 ? "rgba(186,117,23,0.1)" : "rgba(128,128,128,0.06)", color: dv.severity > 60 ? "#A32D2D" : dv.severity > 35 ? "#BA7517" : "#888780" }}>{dv.severity}</span>
+        </div>
+        <div style={{ fontSize: "13px", lineHeight: 1.6, opacity: 0.82, fontFamily: "-apple-system,sans-serif" }}>Shares {fmtPct(dv.shareChg)} · {dv.signal}</div>
+        <div style={{ fontSize: "11px", opacity: 0.5, marginTop: "4px" }}>IV: {(dv.currentIV||0).toFixed(0)}% · Vol: {(dv.volume||0).toLocaleString()} cts</div>
+      </div>)}
+    </div>}
+  </div>;
+}
+
+// ─── CROSS-ASSET TAB ───────────────────────────────────────────────
+function CrossAsset({ data }) {
+  const etfs = data.filter(d => d.at === "ETF" && d.spot > 0);
+  const stocks = data.filter(d => d.at === "Stock" && d.spot > 0);
+  const posGamma = etfs.filter(d => d.regime === "positive");
+  const negGamma = etfs.filter(d => d.regime === "negative");
+  const topSqueeze = [...data].filter(d => d.spot > 0 && d.sq > 20).sort((a,b) => b.sq - a.sq).slice(0, 8);
+  const bullishPC = [...stocks].filter(d => d.spot > 0 && d.dpc < 0.7).sort((a,b) => a.dpc - b.dpc).slice(0, 5);
+  const bearishPC = [...stocks].filter(d => d.spot > 0 && d.dpc > 1.3).sort((a,b) => b.dpc - a.dpc).slice(0, 5);
+
+  return <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+    {/* ETF Gamma Regime */}
+    <div style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "8px", padding: "14px 16px" }}>
+      <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px" }}>ETF Gamma Regime Breakdown</div>
+      <div style={{ display: "flex", gap: "16px" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: "11px", color: "#3B6D11", fontWeight: 500, marginBottom: "4px" }}>Positive ({posGamma.length})</div>
+          <div style={{ fontSize: "12px", lineHeight: 1.8 }}>{posGamma.map(d => d.ticker).join(", ") || "—"}</div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: "11px", color: "#A32D2D", fontWeight: 500, marginBottom: "4px" }}>Negative ({negGamma.length})</div>
+          <div style={{ fontSize: "12px", lineHeight: 1.8 }}>{negGamma.map(d => d.ticker).join(", ") || "—"}</div>
+        </div>
+      </div>
+    </div>
+
+    {/* Top Squeeze */}
+    {topSqueeze.length > 0 && <div style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "8px", padding: "14px 16px" }}>
+      <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px" }}>Top Squeeze Scores</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px" }}>
+        {topSqueeze.map(d => <div key={d.ticker} style={{ padding: "6px 8px", borderRadius: "6px", background: d.sq > 60 ? "rgba(226,75,74,0.06)" : "rgba(186,117,23,0.04)" }}>
+          <div style={{ fontSize: "13px", fontWeight: 500 }}>{d.ticker}</div>
+          <Squeeze score={d.sq} />
+        </div>)}
+      </div>
+    </div>}
+
+    {/* Most Bullish / Bearish P/C */}
+    <div style={{ display: "flex", gap: "16px" }}>
+      <div style={{ flex: 1, border: "1px solid rgba(74,144,217,0.12)", borderRadius: "8px", padding: "14px 16px" }}>
+        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", color: "#0F6E56" }}>Most Bullish P/C</div>
+        {bullishPC.length === 0 ? <div style={{ opacity: 0.4, fontSize: "12px" }}>None</div> : bullishPC.map(d => <div key={d.ticker} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: "12px" }}><span style={{ fontWeight: 500 }}>{d.ticker}</span><span style={{ color: "#0F6E56" }}>{d.dpc.toFixed(2)}</span></div>)}
+      </div>
+      <div style={{ flex: 1, border: "1px solid rgba(74,144,217,0.12)", borderRadius: "8px", padding: "14px 16px" }}>
+        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", color: "#A32D2D" }}>Most Bearish P/C</div>
+        {bearishPC.length === 0 ? <div style={{ opacity: 0.4, fontSize: "12px" }}>None</div> : bearishPC.map(d => <div key={d.ticker} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", fontSize: "12px" }}><span style={{ fontWeight: 500 }}>{d.ticker}</span><span style={{ color: "#A32D2D" }}>{d.dpc.toFixed(2)}</span></div>)}
+      </div>
     </div>
   </div>;
 }
 
-// ─── VOL DIVERGENCE PANEL ──────────────────────────────────────────
-function VolDivergence({ divergences, onSelect }) {
-  if (!divergences.length) return (
-    <div style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", padding: "30px 20px", textAlign: "center" }}>
-      <div style={{ fontSize: "24px", opacity: 0.85, marginBottom: "8px" }}>⊘</div>
-      <div style={{ fontSize: "14px", opacity: 0.82, marginBottom: "6px" }}>No vol divergences detected</div>
-      <div style={{ fontSize: "12px", opacity: 0.85, lineHeight: 1.5, maxWidth: "440px", margin: "0 auto", fontFamily: "-apple-system,sans-serif" }}>
-        This scanner flags three rare signals: <strong>OTM puts bid into strength</strong> (informed downside), <strong>OTM calls bid into weakness</strong> (informed upside), and <strong>spot-up / vol-up</strong> — when implied vol rises alongside price instead of falling, signaling speculative call chasing and FOMO. The Bloomberg "spot-up/vol-up" correlation historically marks euphoric tops. When any of these fire, pay attention.
-      </div>
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{ fontSize: "12px", opacity: 0.828, marginBottom: "12px", lineHeight: 1.5, fontFamily: "-apple-system,sans-serif" }}>
-        {divergences.length} divergence{divergences.length > 1 ? "s" : ""} detected — option pricing contradicts normal spot-vol relationship, suggesting informed positioning or speculative excess.
-      </div>
-      {divergences.map((dv, idx) => {
-        const isSpotUpVolUp = dv.divType === "spotUpVolUp";
-        const isSpotDownVolDown = dv.divType === "spotDownVolDown";
-        const isCorrelation = isSpotUpVolUp || isSpotDownVolDown;
-        const isPut = dv.isPutDiv;
-
-        // Color coding: spot-up/vol-up = amber/warning (speculative excess), classic div = red/green
-        const accentColor = isSpotUpVolUp ? "#BA7517" : isSpotDownVolDown ? "#6B5B95" : isPut ? "#A32D2D" : "#0F6E56";
-        const accentBg = isSpotUpVolUp ? "rgba(186,117,23,0.06)" : isSpotDownVolDown ? "rgba(107,91,149,0.06)" : isPut ? "rgba(226,75,74,0.06)" : "rgba(29,158,117,0.06)";
-        const badgeBg = isSpotUpVolUp ? "rgba(186,117,23,0.12)" : isSpotDownVolDown ? "rgba(107,91,149,0.12)" : isPut ? "rgba(226,75,74,0.12)" : "rgba(29,158,117,0.12)";
-        const sevColor = dv.severity > 70 ? "#A32D2D" : dv.severity > 40 ? "#BA7517" : "#888780";
-
-        // Build description based on divergence type
-        let description = "";
-        let whyItMatters = "";
-        let metricsStrip = [];
-
-        if (isSpotUpVolUp) {
-          description = `${dv.ticker} shares up ${Math.abs(dv.shareChg).toFixed(1)}% but 25Δ call IV at ${dv.callIV.toFixed(0)}%${dv.callIVRicher ? ` — richer than put IV (${dv.putIV.toFixed(0)}%)` : ""}. Call volume ${dv.callDominance}% of total near-term flow. IV should fall as spot rises — instead, call demand is bidding vol higher.`;
-          whyItMatters = `The normal relationship between spot and vol is negative: when stocks go up, uncertainty drops and IV falls. When both rise together, it means traders are chasing upside through long calls so aggressively that they're bidding up premiums despite the move already happening. This "spot-up/vol-up" correlation — tracked by Bloomberg as a key regime indicator — historically marks speculative excess and precedes sharp reversals. The 2024 AI melt-up and the Kospi's 7% reversal from 8,000 are recent examples.`;
-          metricsStrip = [
-            { l: "25Δ Call IV", v: `${dv.callIV.toFixed(0)}%`, s: dv.callIVRicher ? "richer than puts" : "elevated" },
-            { l: "Put IV", v: `${dv.putIV.toFixed(0)}%` },
-            { l: "Risk reversal", v: dv.riskRevSpread ? `${dv.riskRevSpread > 0 ? "+" : ""}${dv.riskRevSpread.toFixed(1)}pts` : "—", s: dv.callIVRicher ? "calls over puts" : "" },
-            { l: "Call dominance", v: `${dv.callDominance}%`, s: `${(dv.callVol||0).toLocaleString()} calls` },
-            { l: "Spot change", v: <span style={{ color: "#0F6E56", fontWeight: 500 }}>+{Math.abs(dv.shareChg).toFixed(1)}%</span> },
-            { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
-          ];
-        } else if (isSpotDownVolDown) {
-          description = `${dv.ticker} shares down ${Math.abs(dv.shareChg).toFixed(1)}% but put IV only ${dv.putIV.toFixed(0)}% — IV should spike into a selloff but isn't. Either the market is complacent about downside risk, or informed participants see this as a buying opportunity.`;
-          whyItMatters = `When stocks sell off, put IV normally spikes as traders scramble for protection. When it stays flat or falls, it means either the market doesn't believe the selloff will extend (informed bottom) or nobody is hedging (dangerous complacency). This "spot-down/vol-down" divergence is the inverse of the FOMO signal — it marks situations where the options market is not confirming the equity weakness.`;
-          metricsStrip = [
-            { l: "Put IV", v: `${dv.putIV.toFixed(0)}%`, s: "not spiking" },
-            { l: "Call IV", v: `${dv.callIV.toFixed(0)}%` },
-            { l: "Call dominance", v: `${dv.callDominance}%` },
-            { l: "Near-term vol", v: (dv.totalVol||0).toLocaleString(), s: "contracts" },
-            { l: "Spot change", v: <span style={{ color: "#A32D2D", fontWeight: 500 }}>{dv.shareChg.toFixed(1)}%</span> },
-            { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
-          ];
-        } else {
-          // Classic OTM divergence
-          description = isPut
-            ? `${dv.ticker} shares are up ${Math.abs(dv.shareChg).toFixed(1)}% but ${dv.dte}DTE ${fmtP(dv.strike)} puts (${dv.otmPct.toFixed(0)}% OTM) show ${dv.ivJump.toFixed(0)}% IV. Volume is ${dv.volume.toLocaleString()} vs ${dv.avgOI.toLocaleString()} avg OI (${dv.volOIRatio.toFixed(1)}x). ${dv.chainStrikesElevated}/${dv.chainTotalStrikes} strikes show elevated IV — chain-wide, not a single print.`
-            : `${dv.ticker} shares are down ${Math.abs(dv.shareChg).toFixed(1)}% but ${dv.dte}DTE ${fmtP(dv.strike)} calls (${dv.otmPct.toFixed(0)}% OTM) show ${dv.ivJump.toFixed(0)}% IV. Volume is ${dv.volume.toLocaleString()} vs ${dv.avgOI.toLocaleString()} avg OI (${dv.volOIRatio.toFixed(1)}x). ${dv.chainStrikesElevated}/${dv.chainTotalStrikes} strikes show elevated IV — chain-wide, not a single print.`;
-          whyItMatters = isPut
-            ? `Someone with size is buying OTM puts into a rising stock — paying elevated premiums to position for downside. This pattern precedes earnings misses, guidance cuts, fraud disclosures, and regulatory actions. The chain-wide IV expansion (${dv.chainStrikesElevated} strikes) confirms this isn't a one-off hedge — it's systematic positioning.`
-            : `Someone with size is buying OTM calls into a falling stock — paying elevated premiums to position for upside. This pattern precedes M&A announcements, activist involvement, FDA approvals, and earnings surprises. The chain-wide IV expansion (${dv.chainStrikesElevated} strikes) confirms this isn't a stray print — it's deliberate accumulation.`;
-          metricsStrip = [
-            { l: "IV level", v: `${dv.ivJump.toFixed(0)}%`, s: `${(dv.priorIV||0).toFixed(0)}→${(dv.currentIV||0).toFixed(0)}` },
-            { l: "Option Δ", v: `+${(dv.optPriceChg||0).toFixed(0)}%` },
-            { l: "Vol / OI", v: `${(dv.volOIRatio||0).toFixed(1)}x`, s: `${(dv.volume||0).toLocaleString()} vol` },
-            { l: "Chain spread", v: `${dv.chainStrikesElevated}/${dv.chainTotalStrikes}`, s: "strikes elevated" },
-            { l: "Eq equiv", v: <EqBadge shares={isPut ? -(dv.eqShares||0) : (dv.eqShares||0)} size="sm" /> },
-            { l: "Severity", v: <span style={{ color: sevColor, fontWeight: 500 }}>{dv.severity}/100</span> },
-          ];
-        }
-
-        return (
-          <div key={dv.ticker + idx} onClick={() => onSelect(dv.ticker)}
-            style={{ border: "1px solid rgba(74,144,217,0.15)", borderRadius: "10px", overflow: "hidden", marginBottom: "12px", cursor: "pointer" }}>
-            {/* Header */}
-            <div style={{ padding: "14px 16px", background: accentBg, borderBottom: "1px solid rgba(74,144,217,0.1)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px", flexWrap: "wrap" }}>
-                <span style={{ fontSize: "22px", fontWeight: 500, fontFamily: "'SF Mono',monospace" }}>{dv.ticker}</span>
-                <span style={{ fontSize: "15px", opacity: 0.825 }}>{fmtP(dv.spot)}</span>
-                <span style={{ fontSize: "12px", fontWeight: 500, color: dv.shareChg > 0 ? "#0F6E56" : "#A32D2D" }}>
-                  {dv.shareChg > 0 ? "▲" : "▼"} {Math.abs(dv.shareChg).toFixed(1)}%
-                </span>
-                <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "4px", background: "rgba(74,144,217,0.08)" }}>{dv.at}</span>
-                <span style={{ marginLeft: "auto", fontSize: "11px", padding: "2px 10px", borderRadius: "999px", fontWeight: 500, background: badgeBg, color: accentColor }}>
-                  {dv.type}
-                </span>
-              </div>
-              <div style={{ fontSize: "14px", fontWeight: 500, color: accentColor, marginBottom: "6px" }}>
-                {dv.signal}
-              </div>
-              <div style={{ fontSize: "13px", lineHeight: 1.65, opacity: 0.82, fontFamily: "-apple-system,sans-serif" }}>
-                {description}
-              </div>
-            </div>
-
-            {/* Metrics strip */}
-            <div style={{ display: "grid", gridTemplateColumns: `repeat(${metricsStrip.length}, 1fr)`, gap: "1px", background: "rgba(74,144,217,0.06)" }}>
-              {metricsStrip.map((m, i) => (
-                <div key={i} style={{ background: "rgba(255,255,255,0.7)", padding: "8px 10px" }}>
-                  <div style={{ fontSize: "9px", textTransform: "uppercase", opacity: 0.82, letterSpacing: "0.3px", marginBottom: "2px" }}>{m.l}</div>
-                  <div style={{ fontSize: "13px", fontWeight: 500 }}>{m.v}</div>
-                  {m.s && <div style={{ fontSize: "10px", opacity: 0.82555 }}>{m.s}</div>}
-                </div>
-              ))}
-            </div>
-
-            {/* What it means */}
-            <div style={{ padding: "10px 16px", fontSize: "12px", lineHeight: 1.55, fontFamily: "-apple-system,sans-serif" }}>
-              <div style={{ opacity: 0.828, fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Why this matters</div>
-              <div style={{ opacity: 0.825 }}>{whyItMatters}</div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Scanner({ data, onSelect }) {
-  const sorted = useMemo(()=>[...data].sort((a,b)=>b.sq-a.sq),[data]);
-  return <div style={{border:"1px solid rgba(128,128,128,0.15)",borderRadius:"10px",overflow:"hidden"}}>
-    <div style={{display:"grid",gridTemplateColumns:"56px 62px 64px 68px minmax(56px,1fr) 64px 52px 58px",padding:"8px 10px",fontSize:"10px",textTransform:"uppercase",letterSpacing:"0.3px",opacity:0.45,fontWeight:500,background:"rgba(128,128,128,0.04)",borderBottom:"1px solid rgba(128,128,128,0.1)"}}><span>Ticker</span><span>Regime</span><span>Flip</span><span>Squeeze</span><span style={{textAlign:"right"}}>Dealer/1%</span><span style={{textAlign:"right"}}>Δ P/C</span><span style={{textAlign:"right"}}>Skew</span><span style={{textAlign:"right"}}>Level</span></div>
-    {sorted.map((d,i)=><div key={d.ticker} onClick={()=>onSelect(d.ticker)} style={{display:"grid",gridTemplateColumns:"56px 62px 64px 68px minmax(56px,1fr) 64px 52px 58px",padding:"7px 10px",alignItems:"center",cursor:"pointer",fontSize:"13px",borderBottom:i<sorted.length-1?"1px solid rgba(128,128,128,0.07)":"none"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(128,128,128,0.04)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-      <span style={{fontWeight:500}}>{d.ticker}</span><Regime r={d.regime}/><span style={{fontFamily:"monospace",fontSize:"12px",color:Math.abs(d.flipDist)<1?"#E24B4A":Math.abs(d.flipDist)<2?"#BA7517":"inherit"}}>{fmtPct(d.flipDist)}</span><Squeeze score={d.sq}/><span style={{textAlign:"right"}}><EqBadge shares={d.regime==="positive"?d.dspct:-d.dspct} size="sm"/></span><span style={{textAlign:"right",fontFamily:"monospace",fontSize:"12px",color:d.dpc>1.5?"#E24B4A":d.dpc<0.7?"#1D9E75":"inherit"}}>{d.dpc.toFixed(2)}</span><span style={{textAlign:"right",fontFamily:"monospace",fontSize:"12px",color:Math.abs(d.skewZ)>2?"#E24B4A":Math.abs(d.skewZ)>1.5?"#BA7517":"inherit"}}>{d.skewZ.toFixed(1)}σ</span><span style={{textAlign:"right",fontSize:"10px",padding:"1px 6px",borderRadius:"4px",background:"rgba(128,128,128,0.08)"}}>{d.at}</span>
-    </div>)}
-  </div>;
-}
-
+// ─── APP COMPONENT ─────────────────────────────────────────────────
 function App() {
-  const [tab, setTab] = useState("lookup");
+  const [tab, setTab] = useState("scanner");
   const [data, setData] = useState([]);
-  const [lookupD, setLookupD] = useState(null);
-  const [recent, setRecent] = useState([]);
-  const [lastRef, setLastRef] = useState(null);
-  const [snapDate, setSnapDate] = useState(null);
-  const [volDiv, setVolDiv] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [selectedData, setSelectedData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingTicker, setLoadingTicker] = useState(false);
+  const [recentLookups, setRecentLookups] = useState([]);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [volDivs, setVolDivs] = useState([]);
   const [volDivLoading, setVolDivLoading] = useState(false);
-  const [volDivScanned, setVolDivScanned] = useState(false);
-  const [marketState, setMarketState] = useState(() => getMarketState());
-  const [nextRefresh, setNextRefresh] = useState(null);
-  const [wallsLoading, setWallsLoading] = useState(false);
+  const [snapshotDate, setSnapshotDate] = useState(null);
   const pollRef = useRef(null);
-  const countdownRef = useRef(null);
 
-  // Core data refresh — fetches snapshot then optionally refreshes SPY/QQQ walls live
-  const refresh = useCallback(async (opts = {}) => {
-    const { silent = false, refreshWalls = false } = opts;
-    if (!silent) setLastRef(new Date());
-    const ms = getMarketState();
-    setMarketState(ms);
-
+  const loadSnapshot = useCallback(async () => {
     try {
       const r = await fetch("/.netlify/functions/snapshot");
-      if (!r.ok) throw new Error("No snapshot available");
-      const snapshot = await r.json();
-      if (snapshot && snapshot.tickers && snapshot.tickers.length > 0) {
-        const snapDateStr = snapshot.date || "";
-        const todayStr = new Date().toISOString().slice(0, 10);
-        if (snapDateStr === todayStr) {
-          setSnapDate(snapshot.capturedAt ? new Date(snapshot.capturedAt).toLocaleString() : snapshot.date);
-        } else {
-          setSnapDate(snapshot.capturedAt ? `${snapshot.date} (prior session)` : `${snapshot.date} (prior session)`);
-        }
-        const mapped = snapshot.tickers.map((t, i) => {
-          const base = emptyTicker(t.ticker);
-          return { ...base, ...t, at: assetType(t.ticker), trades: t.sweeps || [], _live: t._live };
-        });
-        setData(mapped);
-        if (snapshot.volDivergences && snapshot.volDivergences.length > 0) {
-          setVolDiv(snapshot.volDivergences);
-        } else {
-          setVolDiv([]);
-        }
+      if (!r.ok) throw new Error("snapshot " + r.status);
+      const snap = await r.json();
+      if (snap.tickers && Object.keys(snap.tickers).length > 0) {
+        const arr = Object.values(snap.tickers).map(t => ({ ...emptyTicker(t.ticker), ...t }));
+        setData(arr);
+        setSnapshotDate(snap.date || null);
       }
-    } catch(e) {
-      console.warn("Snapshot load failed, trying live:", e);
-      try {
-        const liveResults = await Promise.all(
-          DEFAULT_WATCHLIST.map((t, i) => fetchTickerLive(t, i))
-        );
-        setData(liveResults);
-        setSnapDate("live");
-      } catch(e2) { console.warn("Live fallback failed:", e2); }
-    }
-
-    // During market hours, always refresh SPY/QQQ walls live after loading snapshot
-    if (refreshWalls || ms.shouldPoll) {
-      refreshPinnedWalls();
-    }
+    } catch (e) { console.warn("Snapshot:", e.message); }
+    setLoading(false);
   }, []);
 
-  // Refresh SPY/QQQ walls live — no one-time gate, runs on every poll cycle
-  const refreshPinnedWalls = useCallback(async () => {
-    setWallsLoading(true);
-    const pinned = ["SPY", "QQQ"];
-    try {
-      const liveResults = await Promise.all(pinned.map((t, i) => fetchTickerLive(t, i)));
-      setData(prev => {
-        const updated = [...prev];
-        liveResults.forEach(live => {
-          if (!live || !live.spot) return;
-          const idx = updated.findIndex(d => d.ticker === live.ticker);
-          if (idx >= 0) updated[idx] = { ...updated[idx], ...live };
-          else updated.push(live);
-        });
-        return updated;
-      });
-    } catch(e) {
-      console.warn("Failed to fetch pinned walls:", e);
-    }
-    setWallsLoading(false);
-  }, []);
-
-  // Initial load
-  useEffect(() => { refresh({ refreshWalls: true }); }, [refresh]);
-
-  // Auto-polling: every 15 min during market hours, stop after close
-  useEffect(() => {
-    // Clear any existing interval
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (countdownRef.current) clearInterval(countdownRef.current);
-
+  const loadLive = useCallback(async () => {
     const ms = getMarketState();
-    if (!ms.shouldPoll) {
-      // Not market hours — check every 60s if market has opened
-      pollRef.current = setInterval(() => {
-        const current = getMarketState();
-        setMarketState(current);
-        if (current.shouldPoll) {
-          // Market just opened — trigger refresh and restart the effect
-          refresh({ silent: true, refreshWalls: true });
-          setNextRefresh(new Date(Date.now() + POLL_INTERVAL_MS));
-        }
-      }, 60000);
-      return () => {
-        clearInterval(pollRef.current);
-        clearInterval(countdownRef.current);
-      };
-    }
-
-    // Market is open — set up polling
-    setNextRefresh(new Date(Date.now() + POLL_INTERVAL_MS));
-
-    pollRef.current = setInterval(() => {
-      const current = getMarketState();
-      setMarketState(current);
-      if (current.shouldPoll) {
-        refresh({ silent: true, refreshWalls: true });
-        setNextRefresh(new Date(Date.now() + POLL_INTERVAL_MS));
-      } else {
-        // Market closed — stop polling, do one final refresh to lock in EOD
-        refresh({ silent: true });
-        clearInterval(pollRef.current);
-        setNextRefresh(null);
-      }
-    }, POLL_INTERVAL_MS);
-
-    // Countdown timer updates every 30s
-    countdownRef.current = setInterval(() => {
-      setMarketState(getMarketState());
-    }, 30000);
-
-    return () => {
-      clearInterval(pollRef.current);
-      clearInterval(countdownRef.current);
-    };
-  }, [refresh]);
-
-  const lookup = useCallback(async (ticker) => {
-    setTab("lookup");
-    setRecent(p=>[ticker,...p.filter(t=>t!==ticker)].slice(0,8));
-    const live = await fetchTickerLive(ticker, 999);
-    setLookupD(live);
-  },[]);
-  const opex = nextOpex();
-  const narrative = useMemo(()=>{if(!data.length)return"";const spy=data.find(d=>d.ticker==="SPY");if(!spy)return"";const eq=fmtEq(spy.regime==="positive"?spy.dspct:-spy.dspct);const neg=data.filter(d=>d.regime==="negative").length;let n=`SPY ${spy.regime} gamma — ${eq.label} ${spy.regime==="positive"?"counter":"pro"}-trend per 1%. Flip ${fmtP(spy.gammaFlip)}, ${Math.abs(spy.flipDist).toFixed(1)}% ${spy.flipDist>0?"above":"below"}.`;const tS=[...data].sort((a,b)=>b.sq-a.sq)[0];if(tS.sq>50)n+=` ${tS.ticker} squeeze ${Math.round(tS.sq)}.`;n+=` ${neg}/${data.length} negative gamma.`;if(opex.isNear)n+=` OPEX ${opex.days}d — amplifying.`;return n;},[data,opex]);
-  const alerts = useMemo(()=>data.filter(d=>d.sq>50||Math.abs(d.skewZ)>2||d.pcp>90||d.pcp<10).sort((a,b)=>b.sq-a.sq).slice(0,4).map(d=>{const r=[];if(d.sq>50)r.push(`sq${Math.round(d.sq)}`);if(Math.abs(d.skewZ)>2)r.push(`${d.skewZ.toFixed(1)}σ`);if(d.pcp>90||d.pcp<10)r.push(`P/C ${d.pcp}th`);return{...d,reasons:r};}),[data]);
-  const scanVolDiv = useCallback(async () => {
-    if (volDivLoading) return;
-    setVolDivLoading(true);
+    if (!ms.shouldPoll && data.length > 0) return;
+    setLoading(true);
     try {
-      const tickers = data.length > 0 ? data.map(d => d.ticker) : DEFAULT_WATCHLIST;
-      const results = await fetchVolDivergencesLive(tickers);
-      setVolDiv(results);
-      setVolDivScanned(true);
-    } catch(e) { console.warn("Vol div scan failed:", e); }
+      const r = await fetch("/.netlify/functions/snapshot");
+      if (r.ok) {
+        const snap = await r.json();
+        if (snap.tickers && Object.keys(snap.tickers).length > 0) {
+          const arr = Object.values(snap.tickers).map(t => ({ ...emptyTicker(t.ticker), ...t }));
+          setData(arr);
+          setSnapshotDate(snap.date || null);
+          setLastUpdate(new Date());
+        }
+      }
+    } catch (e) { console.warn("Live:", e.message); }
+    setLoading(false);
+  }, [data.length]);
+
+  useEffect(() => { loadSnapshot(); }, [loadSnapshot]);
+
+  useEffect(() => {
+    const poll = () => { const ms = getMarketState(); if (ms.shouldPoll) loadLive(); };
+    pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
+    return () => clearInterval(pollRef.current);
+  }, [loadLive]);
+
+  const lookupTicker = useCallback(async (ticker) => {
+    setLoadingTicker(true); setSelected(ticker); setSelectedData(null);
+    try {
+      const d = await fetchTickerLive(ticker);
+      setSelectedData(d);
+      setRecentLookups(prev => [ticker, ...prev.filter(t => t !== ticker)].slice(0, 8));
+    } catch (e) { setSelectedData({ ...emptyTicker(ticker), _error: e.message }); }
+    setLoadingTicker(false);
+  }, []);
+
+  const fetchWalls = useCallback(async (tickers) => {
+    for (const ticker of tickers) {
+      try {
+        const d = await fetchTickerLive(ticker);
+        setData(prev => { const idx = prev.findIndex(p => p.ticker === ticker); if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], ...d }; return n; } return prev; });
+      } catch (e) { console.warn("Wall fetch:", e.message); }
+    }
+  }, []);
+
+  const scanVolDivs = useCallback(async () => {
+    setVolDivLoading(true);
+    try { const divs = await fetchVolDivergencesLive(DEFAULT_WATCHLIST.slice(0, 15)); setVolDivs(divs); } catch (e) { console.warn("VolDiv:", e.message); }
     setVolDivLoading(false);
-  }, [data, volDivLoading]);
+  }, []);
 
-  const handleTab = useCallback((id) => {
-    setTab(id);
-    if (id === "voldiv" && !volDivScanned && volDiv.length === 0) scanVolDiv();
-    if (id === "walls") refreshPinnedWalls();
-  }, [volDivScanned, volDiv, scanVolDiv, refreshPinnedWalls]);
-  const wallProxCount = useMemo(() => {
-    return data.filter(d => {
-      if (!d.spot || d.spot <= 0) return false;
-      const callClose = d.callWall > 0 && d.callWallConf >= 20 && Math.abs((d.callWall - d.spot) / d.spot * 100) <= 2.5;
-      const putClose = d.putWall > 0 && d.putWallConf >= 20 && Math.abs((d.spot - d.putWall) / d.spot * 100) <= 2.5;
-      return callClose || putClose;
-    }).length;
-  }, [data]);
-  const tabs=[{id:"lookup",label:"⌕ Ticker lookup"},{id:"scanner",label:"Scanner"},{id:"walls",label:wallProxCount > 0 ? `Walls (${wallProxCount})` : "Walls"},{id:"voldiv",label:volDivLoading ? "⏳ Scanning..." : volDiv.length ? `⚡ Vol div (${volDiv.length})` : "Vol div"},{id:"optvol",label:"Options volume"},{id:"divergence",label:"Cross-asset"}];
-
-  const isLive = data.some(d=>d._live);
-
-  // Countdown to next refresh
-  const countdownText = useMemo(() => {
-    if (!nextRefresh || !marketState.shouldPoll) return marketState.nextPollLabel || "";
-    const diff = nextRefresh - Date.now();
-    if (diff <= 0) return "Refreshing...";
-    const m = Math.floor(diff / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    return `Next refresh ${m}m ${s < 10 ? "0" : ""}${s}s`;
-  }, [nextRefresh, marketState]);
-
-  // Market status badge color and label
-  const statusColor = marketState.isMarketOpen
-    ? (isLive ? "#0F6E56" : "#BA7517")
-    : (marketState.isPreMarket ? "#BA7517" : "#888780");
-  const statusBg = marketState.isMarketOpen
-    ? (isLive ? "rgba(29,158,117,0.12)" : "rgba(186,117,23,0.1)")
-    : (marketState.isPreMarket ? "rgba(186,117,23,0.1)" : "rgba(128,128,128,0.08)");
-  const statusLabel = marketState.isMarketOpen
-    ? (isLive ? "● LIVE" : "● UPDATING")
-    : (marketState.isPreMarket ? "◐ PRE-MKT" : marketState.isPostMarket ? "◑ EOD HOLD" : "◌ CLOSED");
+  const ms = getMarketState();
+  const tabs = [
+    { id: "scanner", label: "Scanner" },
+    { id: "volume", label: "Opts Volume" },
+    { id: "walls", label: "Walls" },
+    { id: "voldiv", label: "Vol Divergence" },
+    { id: "cross", label: "Cross-Asset" },
+  ];
 
   return <div>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"10px"}}>
-      <div><div style={{fontSize:"10px",textTransform:"uppercase",letterSpacing:"1px",opacity:0.35,marginBottom:"2px",color:"#4A90D9"}}>JonesTrading · End-of-day options positioning</div><div style={{fontSize:"20px",fontWeight:500,fontFamily:"-apple-system,BlinkMacSystemFont,sans-serif",color:"#1a2a3a"}}>Agent v1</div></div>
-      <div style={{textAlign:"right",display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>
-        <span style={{fontSize:"10px",padding:"2px 8px",borderRadius:"4px",background:statusBg,color:statusColor,whiteSpace:"nowrap",fontWeight:500}}>{statusLabel}</span>
-        <button onClick={() => refresh({ refreshWalls: true })} style={{background:"none",border:"1px solid rgba(74,144,217,0.25)",borderRadius:"6px",padding:"4px 12px",fontSize:"12px",cursor:"pointer",color:"#2B6CB0"}}>Refresh</button>
-        <div style={{fontSize:"10px",opacity:0.3,whiteSpace:"nowrap"}}>{lastRef ? lastRef.toLocaleTimeString() : ""}</div>
+    {/* Header */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+      <div>
+        <div style={{ fontSize: "20px", fontWeight: 500, letterSpacing: "-0.3px" }}>Γ Options Intelligence</div>
+        <div style={{ fontSize: "11px", opacity: 0.5 }}>JonesTrading · jones-agent</div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "flex-end" }}>
+          <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: ms.isMarketOpen ? "#1D9E75" : ms.isPreMarket ? "#BA7517" : "#888780" }} />
+          <span style={{ fontSize: "12px", fontWeight: 500 }}>{ms.label}</span>
+        </div>
+        {ms.isMarketOpen && snapshotDate && <div style={{ fontSize: "10px", opacity: 0.5, marginTop: "2px" }}>Live · {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" })} ET</div>}
+        {!ms.isMarketOpen && snapshotDate && <div style={{ fontSize: "10px", opacity: 0.5, marginTop: "2px" }}>Snapshot: {snapshotDate}</div>}
+        {ms.nextPollLabel && <div style={{ fontSize: "10px", opacity: 0.4 }}>{ms.nextPollLabel}</div>}
       </div>
     </div>
-    <div style={{display:"flex",gap:"8px",marginBottom:"12px",flexWrap:"wrap"}}>
-      <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:opex.isNear?"rgba(226,75,74,0.1)":"rgba(128,128,128,0.06)",color:opex.isNear?"#A32D2D":"inherit",display:"flex",alignItems:"center",gap:"5px",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>OPEX</span>{opex.date} · <span style={{fontWeight:500}}>{opex.days}d {opex.hours}h</span>{opex.isNear&&<span style={{fontWeight:500}}>⚠</span>}</div>
-      {snapDate && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"12px",background:"rgba(74,144,217,0.08)",color:"#2B6CB0",whiteSpace:"nowrap"}}><span style={{fontWeight:500}}>{snapDate === "live" ? "Live" : "Snapshot"}</span> {snapDate === "live" ? new Date().toLocaleString() : snapDate}</div>}
-      {countdownText && <div style={{padding:"6px 12px",borderRadius:"6px",fontSize:"11px",background:marketState.shouldPoll?"rgba(29,158,117,0.06)":"rgba(128,128,128,0.05)",color:marketState.shouldPoll?"#0F6E56":"#888780",whiteSpace:"nowrap",fontFamily:"monospace"}}>{countdownText}</div>}
-      {alerts.map(a=><span key={a.ticker} onClick={()=>lookup(a.ticker)} style={{padding:"4px 10px",borderRadius:"4px",cursor:"pointer",background:"rgba(226,75,74,0.08)",color:"#A32D2D",fontSize:"11px",whiteSpace:"nowrap"}}>{a.ticker} {a.reasons.join(" ")}</span>)}
+
+    {/* Ticker Search */}
+    <TickerSearch onLookup={lookupTicker} recentLookups={recentLookups} />
+
+    {/* Loading ticker */}
+    {loadingTicker && <div style={{ padding: "20px", textAlign: "center", opacity: 0.5, marginBottom: "16px" }}>Analyzing {selected}...</div>}
+
+    {/* Selected ticker detail */}
+    {selectedData && <VerdictCard d={selectedData} onClose={() => { setSelected(null); setSelectedData(null); }} />}
+
+    {/* Tabs */}
+    <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid rgba(74,144,217,0.1)", paddingBottom: "0" }}>
+      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "voldiv" && volDivs.length === 0 && !volDivLoading) scanVolDivs(); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
     </div>
-    <div style={{padding:"10px 14px",borderRadius:"8px",fontSize:"12px",lineHeight:1.5,border:"1px solid rgba(128,128,128,0.08)",background:"rgba(128,128,128,0.02)",fontFamily:"-apple-system,sans-serif",marginBottom:"14px"}}><span style={{fontSize:"9px",textTransform:"uppercase",opacity:0.3,letterSpacing:"0.5px"}}>Closing brief · </span>{narrative}</div>
-    <div style={{display:"flex",gap:"2px",marginBottom:"14px",borderBottom:"1px solid rgba(128,128,128,0.1)"}}>
-      {tabs.map(t=><button key={t.id} onClick={()=>handleTab(t.id)} style={{background:"none",border:"none",borderBottom:tab===t.id?"2px solid #4A90D9":"2px solid transparent",padding:"7px 14px",fontSize:"13px",cursor:"pointer",opacity:tab===t.id?1:0.4,fontWeight:tab===t.id?500:400}}>{t.label}</button>)}
+
+    {/* Tab content */}
+    {loading && data.length === 0 ? <div style={{ padding: "40px", textAlign: "center", opacity: 0.5 }}>Loading snapshot data...</div> :
+      tab === "scanner" ? <Scanner data={data} onSelect={lookupTicker} /> :
+      tab === "volume" ? <OptionsVolume data={data} onSelect={lookupTicker} /> :
+      tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} /> :
+      tab === "voldiv" ? <VolDivergence divs={volDivs} loading={volDivLoading} onScan={scanVolDivs} /> :
+      tab === "cross" ? <CrossAsset data={data} /> : null
+    }
+
+    {/* Footer */}
+    <div style={{ marginTop: "24px", padding: "12px", textAlign: "center", fontSize: "10px", opacity: 0.4 }}>
+      Data: Polygon.io · {data.length} tickers · Auto-refresh {POLL_INTERVAL_MS/60000}min during market hours
+      {lastUpdate && <span> · Last: {lastUpdate.toLocaleTimeString()}</span>}
     </div>
-    {tab==="lookup"&&<><TickerSearch onLookup={lookup} recentLookups={recent}/>{lookupD?<VerdictCard d={lookupD} onClose={()=>setLookupD(null)}/>:<div style={{padding:"40px 20px",textAlign:"center",opacity:0.3,fontSize:"14px",lineHeight:1.6}}>Type any stock, ETF, or index ticker above to see<br/>how options positioned around today\'s close</div>}</>}
-    {tab==="scanner"&&<Scanner data={data} onSelect={lookup}/>}
-    {tab==="walls"&&<WallProximity data={data} onSelect={lookup} loading={wallsLoading}/>}
-    {tab==="voldiv"&&<VolDivergence divergences={volDiv} onSelect={lookup}/>}
-    {tab==="optvol"&&<OptionsVolume data={data} onSelect={lookup}/>}
-    {tab==="divergence"&&<Divergence data={data}/>}
-    <div style={{marginTop:"14px",fontSize:"10px",opacity:0.45,lineHeight:1.5}}>v1 · {marketState.shouldPoll ? "Auto-refreshing every 15 min" : marketState.isPostMarket ? "Holding end-of-day readings" : "Updates resume next trading session"} · {data.length} watchlist · {data.filter(d=>d._live).length} live · Polygon Options Starter</div>
   </div>;
 }
 
