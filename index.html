@@ -476,36 +476,32 @@ function exportTickerCSV(ticker, historyData, currentData) {
 }
 
 function buildSummary(d) {
-  const opex = nextOpex(); const lines = []; let score = 0; const factors = [];
+  const opex = nextOpex(); let score = 0; const factors = [];
   const eq = fmtEq(d.regime==="positive" ? d.dspct : -d.dspct);
-  if (d.regime === "positive") {
-    lines.push(d.ticker + " positive gamma — dealers suppressing with " + eq.label + " counter-trend/1%. Flip/HVL " + fmtP(d.gammaFlip) + ", spot " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + ". Walls: call " + fmtP(d.callWall) + " (" + (d.callWallConf||0).toFixed(0) + "%), put " + fmtP(d.putWall) + " (" + (d.putWallConf||0).toFixed(0) + "%).");
-    score += 10; factors.push({ sig: "Gamma regime", det: "Positive — " + eq.label + " counter-trend", imp: "suppressing", dir: "neutral" });
-  } else {
-    lines.push(d.ticker + " negative gamma — dealers amplifying with " + eq.label + " pro-trend/1%. Flip/HVL " + fmtP(d.gammaFlip) + ", spot " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + ". Walls: call " + fmtP(d.callWall) + " (" + (d.callWallConf||0).toFixed(0) + "%), put " + fmtP(d.putWall) + " (" + (d.putWallConf||0).toFixed(0) + "%).");
-    score -= 15; factors.push({ sig: "Gamma regime", det: "Negative — " + eq.label + " pro-trend", imp: "amplifying", dir: "bearish" });
-  }
-  if (Math.abs(d.flipDist) < 1) { score += d.flipDist<0?-15:-5; factors.push({ sig: "Flip proximity", det: Math.abs(d.flipDist).toFixed(1) + "% from flip — regime change imminent", imp: "critical", dir: "volatile" }); }
-  const p2 = [];
-  if (d.dpc > 1.5) { p2.push("P/C " + d.dpc.toFixed(2) + " (" + d.pcp + "th) bearish"); score -= 15; factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " (" + d.pcp + "th pct) bearish", imp: "bearish", dir: "bearish" }); }
-  else if (d.dpc < 0.6) { p2.push("P/C " + d.dpc.toFixed(2) + " (" + d.pcp + "th) bullish"); score += 15; factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " (" + d.pcp + "th pct) bullish", imp: "bullish", dir: "bullish" }); }
-  else { factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " balanced", imp: "neutral", dir: "neutral" }); }
-  if (Math.abs(d.skewZ) > 2) { const sk = d.skewZ>0?"bearish":"bullish"; p2.push("skew " + d.skewZ.toFixed(1) + "σ (" + sk + ")"); score += d.skewZ>0?-10:10; factors.push({ sig: "Skew outlier", det: d.skewZ.toFixed(1) + "σ " + sk, imp: "outlier", dir: sk }); }
-  if (d.sq > 60) { score += d.regime==="negative"?-15:15; factors.push({ sig: "Squeeze", det: "Score " + Math.round(d.sq), imp: "high", dir: d.regime==="negative"?"bearish":"bullish" }); }
-  if (p2.length) lines.push(p2.join(", ") + ".");
-
-  if (d.skewGexSignal) { factors.push({ sig: "Skew × GEX", det: d.skewGexSignal.label, imp: d.skewGexSignal.type==="vulnerable"?"bearish":"neutral", dir: d.skewGexSignal.type==="vulnerable"?"bearish":"neutral" }); if (d.skewGexSignal.type==="vulnerable") score -= 10; if (d.skewGexSignal.type==="squeeze") score += 10; }
-  if (d.skewSignals.length > 0) { factors.push({ sig: "Skew signal", det: d.skewSignals[0].label, imp: d.skewSignals[0].severity==="high"?"critical":"neutral", dir: d.skewSignals[0].type==="steepening"?"bearish":"neutral" }); if (d.skewSignals[0].type==="steepening") score -= 8; }
-
-  if (Math.abs(d.zdg) > 5e8) { const zs = d.zdr==="negative"?-d.zds:d.zds; score += d.zdr==="negative"?-10:5; factors.push({ sig: "0DTE gamma", det: d.zdr + " — " + fmtEq(zs).label + " expiring", imp: d.zdr==="negative"?"amplifying":"suppressing", dir: d.zdr==="negative"?"volatile":"neutral" }); }
-  const bigT = d.trades.filter(t => Math.abs(t.eqShares)>30000);
-  if (bigT.length) { const net = bigT.reduce((s,t)=>s+(t.side==="bought"?Math.abs(t.eqShares):-Math.abs(t.eqShares)),0); score += net>0?8:-8; factors.push({ sig: "Sweeps", det: bigT.length + " prints, net " + fmtEq(net).label, imp: net>0?"bullish":"bearish", dir: net>0?"bullish":"bearish" }); }
-  const pd = ((d.maxPain-d.spot)/d.spot)*100;
-  if (Math.abs(pd) > 1) { score += pd>0?5:-5; factors.push({ sig: "Max pain", det: "Pin " + fmtP(d.maxPain) + " (" + (pd>0?"+":"") + pd.toFixed(1) + "%)", imp: "pin", dir: pd>0?"bullish":"bearish" }); }
-
+  const callDist = d.spot > 0 ? ((d.callWall - d.spot) / d.spot * 100) : 0;
+  const putDist = d.spot > 0 ? ((d.spot - d.putWall) / d.spot * 100) : 0;
+  const maxPainDist = d.spot > 0 ? ((d.maxPain - d.spot) / d.spot * 100) : 0;
   const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const isAfterClose = nowET.getHours() >= 16 || nowET.getDay() === 0 || nowET.getDay() === 6;
   const timeframe = isAfterClose ? "into tomorrow" : "this session";
+
+  // Score computation (same logic as before)
+  if (d.regime === "positive") { score += 10; factors.push({ sig: "Gamma regime", det: "Positive — " + eq.label + " counter-trend", imp: "suppressing", dir: "neutral" }); }
+  else { score -= 15; factors.push({ sig: "Gamma regime", det: "Negative — " + eq.label + " pro-trend", imp: "amplifying", dir: "bearish" }); }
+  if (Math.abs(d.flipDist) < 1) { score += d.flipDist<0?-15:-5; factors.push({ sig: "Flip proximity", det: Math.abs(d.flipDist).toFixed(1) + "% from flip — regime change imminent", imp: "critical", dir: "volatile" }); }
+  if (d.dpc > 1.5) { score -= 15; factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " (" + d.pcp + "th pct) bearish", imp: "bearish", dir: "bearish" }); }
+  else if (d.dpc < 0.6) { score += 15; factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " (" + d.pcp + "th pct) bullish", imp: "bullish", dir: "bullish" }); }
+  else { factors.push({ sig: "Delta P/C", det: d.dpc.toFixed(2) + " balanced", imp: "neutral", dir: "neutral" }); }
+  if (Math.abs(d.skewZ) > 2) { score += d.skewZ>0?-10:10; factors.push({ sig: "Skew outlier", det: d.skewZ.toFixed(1) + "σ " + (d.skewZ>0?"bearish":"bullish"), imp: "outlier", dir: d.skewZ>0?"bearish":"bullish" }); }
+  if (d.sq > 60) { score += d.regime==="negative"?-15:15; factors.push({ sig: "Squeeze", det: "Score " + Math.round(d.sq), imp: "high", dir: d.regime==="negative"?"bearish":"bullish" }); }
+  if (d.skewGexSignal) { factors.push({ sig: "Skew × GEX", det: d.skewGexSignal.label, imp: d.skewGexSignal.type==="vulnerable"?"bearish":"neutral", dir: d.skewGexSignal.type==="vulnerable"?"bearish":"neutral" }); if (d.skewGexSignal.type==="vulnerable") score -= 10; if (d.skewGexSignal.type==="squeeze") score += 10; }
+  if (d.skewSignals.length > 0) { factors.push({ sig: "Skew signal", det: d.skewSignals[0].label, imp: d.skewSignals[0].severity==="high"?"critical":"neutral", dir: d.skewSignals[0].type==="steepening"?"bearish":"neutral" }); if (d.skewSignals[0].type==="steepening") score -= 8; }
+  if (Math.abs(d.zdg) > 5e8) { const zs = d.zdr==="negative"?-d.zds:d.zds; score += d.zdr==="negative"?-10:5; factors.push({ sig: "0DTE gamma", det: d.zdr + " — " + fmtEq(zs).label + " expiring", imp: d.zdr==="negative"?"amplifying":"suppressing", dir: d.zdr==="negative"?"volatile":"neutral" }); }
+  const bigT = d.trades.filter(t => Math.abs(t.eqShares)>30000);
+  if (bigT.length) { const net = bigT.reduce((s,t)=>s+(t.side==="bought"?Math.abs(t.eqShares):-Math.abs(t.eqShares)),0); score += net>0?8:-8; factors.push({ sig: "Sweeps", det: bigT.length + " prints, net " + fmtEq(net).label, imp: net>0?"bullish":"bearish", dir: net>0?"bullish":"bearish" }); }
+  const pd = maxPainDist;
+  if (Math.abs(pd) > 1) { score += pd>0?5:-5; factors.push({ sig: "Max pain", det: "Pin " + fmtP(d.maxPain) + " (" + (pd>0?"+":"") + pd.toFixed(1) + "%)", imp: "pin", dir: pd>0?"bullish":"bearish" }); }
+
   score = Math.max(-100, Math.min(100, score));
   let verdict, vc, vbg;
   if (score > 30) { verdict = "Bullish tailwind " + timeframe; vc = "#0F6E56"; vbg = "rgba(29,158,117,0.08)"; }
@@ -513,7 +509,79 @@ function buildSummary(d) {
   else if (score > -10) { verdict = "Neutral positioning " + timeframe; vc = "#888780"; vbg = "rgba(128,128,128,0.05)"; }
   else if (score > -30) { verdict = "Mild bearish pressure " + timeframe; vc = "#BA7517"; vbg = "rgba(186,117,23,0.06)"; }
   else { verdict = "Bearish headwind " + timeframe; vc = "#A32D2D"; vbg = "rgba(226,75,74,0.08)"; }
-  return { score, verdict, vc, vbg, lines, factors };
+
+  // ═══ RICH SUMMARY — 5 expandable sentences ═══
+  const sentences = [];
+
+  // S1: Regime + dealer flow + HVL
+  const s1text = d.regime === "positive"
+    ? d.ticker + " positive gamma — dealers suppressing with " + eq.label + " counter-trend per 1%. Flip/HVL at " + fmtP(d.gammaFlip) + ", " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + " spot."
+    : d.ticker + " negative gamma — dealers amplifying with " + eq.label + " pro-trend per 1%. Flip/HVL at " + fmtP(d.gammaFlip) + ", " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + " spot.";
+  const s1detail = d.regime === "positive"
+    ? "Positive gamma means dealers are net long gamma — they must trade counter to price moves to stay hedged. " + eq.label + " means dealers buy approximately " + fmtS(d.dspct) + " per 1% decline (supporting price) and sell " + fmtS(d.dspct) + " per 1% rally (capping upside). The Flip/HVL at " + fmtP(d.gammaFlip) + " is where this reverses — below that level, dealers switch to selling into declines and buying into rallies, amplifying moves instead of dampening them. At " + Math.abs(d.flipDist).toFixed(1) + "% " + (d.flipDist>0?"above":"below") + " the flip, " + d.ticker + (Math.abs(d.flipDist) > 10 ? " has a substantial cushion before regime change." : Math.abs(d.flipDist) > 3 ? " has moderate distance from the regime boundary." : " is dangerously close to the flip — a regime change could happen with a relatively small move.")
+    : "Negative gamma means dealers are net short gamma — they must trade in the same direction as price moves. " + eq.label + " means dealers sell approximately " + fmtS(Math.abs(d.dspct)) + " into every 1% decline and buy " + fmtS(Math.abs(d.dspct)) + " into every 1% rally, amplifying moves in both directions. The Flip/HVL at " + fmtP(d.gammaFlip) + " is where this reverses — above that level, dealers switch back to counter-trend (suppressing moves). " + d.ticker + " needs to rally " + (d.flipDist < 0 ? Math.abs(d.flipDist).toFixed(1) + "%" : "back above " + fmtP(d.gammaFlip)) + " to regain the positive gamma cushion.";
+  sentences.push({ text: s1text, detail: s1detail });
+
+  // S2: Skew & RR — the dominant signal
+  let s2text = "";
+  let s2detail = "";
+  if (d.skewCurve === "forward" || (d.smileRatio > 0 && d.smileRatio < 0.97)) {
+    s2text = "The dominant signal is forward skew with calls richer than puts (smile ratio " + (d.smileRatio||0).toFixed(2) + (d.rr25d !== 0 ? ", 25Δ RR " + (d.rr25d > 0 ? "+" : "") + d.rr25d.toFixed(1) : "") + ") — the options market is pricing aggressive upside speculation.";
+    s2detail = "Forward skew means OTM call IV (" + (d.skew25dCallIV||0).toFixed(0) + "%) exceeds OTM put IV (" + (d.skew25dPutIV||0).toFixed(0) + "%). This is rare for equities and signals heavy demand for upside leverage — traders are paying more for calls than puts, flipping the normal skew structure. " + (d.rr25d > 0 ? "The positive risk reversal (+" + d.rr25d.toFixed(1) + ") confirms this: call demand is extreme. Per Borochin & Zhao (2022), this is a contrarian bearish signal — peak call speculation often precedes pullbacks." : d.rr25d < -3 ? "Despite forward skew, the risk reversal at " + d.rr25d.toFixed(1) + " is still negative, suggesting the forward skew is more about call volume than an extreme imbalance." : "The risk reversal near zero confirms balanced-to-call-heavy positioning.");
+  } else if (d.skewTermSpread > 3) {
+    s2text = "Near-term skew is steepening sharply (+" + d.skewTermSpread.toFixed(1) + "pts spread, " + (d.nearTermSkew||0).toFixed(1) + " near vs " + (d.farTermSkew||0).toFixed(1) + " far) — a risk-off signal indicating aggressive demand for short-dated downside protection.";
+    s2detail = "The skew term spread measures near-term 25Δ skew minus long-term 25Δ skew. At +" + d.skewTermSpread.toFixed(1) + "pts, near-term put protection is significantly more expensive relative to longer-dated puts. This means traders are hedging against an imminent move lower rather than structural tail risk. Per the Handbook §5.3, this steepening is a 'particularly strong risk-off signal' — it often precedes elevated realized volatility in the near term.";
+  } else if (d.rr25d < -8) {
+    s2text = "Extreme put skew with 25Δ RR at " + d.rr25d.toFixed(1) + " — heavy demand for downside protection, which is a contrarian bullish signal at these levels.";
+    s2detail = "The 25-delta risk reversal at " + d.rr25d.toFixed(1) + " shows puts are dramatically richer than calls. Traders are paying up heavily for downside protection. Contrarian interpretation (Borochin & Zhao 2022): extreme negative RR historically precedes positive returns, as peak fear tends to mark turning points. Put IV at " + (d.rr25dPutIV||0).toFixed(0) + "% vs call IV at " + (d.rr25dCallIV||0).toFixed(0) + "%.";
+  } else if (Math.abs(d.skewZ) > 1.5) {
+    const skDir = d.skewZ > 0 ? "steep put" : "flat/inverted";
+    s2text = "Skew is " + skDir + " at " + d.skewZ.toFixed(1) + "σ (25Δ skew " + (d.skew25d||0).toFixed(1) + "pts, smile ratio " + (d.smileRatio||0).toFixed(2) + ").";
+    s2detail = "The 25-delta skew Z-score at " + d.skewZ.toFixed(1) + "σ is " + (Math.abs(d.skewZ) > 2 ? "an extreme outlier" : "notably elevated") + ". Put 25Δ IV: " + (d.skew25dPutIV||0).toFixed(0) + "%, Call 25Δ IV: " + (d.skew25dCallIV||0).toFixed(0) + "%. " + (d.skewZ > 0 ? "Heavy put skew signals elevated demand for downside protection." : "Flatter-than-normal skew suggests reduced hedging demand or elevated call speculation.");
+  } else {
+    s2text = "Skew structure is normal (reverse skew, smile ratio " + (d.smileRatio||0).toFixed(2) + (d.rr25d !== 0 ? ", RR " + d.rr25d.toFixed(1) : "") + ") — no extreme vol positioning.";
+    s2detail = "The skew curve is in its standard configuration — OTM puts trade richer than calls, reflecting normal institutional hedging demand. Smile ratio at " + (d.smileRatio||0).toFixed(2) + " is within the typical range. No skew-based signals are firing.";
+  }
+  if (s2text) sentences.push({ text: s2text, detail: s2detail });
+
+  // S3: Flow — P/C, NDF, open positioning
+  const flowDir = d.dpc < 0.6 ? "bullish" : d.dpc > 1.3 ? "bearish" : "balanced";
+  const ndfLabel = fmtEq(d.ndf||d.nds||0).label;
+  let s3text = "Flow is " + (flowDir === "balanced" ? "balanced" : "heavily " + flowDir) + " with Δ P/C at " + d.dpc.toFixed(2) + " (" + d.pcp + "th percentile), NDF at " + ndfLabel;
+  if (d.openDpc > 0 && Math.abs(d.openDpc - d.dpc) > 0.15) {
+    s3text += ", and open positioning " + (d.openDpc < 0.7 ? "even more call-skewed" : d.openDpc > 1.3 ? "even more put-heavy" : "similar") + " at " + d.openDpc.toFixed(2);
+  }
+  s3text += " — the directional conviction carrying " + timeframe + " is " + (d.openDpc < 0.7 ? "overwhelmingly call-dominated" : d.openDpc > 1.3 ? "put-heavy" : "roughly balanced") + ".";
+  const s3detail = "Delta P/C at " + d.dpc.toFixed(2) + " (" + d.pcp + "th percentile) measures the ratio of put delta flow to call delta flow — " + (d.dpc < 0.6 ? "below 0.7 is bullish, meaning call delta exposure significantly exceeds puts" : d.dpc > 1.3 ? "above 1.3 is bearish, meaning put delta exposure exceeds calls" : "between 0.7-1.3 is balanced") + ". NDF (Net Delta Flow) at " + ndfLabel + " is the net directional bet in share-equivalent terms. Open Δ P/C at " + (d.openDpc||0).toFixed(2) + " excludes 0DTE contracts that expire at close — this is the positioning that carries into the next session and creates ongoing dealer hedging obligations. " + ((d.zdtePct||0) > 40 ? (d.zdtePct||0).toFixed(0) + "% of today's volume is 0DTE, meaning nearly half the flow disappears at close." : "0DTE is " + (d.zdtePct||0).toFixed(0) + "% of volume — most positioning carries forward.");
+  sentences.push({ text: s3text, detail: s3detail });
+
+  // S4: Walls + volume + OPEX
+  let s4text = "Support at " + fmtP(d.putWall) + " (put wall, " + (d.putWallConf||0).toFixed(0) + "% OI" + (d.putWallOI ? ", " + d.putWallOI.toLocaleString() + " contracts" : "") + "), resistance at " + fmtP(d.callWall) + " (call wall, " + (d.callWallConf||0).toFixed(0) + "% OI" + (d.callWallOI ? ", " + d.callWallOI.toLocaleString() + " contracts" : "") + ")";
+  if ((d.optVolPctADV||0) > 10) s4text += ", with options driving " + (d.optVolPctADV||0).toFixed(1) + "% of ADV";
+  if ((d.zdtePct||0) > 30) s4text += " and " + (d.zdtePct||0).toFixed(0) + "% of volume in 0DTE";
+  s4text += ".";
+  const s4detail = "The put wall at " + fmtP(d.putWall) + " (" + putDist.toFixed(1) + "% below spot) is the strike with the highest put OI — as price approaches this level, dealers who sold those puts must buy shares to hedge, creating mechanical buying support. The call wall at " + fmtP(d.callWall) + " (" + callDist.toFixed(1) + "% above spot) works in reverse — dealers must sell shares as price approaches, creating a ceiling. Max pain at " + fmtP(d.maxPain) + " (" + (maxPainDist > 0 ? "+" : "") + maxPainDist.toFixed(1) + "% from spot) is where option holder losses are maximized — price gravitates here into OPEX" + (opex.isNear ? " which is in " + opex.days + " day" + (opex.days !== 1 ? "s" : "") + "." : " (" + opex.days + " days away).") + " Options at " + (d.optVolPctADV||0).toFixed(1) + "% of ADV means " + ((d.optVolPctADV||0) > 20 ? "options are dominant in driving price action — dealer hedging is the primary force" : (d.optVolPctADV||0) > 10 ? "options are a significant contributor to price dynamics" : "equity flow is the primary driver, options are secondary") + ".";
+  sentences.push({ text: s4text, detail: s4detail });
+
+  // S5: Near-term outlook synthesis
+  let s5text = "Near-term outlook: ";
+  if (score > 20) {
+    s5text += d.regime === "positive" ? "positive gamma and " + (d.dpc < 0.7 ? "strong call flow" : "supportive positioning") + " favor the upside" : "despite negative gamma, bullish flow dominates";
+    if (d.skewCurve === "forward" || (d.skewTermSpread||0) > 3) s5text += ", but " + (d.skewCurve === "forward" ? "the forward skew is a contrarian warning flag — this is a crowded long" : "near-term skew steepening signals hedging demand beneath the surface");
+    s5text += ". Trading range: " + fmtP(d.putWall) + " support to " + fmtP(d.callWall) + " resistance.";
+  } else if (score < -20) {
+    s5text += d.regime === "negative" ? "negative gamma amplifies downside pressure" : "despite positive gamma cushion, bearish flow weighs";
+    s5text += ". The put wall at " + fmtP(d.putWall) + " is the key support level — below " + fmtP(d.gammaFlip) + " the selling accelerates. Call wall at " + fmtP(d.callWall) + " caps recovery attempts.";
+  } else {
+    s5text += d.regime === "positive" ? "positive gamma contains moves in both directions" : "negative gamma means any catalyst creates an outsized move";
+    if (d.skewCurve === "forward" && d.regime === "negative") s5text += " — the forward skew and negative gamma create a coiled setup where a break in either direction gets amplified";
+    else if (d.skewCurve === "forward") s5text += " — forward skew suggests call speculation is elevated but being contained by dealer hedging";
+    s5text += ". Range: " + fmtP(d.putWall) + " to " + fmtP(d.callWall) + ".";
+  }
+  const s5detail = "This synthesis weighs all signals from strongest to weakest. The conviction score of " + (score > 0 ? "+" : "") + score + " reflects: " + factors.slice(0, 4).map(f => f.sig + " (" + f.dir + ")").join(", ") + (factors.length > 4 ? ", and " + (factors.length - 4) + " more factors" : "") + ". Key price levels to watch: " + fmtP(d.putWall) + " (put wall support — dealers buy shares as price approaches), " + fmtP(d.callWall) + " (call wall resistance — dealers sell shares as price approaches), " + fmtP(d.gammaFlip) + " (flip/HVL — below this level the vol regime changes and " + (d.regime === "positive" ? "selling pressure accelerates" : "the regime could flip back to positive") + "), and " + fmtP(d.maxPain) + " (max pain — gravitational pull into OPEX).";
+  sentences.push({ text: s5text, detail: s5detail });
+
+  return { score, verdict, vc, vbg, sentences, factors };
 }
 
 // ─── UI COMPONENTS ──────────────────────────────────────────────────
@@ -623,6 +691,7 @@ function VerdictCard({ d, onClose }) {
   const [openRR, setOpenRR] = useState(false);
   const [openSkewCurve, setOpenSkewCurve] = useState(false);
   const [openSkewSig, setOpenSkewSig] = useState(null);
+  const [openSentence, setOpenSentence] = useState(null);
   useEffect(() => { if (d.ticker && d.spot > 0) fetch("/.netlify/functions/snapshot?ticker=" + d.ticker + "&history=true").then(r => r.json()).then(res => setHistData(res.points || [])).catch(() => setHistData([])); }, [d.ticker]);
 
   const pct = useCallback((metric) => { if (!histData || histData.length < 5) return null; return histPercentile(d[metric], histData.map(p => p[metric])); }, [histData, d]);
@@ -671,7 +740,9 @@ function VerdictCard({ d, onClose }) {
               {d.smileRatio > 0 && <div style={{ marginTop: "6px", fontSize: "11px", opacity: 0.7, fontFamily: "'SF Mono',monospace" }}>Put 25Δ IV: {d.skew25dPutIV.toFixed(1)}% · Call 25Δ IV: {d.skew25dCallIV.toFixed(1)}% · Smile ratio: {d.smileRatio.toFixed(2)}</div>}
             </div>}
             <div style={{ fontSize: "17px", fontWeight: 500, color: v.vc, marginBottom: "12px" }}>{v.verdict}</div>
-            <div style={{ fontSize: "13.5px", lineHeight: 1.7, opacity: 0.85, fontFamily: "-apple-system,sans-serif", maxWidth: "620px" }}>{v.lines.map((l,i) => <span key={i}>{l} </span>)}</div>
+            <div style={{ fontSize: "13.5px", lineHeight: 1.7, opacity: 0.85, fontFamily: "-apple-system,sans-serif", maxWidth: "660px" }}>
+              {v.sentences.map((s, i) => <span key={i}><span onClick={() => setOpenSentence(openSentence === i ? null : i)} style={{ cursor: "pointer", borderBottom: "1px dashed rgba(74,144,217,0.3)", paddingBottom: "1px" }}>{s.text}</span>{openSentence === i && <div style={{ margin: "8px 0 10px", padding: "10px 14px", borderRadius: "8px", background: "rgba(74,144,217,0.05)", border: "1px solid rgba(74,144,217,0.12)", fontSize: "12.5px", lineHeight: 1.65, color: "#1a2a3a", cursor: "default" }} onClick={e => e.stopPropagation()}>{s.detail}</div>}{" "}</span>)}
+            </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
             <button onClick={onClose} style={{ background: "none", border: "none", fontSize: "22px", cursor: "pointer", opacity: 0.82, padding: "4px" }}>×</button>
@@ -766,7 +837,10 @@ function VerdictCard({ d, onClose }) {
 
       {/* Sweeps */}
       {d.trades.length > 0 && <div style={{ padding: "0 20px 16px" }}>
-        <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.82, marginBottom: "6px" }}>High-delta sweeps</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+          <span style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.82 }}>High-delta sweeps</span>
+          <span style={{ fontSize: "10px", opacity: 0.45 }}>as of {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" })} ET</span>
+        </div>
         <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
           {d.trades.sort((a,b)=>Math.abs(b.eqShares)-Math.abs(a.eqShares)).map((tr,i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "6px 12px", fontSize: "13px", borderBottom: i<d.trades.length-1?"1px solid rgba(128,128,128,0.05)":"none" }}>
             <span style={{ opacity: 0.85, fontSize: "11px", minWidth: "36px" }}>{tr.time}</span>
@@ -947,6 +1021,70 @@ function CrossAsset({ data }) {
   </div>;
 }
 
+// ─── VOLUME SURGE TAB ───────────────────────────────────────────
+function VolumeSurge({ data, historyCache, onSelect }) {
+  const [surges, setSurges] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function computeSurges() {
+      const results = [];
+      for (const d of data.filter(t => t.spot > 0 && t.optVolRaw > 0)) {
+        try {
+          let hist = historyCache[d.ticker];
+          if (!hist) {
+            const r = await fetch("/.netlify/functions/snapshot?ticker=" + d.ticker + "&history=true");
+            if (r.ok) { const j = await r.json(); hist = j.points || []; }
+          }
+          if (!hist || hist.length < 3) continue;
+          const recentVols = hist.slice(-30).map(p => p.optVolRaw || 0).filter(v => v > 0);
+          if (recentVols.length < 3) continue;
+          const avg5 = recentVols.slice(-5).reduce((s,v)=>s+v,0) / Math.min(recentVols.length, 5);
+          const avg30 = recentVols.reduce((s,v)=>s+v,0) / recentVols.length;
+          const ratio5 = avg5 > 0 ? d.optVolRaw / avg5 : 0;
+          const ratio30 = avg30 > 0 ? d.optVolRaw / avg30 : 0;
+          // Also check call vs put volume skew
+          const callVol = (d.cdf || 0) > 0 ? d.cdf : 0;
+          const putVol = (d.pdf || 0) > 0 ? d.pdf : 0;
+          const totalFlow = callVol + putVol;
+          const callPct = totalFlow > 0 ? (callVol / totalFlow * 100) : 50;
+          if (ratio5 >= 1.5 || ratio30 >= 1.5) {
+            results.push({ ticker: d.ticker, spot: d.spot, todayVol: d.optVolRaw, avg5d: Math.round(avg5), avg30d: Math.round(avg30), ratio5: ratio5, ratio30: ratio30, callPct: callPct, regime: d.regime, dpc: d.dpc, at: d.at });
+          }
+        } catch (e) { /* skip */ }
+      }
+      setSurges(results.sort((a, b) => Math.max(b.ratio5, b.ratio30) - Math.max(a.ratio5, a.ratio30)));
+      setLoading(false);
+    }
+    if (data.length > 0) computeSurges();
+  }, [data, historyCache]);
+
+  if (loading) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Computing volume surges vs 5d/30d averages...</div>;
+  if (surges.length === 0) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.4 }}>No volume surges detected — all tickers within normal ranges.</div>;
+
+  return <div>
+    <div style={{ fontSize: "11px", opacity: 0.6, marginBottom: "12px" }}>{surges.length} ticker{surges.length !== 1 ? "s" : ""} with options volume pacing above 1.5x their recent average</div>
+    <div style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "10px", overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "65px 65px 80px 70px 70px 65px 65px 1fr", padding: "8px 12px", fontSize: "9px", textTransform: "uppercase", opacity: 0.5, background: "rgba(74,144,217,0.04)", borderBottom: "1px solid rgba(74,144,217,0.08)" }}>
+        <span>Ticker</span><span>Spot</span><span>Today Vol</span><span>vs 5d</span><span>vs 30d</span><span>Call %</span><span>P/C</span><span>Regime</span>
+      </div>
+      {surges.map((s, i) => {
+        const maxR = Math.max(s.ratio5, s.ratio30);
+        return <div key={s.ticker} onClick={() => onSelect(s.ticker)} style={{ display: "grid", gridTemplateColumns: "65px 65px 80px 70px 70px 65px 65px 1fr", padding: "7px 12px", fontSize: "12px", cursor: "pointer", borderBottom: i < surges.length-1 ? "1px solid rgba(74,144,217,0.05)" : "none" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+          <span style={{ fontWeight: 500 }}>{s.ticker}</span>
+          <span>{fmtP(s.spot)}</span>
+          <span style={{ fontWeight: 500 }}>{s.todayVol.toLocaleString()}</span>
+          <span style={{ color: s.ratio5 >= 2 ? "#A32D2D" : s.ratio5 >= 1.5 ? "#BA7517" : "inherit", fontWeight: s.ratio5 >= 2 ? 500 : 400 }}>{s.ratio5.toFixed(1)}x</span>
+          <span style={{ color: s.ratio30 >= 2 ? "#A32D2D" : s.ratio30 >= 1.5 ? "#BA7517" : "inherit", fontWeight: s.ratio30 >= 2 ? 500 : 400 }}>{s.ratio30.toFixed(1)}x</span>
+          <span style={{ color: s.callPct > 65 ? "#0F6E56" : s.callPct < 35 ? "#A32D2D" : "inherit" }}>{s.callPct.toFixed(0)}%</span>
+          <span style={{ color: s.dpc > 1.3 ? "#A32D2D" : s.dpc < 0.7 ? "#0F6E56" : "inherit" }}>{s.dpc.toFixed(2)}</span>
+          <span><Regime r={s.regime}/></span>
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
 // ─── APP COMPONENT ─────────────────────────────────────────────────
 function App() {
   const [tab, setTab] = useState("scanner");
@@ -960,6 +1098,7 @@ function App() {
   const [volDivs, setVolDivs] = useState([]);
   const [volDivLoading, setVolDivLoading] = useState(false);
   const [snapshotDate, setSnapshotDate] = useState(null);
+  const [historyCache, setHistoryCache] = useState({});
   const pollRef = useRef(null);
 
   const loadSnapshot = useCallback(async () => {
@@ -1032,6 +1171,7 @@ function App() {
   const tabs = [
     { id: "scanner", label: "Scanner" },
     { id: "volume", label: "Opts Volume" },
+    { id: "volsurge", label: "Vol Surge" },
     { id: "walls", label: "Walls" },
     { id: "voldiv", label: "Vol Divergence" },
     { id: "cross", label: "Cross-Asset" },
@@ -1073,6 +1213,7 @@ function App() {
     {loading && data.length === 0 ? <div style={{ padding: "40px", textAlign: "center", opacity: 0.5 }}>Loading snapshot data...</div> :
       tab === "scanner" ? <Scanner data={data} onSelect={lookupTicker} /> :
       tab === "volume" ? <OptionsVolume data={data} onSelect={lookupTicker} /> :
+      tab === "volsurge" ? <VolumeSurge data={data} historyCache={historyCache} onSelect={lookupTicker} /> :
       tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} /> :
       tab === "voldiv" ? <VolDivergence divs={volDivs} loading={volDivLoading} onScan={scanVolDivs} /> :
       tab === "cross" ? <CrossAsset data={data} /> : null
