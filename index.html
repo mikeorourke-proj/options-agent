@@ -900,49 +900,85 @@ function OptionsVolume({ data, onSelect }) {
 }
 
 // ─── WALL PROXIMITY TAB ─────────────────────────────────────────────
-function WallProximity({ data, onSelect, onFetchWalls }) {
-  const [autoFetched, setAutoFetched] = useState(false);
+function WallProximity({ data, onSelect, onFetchWalls, wallScanKey }) {
+  const PINNED = ["SPY", "QQQ"];
+  const [scanning, setScanning] = useState(false);
+  const [pinnedLoading, setPinnedLoading] = useState(false);
+  const lastScanKey = useRef(0);
+
+  // Auto-fetch SPY/QQQ live every time the tab opens (wallScanKey changes)
   useEffect(() => {
-    if (!autoFetched) {
-      const spyD = data.find(d => d.ticker === "SPY");
-      const qqqD = data.find(d => d.ticker === "QQQ");
-      if ((spyD && spyD.callWall === 0) || (qqqD && qqqD.callWall === 0)) {
-        if (onFetchWalls) { onFetchWalls(["SPY","QQQ"]); setAutoFetched(true); }
-      }
-    }
-  }, [data, autoFetched, onFetchWalls]);
+    if (wallScanKey <= lastScanKey.current) return;
+    lastScanKey.current = wallScanKey;
+    setPinnedLoading(true);
+    onFetchWalls(PINNED).finally(() => setPinnedLoading(false));
+  }, [wallScanKey, onFetchWalls]);
 
-  const callProx = data.filter(d => d.spot > 0 && d.callWall > 0).map(d => ({ ...d, dist: (d.callWall - d.spot) / d.spot * 100, wallType: "call" })).filter(d => d.dist >= -1 && d.dist <= 2.5);
-  const putProx = data.filter(d => d.spot > 0 && d.putWall > 0).map(d => ({ ...d, dist: (d.spot - d.putWall) / d.spot * 100, wallType: "put" })).filter(d => d.dist >= -1 && d.dist <= 2.5);
-  const pinSPY = data.find(d => d.ticker === "SPY");
-  const pinQQQ = data.find(d => d.ticker === "QQQ");
-  const addPinned = (arr, wallType) => {
-    [pinSPY, pinQQQ].forEach(p => { if (p && p.spot > 0 && !arr.find(a => a.ticker === p.ticker)) {
-      const dist = wallType === "call" ? (p.callWall - p.spot) / p.spot * 100 : (p.spot - p.putWall) / p.spot * 100;
-      arr.push({ ...p, dist, wallType });
-    }});
-    return arr.sort((a, b) => a.dist - b.dist);
+  // Manual rescan button — fetches live for the full watchlist to find new proximity hits
+  const rescan = async () => {
+    setScanning(true);
+    try { await onFetchWalls(DEFAULT_WATCHLIST); } catch (e) { console.warn("Rescan:", e); }
+    setScanning(false);
   };
-  const callFinal = addPinned(callProx, "call");
-  const putFinal = addPinned(putProx, "put");
 
-  const WallCol = ({ items, title, wallKey, confKey, oiKey }) => <div style={{ flex: 1 }}>
-    <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
-    {items.length === 0 ? <div style={{ opacity: 0.4, fontSize: "12px" }}>No tickers within 2.5%</div> :
-    <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
-      {items.map((d, i) => <div key={d.ticker} onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", borderBottom: i<items.length-1?"1px solid rgba(74,144,217,0.05)":"none" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-        <span style={{ fontWeight: 500, minWidth: "45px" }}>{d.ticker}</span>
+  // Build proximity lists — pinned always at top regardless of concentration
+  const buildList = (wallKey, confKey, oiKey, distFn) => {
+    const pinned = [];
+    const hits = [];
+    data.forEach(d => {
+      if (!d.spot || d.spot <= 0) return;
+      const wall = d[wallKey] || 0;
+      const conf = d[confKey] || 0;
+      const oi = d[oiKey] || 0;
+      const isPinned = PINNED.includes(d.ticker);
+      if (wall <= 0 && !isPinned) return;
+      const dist = wall > 0 ? distFn(d.spot, wall) : 999;
+      const noData = wall <= 0 || !d._live;
+      const row = { ...d, dist, wallType: wallKey === "callWall" ? "call" : "put", noData, _conf: conf, _oi: oi };
+      if (isPinned) pinned.push(row);
+      else if (!noData && conf >= 20 && dist >= -1 && dist <= 2.5) hits.push(row);
+    });
+    hits.sort((a, b) => a.dist - b.dist);
+    // Ensure pinned order: SPY first, then QQQ
+    pinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
+    return { pinned, hits };
+  };
+
+  const putList = buildList("putWall", "putWallConf", "putWallOI", (spot, wall) => (spot - wall) / spot * 100);
+  const callList = buildList("callWall", "callWallConf", "callWallOI", (spot, wall) => (wall - spot) / spot * 100);
+
+  const WallRow = ({ d, wallKey, confKey, oiKey, isPinned }) => {
+    const noData = d.noData;
+    return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: isPinned ? "rgba(74,144,217,0.03)" : "transparent" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background=isPinned?"rgba(74,144,217,0.03)":"transparent"}>
+      <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
+      {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>{pinnedLoading ? "Fetching live..." : "Click to load"}</span> : <>
         <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
         <span style={{ minWidth: "55px" }}>→ {fmtP(d[wallKey])}</span>
         <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
-        <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d[confKey]||0).toFixed(0)}% · {(d[oiKey]||0).toLocaleString()}</span>
-      </div>)}
-    </div>}
+        <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% · {(d._oi||0).toLocaleString()}</span>
+      </>}
+    </div>;
+  };
+
+  const WallCol = ({ pinned, hits, title, wallKey, confKey, oiKey }) => <div style={{ flex: 1 }}>
+    <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
+    <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
+      {pinned.map((d, i) => <WallRow key={d.ticker} d={d} wallKey={wallKey} confKey={confKey} oiKey={oiKey} isPinned={true} />)}
+      {pinned.length > 0 && hits.length > 0 && <div style={{ borderBottom: "2px solid rgba(74,144,217,0.12)" }} />}
+      {hits.map((d, i) => <WallRow key={d.ticker} d={d} wallKey={wallKey} confKey={confKey} oiKey={oiKey} isPinned={false} />)}
+      {hits.length === 0 && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>No other tickers within 2.5%</div>}
+    </div>
   </div>;
 
-  return <div style={{ display: "flex", gap: "16px" }}>
-    <WallCol items={putFinal} title="Put Walls (Support)" wallKey="putWall" confKey="putWallConf" oiKey="putWallOI" />
-    <WallCol items={callFinal} title="Call Walls (Resistance)" wallKey="callWall" confKey="callWallConf" oiKey="callWallOI" />
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+      <div style={{ fontSize: "11px", opacity: 0.5 }}>SPY/QQQ pinned · others screened ≥20% OI within 2.5%</div>
+      <button onClick={rescan} disabled={scanning} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: scanning ? "wait" : "pointer", color: "#2B6CB0", opacity: scanning ? 0.5 : 1 }}>{scanning ? "Scanning..." : "Rescan All"}</button>
+    </div>
+    <div style={{ display: "flex", gap: "16px" }}>
+      <WallCol pinned={putList.pinned} hits={putList.hits} title="Put Walls (Support)" wallKey="putWall" confKey="putWallConf" oiKey="putWallOI" />
+      <WallCol pinned={callList.pinned} hits={callList.hits} title="Call Walls (Resistance)" wallKey="callWall" confKey="callWallConf" oiKey="callWallOI" />
+    </div>
   </div>;
 }
 
@@ -1099,6 +1135,7 @@ function App() {
   const [volDivLoading, setVolDivLoading] = useState(false);
   const [snapshotDate, setSnapshotDate] = useState(null);
   const [historyCache, setHistoryCache] = useState({});
+  const [wallScanKey, setWallScanKey] = useState(0);
   const pollRef = useRef(null);
 
   const loadSnapshot = useCallback(async () => {
@@ -1156,7 +1193,12 @@ function App() {
     for (const ticker of tickers) {
       try {
         const d = await fetchTickerLive(ticker);
-        setData(prev => { const idx = prev.findIndex(p => p.ticker === ticker); if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], ...d }; return n; } return prev; });
+        if (!d || !d.spot || d.spot <= 0) continue;
+        setData(prev => {
+          const idx = prev.findIndex(p => p.ticker === ticker);
+          if (idx >= 0) { const n = [...prev]; n[idx] = { ...n[idx], ...d, _live: true }; return n; }
+          return [...prev, { ...d, _live: true }];
+        });
       } catch (e) { console.warn("Wall fetch:", e.message); }
     }
   }, []);
@@ -1206,7 +1248,7 @@ function App() {
 
     {/* Tabs */}
     <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid rgba(74,144,217,0.1)", paddingBottom: "0" }}>
-      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "voldiv" && volDivs.length === 0 && !volDivLoading) scanVolDivs(); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
+      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "voldiv" && volDivs.length === 0 && !volDivLoading) scanVolDivs(); if (t.id === "walls") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
     </div>
 
     {/* Tab content */}
@@ -1214,7 +1256,7 @@ function App() {
       tab === "scanner" ? <Scanner data={data} onSelect={lookupTicker} /> :
       tab === "volume" ? <OptionsVolume data={data} onSelect={lookupTicker} /> :
       tab === "volsurge" ? <VolumeSurge data={data} historyCache={historyCache} onSelect={lookupTicker} /> :
-      tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} /> :
+      tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} /> :
       tab === "voldiv" ? <VolDivergence divs={volDivs} loading={volDivLoading} onScan={scanVolDivs} /> :
       tab === "cross" ? <CrossAsset data={data} /> : null
     }
