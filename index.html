@@ -1207,7 +1207,11 @@ function Rebalance({ data }) {
           if (knownUL.has(tk) && !isNaN(pct)) newChanges[tk] = pct;
           if (knownLevered.has(tk) && !isNaN(pct)) newChanges["_etf_" + tk] = pct;
         }
-        if (Object.keys(newAum).length > 0) setManualAum(prev => ({ ...prev, ...newAum }));
+        if (Object.keys(newAum).length > 0) {
+          setManualAum(prev => ({ ...prev, ...newAum }));
+          // Persist AUM to server so it survives refresh
+          fetch("/.netlify/functions/snapshot?save-aum=true", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aum: newAum }) }).catch(() => {});
+        }
         if (Object.keys(newChanges).length > 0) setManualChanges(prev => ({ ...prev, ...newChanges }));
         const ulCount = Object.keys(newChanges).filter(k => !k.startsWith("_")).length;
         setOcrStatus(count + " ETFs" + (ulCount > 0 ? " + " + ulCount + " underlying moves" : "") + " extracted");
@@ -1242,6 +1246,16 @@ function Rebalance({ data }) {
     setEtfData(results); setFetched(true); setLoading(false);
   }, []);
   useEffect(() => { if (!fetched) fetchAumData(); }, [fetched, fetchAumData]);
+
+  // Load saved AUM from server on mount (persists across refreshes)
+  useEffect(() => {
+    fetch("/.netlify/functions/snapshot?load-aum=true").then(r => r.ok ? r.json() : null).then(d => {
+      if (d && d.aum && Object.keys(d.aum).length > 0) {
+        setManualAum(prev => Object.keys(prev).length > 0 ? prev : d.aum);
+        setOcrStatus(Object.keys(d.aum).length + " saved AUM values loaded");
+      }
+    }).catch(() => {});
+  }, []);
 
   const parsePastedAum = useCallback((text) => { const parsed = {}, tickers = new Set(LEVERED_ETFS.map(e => e.ticker)); for (const line of text.split(/[\n,;]+/)) { const clean = line.trim().replace(/\$/g, "").replace(/,/g, ""); if (!clean) continue; const match = clean.match(/([A-Z]{2,5})\s*[:\-=]?\s*([\d.]+)\s*(B|M|K|T)?/i); if (match) { const tk = match[1].toUpperCase(); if (!tickers.has(tk)) continue; let val = parseFloat(match[2]); const s = (match[3]||"").toUpperCase(); if (s==="T") val*=1e12; else if (s==="B") val*=1e9; else if (s==="M") val*=1e6; else if (s==="K") val*=1e3; else if (val>100&&val<1e6) val*=1e6; if (val>1e6) parsed[tk]=val; } } return parsed; }, []);
   const applyPaste = useCallback(() => { const parsed = parsePastedAum(pasteText); if (Object.keys(parsed).length > 0) { setManualAum(prev => ({ ...prev, ...parsed })); setPasteText(""); setShowPaste(false); } }, [pasteText, parsePastedAum]);
