@@ -1121,6 +1121,415 @@ function VolumeSurge({ data, historyCache, onSelect }) {
   </div>;
 }
 
+// ─── LEVERED ETF REBALANCE TAB ────────────────────────────────────
+const LEVERED_ETFS = [
+  { ticker: "TQQQ", underlying: "QQQ", name: "ProShares UltraPro QQQ", x: 3, gamma: 6 },
+  { ticker: "QLD",  underlying: "QQQ", name: "ProShares Ultra QQQ", x: 2, gamma: 2 },
+  { ticker: "SQQQ", underlying: "QQQ", name: "ProShares UltraPro Short QQQ", x: -3, gamma: 12 },
+  { ticker: "UPRO", underlying: "SPY", name: "ProShares UltraPro S&P500", x: 3, gamma: 6 },
+  { ticker: "SPXL", underlying: "SPY", name: "Direxion Daily S&P500 Bull 3X", x: 3, gamma: 6 },
+  { ticker: "SSO",  underlying: "SPY", name: "ProShares Ultra S&P500", x: 2, gamma: 2 },
+  { ticker: "SPXS", underlying: "SPY", name: "Direxion Daily S&P500 Bear 3X", x: -3, gamma: 12 },
+  { ticker: "SDS",  underlying: "SPY", name: "ProShares UltraShort S&P500", x: -2, gamma: 6 },
+  { ticker: "SH",   underlying: "SPY", name: "ProShares Short S&P500", x: -1, gamma: 2 },
+  { ticker: "SOXL", underlying: "SMH", name: "Direxion Daily Semiconductor Bull 3X", x: 3, gamma: 6 },
+  { ticker: "SOXS", underlying: "SMH", name: "Direxion Daily Semiconductor Bear 3X", x: -3, gamma: 12 },
+  { ticker: "USD",  underlying: "SMH", name: "ProShares Ultra Semiconductors", x: 2, gamma: 2 },
+  { ticker: "TNA",  underlying: "IWM", name: "Direxion Daily Small Cap Bull 3X", x: 3, gamma: 6 },
+  { ticker: "TZA",  underlying: "IWM", name: "Direxion Daily Small Cap Bear 3X", x: -3, gamma: 12 },
+  { ticker: "TECL", underlying: "XLK", name: "Direxion Daily Technology Bull 3X", x: 3, gamma: 6 },
+  { ticker: "UVXY", underlying: "VIX", name: "ProShares Ultra VIX Short-Term", x: 1.5, gamma: 0.75 },
+];
+
+const UNDERLYING_LABELS = { QQQ: "Nasdaq 100", SPY: "S&P 500", SMH: "Semiconductors", IWM: "Russell 2000", XLK: "Technology", VIX: "VIX" };
+const UNDERLYING_ORDER = ["QQQ", "SPY", "SMH", "IWM", "XLK", "VIX"];
+
+function Rebalance({ data }) {
+  const [etfData, setEtfData] = useState({});
+  const [manualAum, setManualAum] = useState({});
+  const [pasteText, setPasteText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
+  const [openExplainers, setOpenExplainers] = useState({});
+  const [rebalHistory, setRebalHistory] = useState([]);
+  const [histLoading, setHistLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const toggleExplainer = (key) => setOpenExplainers(prev => ({ ...prev, [key]: !prev[key] }));
+
+  // Clickable explainer inline component
+  const Explain = ({ id, children, detail }) => {
+    const isOpen = openExplainers[id];
+    return <span>
+      <span onClick={() => toggleExplainer(id)} style={{ cursor: "pointer", borderBottom: "1px dashed rgba(74,144,217,0.4)", paddingBottom: "1px", color: isOpen ? "#2B6CB0" : "inherit" }}>{children}</span>
+      {isOpen && <div style={{ marginTop: "6px", marginBottom: "6px", padding: "10px 12px", background: "rgba(74,144,217,0.05)", borderRadius: "6px", borderLeft: "3px solid rgba(74,144,217,0.3)", fontSize: "12px", lineHeight: 1.6, fontFamily: "-apple-system, sans-serif", color: "#1a2a3a", opacity: 0.85 }}>
+        {detail}
+      </div>}
+    </span>;
+  };
+
+  // Clickable badge explainer
+  const BadgeExplain = ({ id, label, color, detail }) => {
+    const isOpen = openExplainers[id];
+    return <span>
+      <span onClick={() => toggleExplainer(id)} style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "999px", background: color + "18", color: color, fontWeight: 500, cursor: "pointer", borderBottom: isOpen ? "1px dashed " + color : "none" }}>{label}</span>
+      {isOpen && <div style={{ marginTop: "6px", padding: "10px 12px", background: "rgba(74,144,217,0.05)", borderRadius: "6px", borderLeft: "3px solid " + color, fontSize: "12px", lineHeight: 1.6, fontFamily: "-apple-system, sans-serif", color: "#1a2a3a", opacity: 0.85, position: "relative", zIndex: 1 }}>
+        {detail}
+      </div>}
+    </span>;
+  };
+
+  const underlyingChanges = useMemo(() => {
+    const changes = {};
+    for (const d of data) {
+      if (d.changePerc !== undefined && d.changePerc !== 0) changes[d.ticker] = d.changePerc;
+      else if (d.prevClose && d.spot && d.prevClose > 0) changes[d.ticker] = ((d.spot - d.prevClose) / d.prevClose) * 100;
+    }
+    return changes;
+  }, [data]);
+
+  const regimes = useMemo(() => {
+    const r = {};
+    for (const d of data) { if (d.regime) r[d.ticker] = d.regime; }
+    return r;
+  }, [data]);
+
+  const fetchAumData = useCallback(async () => {
+    setLoading(true);
+    const results = {};
+    for (let i = 0; i < LEVERED_ETFS.length; i++) {
+      const etf = LEVERED_ETFS[i];
+      try {
+        const refR = await fetch('/.netlify/functions/polygon?endpoint=reference&ticker=' + etf.ticker);
+        if (refR.ok) {
+          const refD = await refR.json();
+          if (refD.market_cap && refD.market_cap > 0) results[etf.ticker] = { autoAum: refD.market_cap, sharesOut: refD.share_class_shares_outstanding || refD.weighted_shares_outstanding || 0 };
+        }
+        const quoteR = await fetch('/.netlify/functions/polygon?endpoint=quote&ticker=' + etf.ticker);
+        if (quoteR.ok) {
+          const quoteD = await quoteR.json();
+          if (quoteD.results && quoteD.results[0]) {
+            const q = quoteD.results[0];
+            results[etf.ticker] = { ...results[etf.ticker], price: q.c || 0, changePerc: q.changePerc || 0 };
+          }
+        }
+      } catch (e) { console.warn("Rebalance fetch:", etf.ticker, e.message); }
+      if (i < LEVERED_ETFS.length - 1) await new Promise(r => setTimeout(r, 200));
+    }
+    setEtfData(results);
+    setFetched(true);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { if (!fetched) fetchAumData(); }, [fetched, fetchAumData]);
+
+  const parsePastedAum = useCallback((text) => {
+    const parsed = {};
+    const tickers = new Set(LEVERED_ETFS.map(e => e.ticker));
+    const lines = text.split(/[\n,;]+/);
+    for (const line of lines) {
+      const clean = line.trim().replace(/\$/g, "").replace(/,/g, "");
+      if (!clean) continue;
+      const match = clean.match(/([A-Z]{2,5})\s*[:\-=]?\s*([\d.]+)\s*(B|M|K|T)?/i);
+      if (match) {
+        const tk = match[1].toUpperCase();
+        if (!tickers.has(tk)) continue;
+        let val = parseFloat(match[2]);
+        const suffix = (match[3] || "").toUpperCase();
+        if (suffix === "T") val *= 1e12;
+        else if (suffix === "B") val *= 1e9;
+        else if (suffix === "M") val *= 1e6;
+        else if (suffix === "K") val *= 1e3;
+        else if (val > 100 && val < 1e6) val *= 1e6;
+        if (val > 1e6) parsed[tk] = val;
+      }
+    }
+    return parsed;
+  }, []);
+
+  const applyPaste = useCallback(() => {
+    const parsed = parsePastedAum(pasteText);
+    if (Object.keys(parsed).length > 0) {
+      setManualAum(prev => ({ ...prev, ...parsed }));
+      setPasteText("");
+      setShowPaste(false);
+    }
+  }, [pasteText, parsePastedAum]);
+
+  const getAum = useCallback((ticker) => {
+    if (manualAum[ticker]) return { value: manualAum[ticker], source: "manual" };
+    if (etfData[ticker]?.autoAum) return { value: etfData[ticker].autoAum, source: "auto" };
+    return { value: 0, source: "none" };
+  }, [manualAum, etfData]);
+
+  const rebalanceData = useMemo(() => {
+    const byUnderlying = {};
+    for (const ul of UNDERLYING_ORDER) {
+      byUnderlying[ul] = { underlying: ul, label: UNDERLYING_LABELS[ul], deltaS: (underlyingChanges[ul] || 0) / 100, funds: [], totalRebalance: 0, totalAum: 0 };
+    }
+    for (const etf of LEVERED_ETFS) {
+      const aum = getAum(etf.ticker);
+      const group = byUnderlying[etf.underlying];
+      if (!group) continue;
+      const deltaS = group.deltaS;
+      const rebalance = aum.value > 0 ? etf.gamma * deltaS * aum.value : 0;
+      group.funds.push({ ...etf, aum: aum.value, aumSource: aum.source, rebalance, price: etfData[etf.ticker]?.price || 0 });
+      group.totalRebalance += rebalance;
+      group.totalAum += aum.value;
+    }
+    return byUnderlying;
+  }, [underlyingChanges, getAum, etfData]);
+
+  const getConfluence = (underlying, totalRebalance) => {
+    const gexRegime = regimes[underlying];
+    const isRebalBuy = totalRebalance > 0;
+    const isRebalSell = totalRebalance < 0;
+    const magnitude = Math.abs(totalRebalance);
+    if (magnitude < 50e6) return { key: "minimal", label: "Minimal", color: "#888", desc: "Rebalance flow too small relative to typical daily volumes to create meaningful price impact." };
+    if (gexRegime === "negative" && isRebalSell) return { key: "amplify", label: "⚠ Amplification Risk", color: "#E24B4A", desc: "Dealers are already short gamma (amplifying moves). Levered ETF mechanical selling into the close adds fuel to a down tape. This is the most dangerous combination — forced selling into a market where dealer hedging is also pro-cyclical. The close can get significantly worse than the intraday low." };
+    if (gexRegime === "positive" && isRebalBuy) return { key: "reinforce", label: "Momentum Reinforcement", color: "#1D9E75", desc: "Dealers are long gamma (suppressing moves) while levered ETFs need to buy. The buying pressure extends the trend but is partially absorbed by dealer counter-trend hedging. Expect a grind higher into the close rather than a spike." };
+    if (gexRegime === "positive" && isRebalSell) return { key: "dampened", label: "Dampened", color: "#BA7517", desc: "Dealers are long gamma and will buy the dip mechanically. Levered ETF selling is partially offset by this dealer support. The close may be orderly despite the mechanical sell flow." };
+    if (gexRegime === "negative" && isRebalBuy) return { key: "reflexive", label: "Reflexive", color: "#BA7517", desc: "Dealers are short gamma while levered ETFs need to buy. This can create a reflexive squeeze — dealer hedging chases the rally higher while mechanical buying adds pressure. Watch for an accelerating close." };
+    return { key: isRebalBuy ? "buy" : "sell", label: isRebalBuy ? "Buy flow" : "Sell flow", color: isRebalBuy ? "#1D9E75" : "#E24B4A", desc: "Mechanical rebalance flow with no GEX regime data for the underlying. The rebalance trades in the direction of today's move." };
+  };
+
+  const manualCount = Object.keys(manualAum).length;
+  const totalRebalAll = Object.values(rebalanceData).reduce((s, g) => s + g.totalRebalance, 0);
+
+  const cellStyle = { padding: "6px 10px", fontSize: "11px", borderBottom: "1px solid rgba(74,144,217,0.06)" };
+  const headStyle = { ...cellStyle, fontWeight: 500, opacity: 0.6, position: "sticky", top: 0, background: "#f0f6fb" };
+
+  return <div>
+    {/* Controls */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+      <div>
+        <Explain id="formula" detail={<span>
+          <strong>Rebalance = X(X−1) × ΔS × AUM</strong><br/><br/>
+          <strong>X</strong> = leverage factor (e.g. 3 for TQQQ, -3 for SQQQ)<br/>
+          <strong>X(X−1)</strong> = the fund's gamma — how much its delta drifts per unit move. A 3× long ETF has gamma of 6. A -3× inverse ETF has gamma of <em>12</em> — inverse products are disproportionately destabilizing.<br/><br/>
+          <strong>ΔS</strong> = today's % change in the underlying index<br/>
+          <strong>AUM</strong> = the fund's net asset value (not the leveraged notional)<br/><br/>
+          The rebalance is <em>always in the direction of the move</em>: buy on up days, sell on down days, regardless of whether the fund is long or inverse. This is because the bank maintaining the leverage swap must adjust its delta to stay at X× the new NAV.<br/><br/>
+          <span style={{ opacity: 0.6 }}>Source: Abdelmessih, "The Gamma of Levered ETFs" (2022); Constan, @dampedspring (2026)</span>
+        </span>}>
+          <span style={{ fontSize: "11px", opacity: 0.6 }}>Rebalance = γ × ΔS × AUM</span>
+        </Explain>
+        {manualCount > 0 && <span style={{ fontSize: "10px", marginLeft: "8px", padding: "2px 8px", borderRadius: "999px", background: "rgba(74,144,217,0.1)", color: "#2B6CB0" }}>{manualCount} manual AUM</span>}
+      </div>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <button onClick={() => setShowPaste(!showPaste)} style={{ background: showPaste ? "rgba(74,144,217,0.15)" : "rgba(74,144,217,0.08)", border: "1px solid rgba(74,144,217,0.15)", borderRadius: "6px", padding: "4px 12px", fontSize: "11px", cursor: "pointer", color: "#2B6CB0" }}>
+          {showPaste ? "Close" : "Paste AUM"}
+        </button>
+        <button onClick={fetchAumData} disabled={loading} style={{ background: "rgba(74,144,217,0.08)", border: "1px solid rgba(74,144,217,0.15)", borderRadius: "6px", padding: "4px 12px", fontSize: "11px", cursor: "pointer", color: loading ? "#999" : "#2B6CB0" }}>
+          {loading ? "Fetching..." : "Refresh"}
+        </button>
+      </div>
+    </div>
+
+    {/* Paste AUM panel */}
+    {showPaste && <div style={{ background: "white", borderRadius: "8px", padding: "12px", marginBottom: "12px", border: "1px solid rgba(74,144,217,0.12)" }}>
+      <div style={{ fontSize: "11px", opacity: 0.6, marginBottom: "6px" }}>Paste AUM data — any format: "TQQQ 36776.10" or "TQQQ $36.8B" per line. Manual values override auto-fetched.</div>
+      <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder={"TQQQ 36776.10\nSOXL 19734.70\nSPXL 6340.07\n..."} style={{ width: "100%", height: "80px", fontFamily: "inherit", fontSize: "11px", border: "1px solid rgba(74,144,217,0.2)", borderRadius: "4px", padding: "8px", resize: "vertical" }} />
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px" }}>
+        <span style={{ fontSize: "10px", opacity: 0.5 }}>
+          {pasteText ? `Parsed: ${Object.keys(parsePastedAum(pasteText)).length} tickers` : "Accepts $M or $B notation"}
+        </span>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {manualCount > 0 && <button onClick={() => setManualAum({})} style={{ background: "rgba(226,75,74,0.08)", border: "1px solid rgba(226,75,74,0.15)", borderRadius: "4px", padding: "3px 10px", fontSize: "10px", cursor: "pointer", color: "#A32D2D" }}>Clear manual</button>}
+          <button onClick={applyPaste} disabled={!pasteText} style={{ background: "#4A90D9", color: "white", border: "none", borderRadius: "4px", padding: "3px 10px", fontSize: "10px", cursor: pasteText ? "pointer" : "default", opacity: pasteText ? 1 : 0.4 }}>Apply</button>
+        </div>
+      </div>
+    </div>}
+
+    {/* Headline: Total estimated rebalance */}
+    {!loading && fetched && <div style={{ background: "white", borderRadius: "8px", padding: "14px 16px", marginBottom: "12px", border: "1px solid rgba(74,144,217,0.08)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <Explain id="headline" detail={<span>
+            This is the <strong>total estimated dollar amount</strong> of equity rebalance flow that levered ETF swap counterparties (banks) must execute to maintain their target leverage ratios.<br/><br/>
+            A <strong>BUY</strong> estimate means banks must purchase shares/futures of the underlying indices into the close. A <strong>SELL</strong> estimate means they must sell.<br/><br/>
+            The flow is <em>mechanical and non-discretionary</em> — it must happen regardless of price. This makes it predictable, unlike organic order flow. On large move days (2%+), these flows can reach $5-10B+ across all underlyings combined.<br/><br/>
+            <span style={{ opacity: 0.6 }}>Per Citadel Securities GMI (May 2026): US levered ETF AUM has reached ~$203B, with ~92% in equities and ~70% concentrated in technology. "These products are being traded by all types of investors, including institutions, not just retail."</span>
+          </span>}>
+            <span style={{ fontSize: "10px", opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.5px" }}>Est. Closing Rebalance (all underlyings)</span>
+          </Explain>
+          <div style={{ fontSize: "22px", fontWeight: 500, color: totalRebalAll >= 0 ? "#1D9E75" : "#E24B4A", marginTop: "4px" }}>
+            {totalRebalAll >= 0 ? "BUY " : "SELL "}{fmtD(Math.abs(totalRebalAll))}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <Explain id="timing" detail={<span>
+            Levered ETF rebalance trades are concentrated in the <strong>last 15-30 minutes</strong> of the trading session (3:30-4:00 PM ET). The swap counterparty banks execute via futures, ETFs, or stock baskets at or near the market-on-close (MOC).<br/><br/>
+            <strong>Why the close?</strong> Levered ETFs promise a daily leverage ratio. The bank must true up its hedging delta at end-of-day so the fund opens the next morning at exactly X× exposure. Intraday drift is tolerated; the EOD print is what matters.<br/><br/>
+            <strong>Trading implications:</strong> If you know the direction and approximate magnitude of the rebalance, you know there is forced, non-discretionary flow hitting in the last 30 minutes. Frontrunning this flow was a popular institutional strategy during the GFC and commodity cycles.<br/><br/>
+            <span style={{ opacity: 0.6 }}>"Estimating, frontrunning, and trading against the rebalance to close was a popular game for traders who understood this dynamic." — Abdelmessih</span>
+          </span>}>
+            <span style={{ fontSize: "10px", opacity: 0.5 }}>Hits into close ~3:30-4:00 ET</span>
+          </Explain>
+          <div style={{ fontSize: "10px", opacity: 0.4, marginTop: "2px" }}>Always trades in direction of move</div>
+        </div>
+      </div>
+    </div>}
+
+    {loading && !fetched && <div style={{ padding: "40px", textAlign: "center", opacity: 0.5, fontSize: "12px" }}>Fetching levered ETF data from Polygon...</div>}
+
+    {/* Per-underlying breakdown */}
+    {fetched && UNDERLYING_ORDER.map(ul => {
+      const group = rebalanceData[ul];
+      if (!group || group.totalAum === 0) return null;
+      const conf = getConfluence(ul, group.totalRebalance);
+      const deltaSpct = group.deltaS * 100;
+      const regime = regimes[ul];
+
+      return <div key={ul} style={{ background: "white", borderRadius: "8px", marginBottom: "10px", border: "1px solid rgba(74,144,217,0.08)", overflow: "hidden" }}>
+        {/* Underlying header */}
+        <div style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(74,144,217,0.06)", flexWrap: "wrap", gap: "6px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontWeight: 500, fontSize: "13px" }}>{ul}</span>
+            <span style={{ fontSize: "11px", opacity: 0.5 }}>{group.label}</span>
+            <span style={{ fontSize: "11px", fontWeight: 500, color: deltaSpct >= 0 ? "#1D9E75" : "#E24B4A" }}>{fmtPct(deltaSpct)}</span>
+            {regime && <Regime r={regime} />}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <BadgeExplain id={"conf-" + ul} label={conf.label} color={conf.color} detail={<span>
+              <strong>{conf.label}</strong><br/><br/>
+              {conf.desc}<br/><br/>
+              <strong>Current state:</strong> {ul} is {deltaSpct >= 0 ? "up" : "down"} {Math.abs(deltaSpct).toFixed(2)}% today{regime ? ` in ${regime} gamma` : ""}. Levered ETFs on this underlying must {group.totalRebalance >= 0 ? "buy" : "sell"} ~{fmtD(Math.abs(group.totalRebalance))} into the close.
+              {ul === "SMH" && <span><br/><br/><span style={{ opacity: 0.6 }}>Semiconductor levered ETFs (SOXL + SOXS + USD) carry ~$23B+ AUM — their rebalance can rival SPX flows on volatile days. Retail accounts for ~25% of 3× semi ETF volume (GS, May 2026).</span></span>}
+              {ul === "QQQ" && <span><br/><br/><span style={{ opacity: 0.6 }}>TQQQ alone at ~$37B AUM with gamma of 6 generates ~$2.2B of rebalance per 1% QQQ move. The QQQ complex including SQQQ, QLD, and others is the single largest rebalance channel in the market.</span></span>}
+            </span>} />
+            <span style={{ fontSize: "14px", fontWeight: 500, color: group.totalRebalance >= 0 ? "#1D9E75" : "#E24B4A" }}>
+              {group.totalRebalance >= 0 ? "BUY " : "SELL "}{fmtD(Math.abs(group.totalRebalance))}
+            </span>
+          </div>
+        </div>
+
+        {/* Fund table */}
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ textAlign: "left" }}>
+              <th style={headStyle}>Fund</th>
+              <th style={{ ...headStyle, textAlign: "right" }}>Leverage</th>
+              <th style={headStyle}>
+                <Explain id="gamma-col" detail={<span>
+                  <strong>γ = X(X−1)</strong> — the rebalance multiplier.<br/><br/>
+                  This determines how much rebalance flow a fund generates per 1% move in the underlying, relative to its AUM. Key insight: <strong>inverse ETFs have disproportionately large gammas</strong>.<br/><br/>
+                  <table style={{ fontSize: "11px", borderCollapse: "collapse", marginTop: "4px" }}>
+                    <tbody>
+                      <tr><td style={{ padding: "2px 8px" }}>3× long</td><td style={{ padding: "2px 8px", fontWeight: 500 }}>γ = 6</td></tr>
+                      <tr><td style={{ padding: "2px 8px" }}>2× long</td><td style={{ padding: "2px 8px", fontWeight: 500 }}>γ = 2</td></tr>
+                      <tr><td style={{ padding: "2px 8px" }}>-1× inverse</td><td style={{ padding: "2px 8px", fontWeight: 500 }}>γ = 2</td><td style={{ padding: "2px 8px", opacity: 0.6 }}>same as 2× long!</td></tr>
+                      <tr><td style={{ padding: "2px 8px" }}>-2× inverse</td><td style={{ padding: "2px 8px", fontWeight: 500 }}>γ = 6</td><td style={{ padding: "2px 8px", opacity: 0.6 }}>same as 3× long</td></tr>
+                      <tr><td style={{ padding: "2px 8px" }}>-3× inverse</td><td style={{ padding: "2px 8px", fontWeight: 500, color: "#E24B4A" }}>γ = 12</td><td style={{ padding: "2px 8px", opacity: 0.6 }}>2× a 3× long!</td></tr>
+                    </tbody>
+                  </table>
+                  <br/>A -3× ETF like SQQQ rebalances twice as aggressively as TQQQ (3× long) for the same AUM and same underlying move. This asymmetry means even relatively small inverse ETFs can generate outsized flow.
+                </span>}>
+                  <span style={{ textAlign: "right", display: "block" }}>γ</span>
+                </Explain>
+              </th>
+              <th style={{ ...headStyle, textAlign: "right" }}>AUM</th>
+              <th style={{ ...headStyle, textAlign: "center", width: "20px" }}></th>
+              <th style={{ ...headStyle, textAlign: "right" }}>Rebalance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {group.funds.sort((a, b) => Math.abs(b.rebalance) - Math.abs(a.rebalance)).map(f => (
+              <tr key={f.ticker}>
+                <td style={cellStyle}>
+                  <span style={{ fontWeight: 500 }}>{f.ticker}</span>
+                  <span style={{ fontSize: "10px", opacity: 0.4, marginLeft: "6px" }}>{f.name.split(" ").slice(-2).join(" ")}</span>
+                </td>
+                <td style={{ ...cellStyle, textAlign: "right", color: f.x > 0 ? "#1D9E75" : "#E24B4A" }}>{f.x > 0 ? "+" : ""}{f.x}×</td>
+                <td style={{ ...cellStyle, textAlign: "right" }}>{f.gamma}</td>
+                <td style={{ ...cellStyle, textAlign: "right" }}>
+                  {f.aum > 0 ? fmtD(f.aum) : <span style={{ opacity: 0.3 }}>—</span>}
+                  {f.aumSource === "manual" && <span style={{ fontSize: "8px", marginLeft: "3px", color: "#2B6CB0" }}>M</span>}
+                </td>
+                <td style={{ ...cellStyle, textAlign: "center" }}></td>
+                <td style={{ ...cellStyle, textAlign: "right", fontWeight: 500, color: f.rebalance === 0 ? "#999" : f.rebalance > 0 ? "#1D9E75" : "#E24B4A" }}>
+                  {f.rebalance === 0 ? "—" : (f.rebalance > 0 ? "+" : "") + fmtD(f.rebalance)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>;
+    })}
+
+    {/* Rebalance History */}
+    {fetched && <div style={{ marginTop: "4px", marginBottom: "8px" }}>
+      <button onClick={async () => {
+        if (rebalHistory.length > 0) { setShowHistory(!showHistory); return; }
+        setHistLoading(true); setShowHistory(true);
+        try {
+          const r = await fetch("/.netlify/functions/snapshot?rebalance-history=true");
+          if (r.ok) { const d = await r.json(); setRebalHistory(d.points || []); }
+        } catch (e) { console.warn("Rebal history:", e.message); }
+        setHistLoading(false);
+      }} style={{ background: "rgba(74,144,217,0.08)", border: "1px solid rgba(74,144,217,0.12)", borderRadius: "6px", padding: "5px 14px", fontSize: "11px", cursor: "pointer", color: "#2B6CB0" }}>
+        {showHistory ? "Hide History" : "Show History"}
+      </button>
+    </div>}
+
+    {showHistory && histLoading && <div style={{ padding: "20px", textAlign: "center", opacity: 0.5, fontSize: "11px" }}>Loading rebalance history...</div>}
+
+    {showHistory && !histLoading && rebalHistory.length > 0 && <div style={{ background: "white", borderRadius: "8px", border: "1px solid rgba(74,144,217,0.08)", overflow: "hidden", marginBottom: "10px" }}>
+      <div style={{ padding: "10px 14px", fontSize: "12px", fontWeight: 500, borderBottom: "1px solid rgba(74,144,217,0.06)" }}>
+        Daily Rebalance History <span style={{ fontSize: "10px", opacity: 0.5, fontWeight: 400 }}>({rebalHistory.length} days captured)</span>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ textAlign: "left" }}>
+            <th style={headStyle}>Date</th>
+            <th style={{ ...headStyle, textAlign: "right" }}>Total</th>
+            {["QQQ","SPY","SMH","IWM"].map(ul => <th key={ul} style={{ ...headStyle, textAlign: "right" }}>{ul}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rebalHistory.slice().reverse().map(p => {
+            const absTotal = Math.abs(p.totalRebalance);
+            const isBig = absTotal > 2e9;
+            return <tr key={p.date} style={{ background: isBig ? "rgba(226,75,74,0.03)" : "transparent" }}>
+              <td style={cellStyle}>{p.date}</td>
+              <td style={{ ...cellStyle, textAlign: "right", fontWeight: 500, color: p.totalRebalance >= 0 ? "#1D9E75" : "#E24B4A" }}>
+                {p.totalRebalance >= 0 ? "+" : ""}{fmtD(p.totalRebalance)}
+                {isBig && <span style={{ fontSize: "8px", marginLeft: "3px" }}>⚠</span>}
+              </td>
+              {["QQQ","SPY","SMH","IWM"].map(ul => {
+                const ulData = p.byUnderlying?.[ul];
+                const val = ulData?.totalRebalance || 0;
+                return <td key={ul} style={{ ...cellStyle, textAlign: "right", fontSize: "10px", color: val === 0 ? "#999" : val > 0 ? "#1D9E75" : "#E24B4A" }}>
+                  {val === 0 ? "—" : (val > 0 ? "+" : "") + fmtD(val)}
+                  {ulData?.regime && <span style={{ fontSize: "8px", marginLeft: "2px", opacity: 0.5 }}>{ulData.regime === "negative" ? "−γ" : "+γ"}</span>}
+                </td>;
+              })}
+            </tr>;
+          })}
+        </tbody>
+      </table>
+    </div>}
+
+    {showHistory && !histLoading && rebalHistory.length === 0 && <div style={{ padding: "16px", textAlign: "center", opacity: 0.5, fontSize: "11px", background: "white", borderRadius: "8px", marginBottom: "10px" }}>No rebalance history captured yet. Data accumulates from the next batch capture forward.</div>}
+
+    {/* Methodology footer */}
+    <div style={{ marginTop: "8px", padding: "10px 12px", fontSize: "10px", opacity: 0.4, lineHeight: 1.5 }}>
+      <Explain id="methodology" detail={<span>
+        <strong>Methodology & Sources</strong><br/><br/>
+        <strong>Formula:</strong> Rebalance = X(X−1) × ΔS × AUM, derived from the general solution to the levered ETF delta adjustment problem. The bank/swap counterparty maintains delta of X × NAV. When the underlying moves by ΔS, the delta drifts and must be rebalanced by X(X−1) × ΔS × NAV to restore the target leverage ratio.<br/><br/>
+        <strong>Key property:</strong> The rebalance is <em>always destabilizing</em> — it trades in the direction of the underlying move. Long and inverse ETFs both generate buy flow on up days and sell flow on down days. The gamma is proportional to X², so the rebalance grows quadratically with leverage.<br/><br/>
+        <strong>AUM:</strong> Auto-fetched from Polygon.io reference data (market_cap for ETFs ≈ NAV). Manual paste overrides auto when supplied. AUM changes daily with price and fund flows; morning values are current enough since creations/redemptions settle overnight.<br/><br/>
+        <strong>Confluence:</strong> GEX regime from the options positioning engine (Scanner/Cross-Asset tabs). Negative gamma + forced selling is the maximum fragility state. Positive gamma + forced buying extends trends into the close.<br/><br/>
+        <strong>Limitations:</strong> AUM from Polygon reference may lag by 1-2 days. Profit-taking redemptions can partially offset rebalance (stabilizing after declines, destabilizing after rallies). Banks may pre-hedge or spread execution across a wider window. This is an estimate of the mechanical flow, not a guarantee of price impact.<br/><br/>
+        <span style={{ opacity: 0.6 }}>Sources: Abdelmessih, "The Gamma of Levered ETFs" (2022). Constan, @dampedspring (2026). Citadel Securities GMI, "Flow Fragility" (May 2026). Goldman Sachs, "Rise and Reach of Retail Trading" (May 2026).</span>
+      </span>}>
+        <span>Rebalance = X(X−1) × ΔS × AUM · Levered ETFs always trade in direction of the move · Confluence via options GEX regime · Tap any underlined text for details</span>
+      </Explain>
+    </div>
+  </div>;
+}
+
 // ─── APP COMPONENT ─────────────────────────────────────────────────
 function App() {
   const [tab, setTab] = useState("scanner");
@@ -1217,6 +1626,7 @@ function App() {
     { id: "walls", label: "Walls" },
     { id: "voldiv", label: "Vol Divergence" },
     { id: "cross", label: "Cross-Asset" },
+    { id: "rebalance", label: "Rebalance" },
   ];
 
   return <div>
@@ -1258,7 +1668,8 @@ function App() {
       tab === "volsurge" ? <VolumeSurge data={data} historyCache={historyCache} onSelect={lookupTicker} /> :
       tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} /> :
       tab === "voldiv" ? <VolDivergence divs={volDivs} loading={volDivLoading} onScan={scanVolDivs} /> :
-      tab === "cross" ? <CrossAsset data={data} /> : null
+      tab === "cross" ? <CrossAsset data={data} /> :
+      tab === "rebalance" ? <Rebalance data={data} /> : null
     }
 
     {/* Footer */}
