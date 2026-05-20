@@ -1227,16 +1227,33 @@ function Rebalance({ data }) {
   const handleDrop = useCallback((e) => { e.preventDefault(); const file = e.dataTransfer?.files?.[0]; if (file && file.type.startsWith("image/")) { setImagePreview(URL.createObjectURL(file)); processImage(file); } }, [processImage]);
   const handleFileSelect = useCallback((e) => { const file = e.target.files?.[0]; if (file) { setImagePreview(URL.createObjectURL(file)); processImage(file); } }, [processImage]);
 
+  const [fetchedChanges, setFetchedChanges] = useState({});  // underlying ticker -> changePerc from Polygon quote
+
   const underlyingChanges = useMemo(() => {
     const changes = {};
     for (const d of data) { if (d.changePerc !== undefined && d.changePerc !== 0) changes[d.ticker] = d.changePerc; else if (d.prevClose && d.spot && d.prevClose > 0) changes[d.ticker] = ((d.spot - d.prevClose) / d.prevClose) * 100; }
+    // Layer 2: fetched quotes (from Refresh) override snapshot
+    for (const [tk, pct] of Object.entries(fetchedChanges)) { if (pct !== 0) changes[tk] = pct; }
+    // Layer 3: manual (from image) overrides everything
     for (const [tk, pct] of Object.entries(manualChanges)) { if (!tk.startsWith("_")) changes[tk] = pct; }
     return changes;
-  }, [data, manualChanges]);
+  }, [data, fetchedChanges, manualChanges]);
   const regimes = useMemo(() => { const r = {}; for (const d of data) { if (d.regime) r[d.ticker] = d.regime; } return r; }, [data]);
 
   const fetchAumData = useCallback(async () => {
     setLoading(true); const results = {};
+    // First: fetch underlying quotes for ΔS
+    const underlyings = ["SPY","QQQ","SMH","IWM","XLK"];
+    const ulChanges = {};
+    for (const ul of underlyings) {
+      try {
+        const r = await fetch('/.netlify/functions/polygon?endpoint=quote&ticker=' + ul);
+        if (r.ok) { const d = await r.json(); if (d.results?.[0]?.changePerc) ulChanges[ul] = d.results[0].changePerc; }
+      } catch {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    setFetchedChanges(ulChanges);
+    // Then: fetch levered ETF reference + quotes
     for (let i = 0; i < LEVERED_ETFS.length; i++) {
       const etf = LEVERED_ETFS[i];
       try { const refR = await fetch('/.netlify/functions/polygon?endpoint=reference&ticker=' + etf.ticker); if (refR.ok) { const refD = await refR.json(); if (refD.market_cap > 0) results[etf.ticker] = { autoAum: refD.market_cap }; } } catch {}
