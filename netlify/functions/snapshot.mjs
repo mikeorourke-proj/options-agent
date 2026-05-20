@@ -12,11 +12,37 @@ export default async (request) => {
   const listDates = url.searchParams.get("dates");
   const headers = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" };
 
-  if (request.method === "OPTIONS") return new Response("", { status: 204, headers });
+  if (request.method === "OPTIONS") return new Response("", { status: 204, headers: { ...headers, "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" } });
 
   const store = getStore("snapshots");
 
+  // POST: save manual AUM data from image paste
+  if (request.method === "POST") {
+    const saveAum = url.searchParams.get("save-aum");
+    if (saveAum) {
+      try {
+        const body = await request.json();
+        await store.setJSON("rebalance-aum", { savedAt: new Date().toISOString(), aum: body.aum || {} });
+        return new Response(JSON.stringify({ ok: true }), { headers });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 500, headers });
+      }
+    }
+    return new Response(JSON.stringify({ error: "Unknown POST" }), { status: 400, headers });
+  }
+
   try {
+    // Load saved AUM data
+    const loadAum = url.searchParams.get("load-aum");
+    if (loadAum) {
+      try {
+        const saved = await store.get("rebalance-aum", { type: "json" });
+        return new Response(JSON.stringify(saved || { aum: {} }), { headers });
+      } catch {
+        return new Response(JSON.stringify({ aum: {} }), { headers });
+      }
+    }
+
     // List all captured dates
     if (listDates) {
       let dateIndex = [];
