@@ -1171,12 +1171,9 @@ function Rebalance({ data }) {
     try {
       const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = () => rej(new Error("Read failed")); r.readAsDataURL(file); });
       setOcrStatus("Extracting data with AI...");
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/.netlify/functions/ocr", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: [
-          { type: "image", source: { type: "base64", media_type: file.type || "image/png", data: base64 } },
-          { type: "text", text: 'Extract ALL ticker symbols, total assets (AUM), and %1D change from this Bloomberg terminal screenshot. Return ONLY a JSON array, no markdown, no backticks, no explanation. Each element: {"ticker":"TQQQ","aum":34046.82,"pct1d":4.02}. The aum is in millions. The pct1d is the percentage (positive or negative). Include ALL tickers visible — both the market/index tickers (like SPY, QQQ, IWM) and the levered ETF tickers. Strip any " US" suffix from tickers.' }
-        ]}] })
+        body: JSON.stringify({ image: base64, mediaType: file.type || "image/png" })
       });
       const result = await response.json();
       const text = result.content?.map(c => c.text || "").join("") || "";
