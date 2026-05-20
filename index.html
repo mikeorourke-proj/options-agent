@@ -1169,14 +1169,31 @@ function Rebalance({ data }) {
   const processImage = useCallback(async (file) => {
     setOcrLoading(true); setOcrStatus("Reading image...");
     try {
-      const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = () => rej(new Error("Read failed")); r.readAsDataURL(file); });
+      // Compress image to max 1200px wide JPEG to keep payload small
+      const compressed = await new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 1200;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          res(dataUrl.split(",")[1]);
+        };
+        img.onerror = () => rej(new Error("Image load failed"));
+        img.src = URL.createObjectURL(file);
+      });
       setOcrStatus("Extracting data with AI...");
       const response = await fetch("/.netlify/functions/ocr", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: base64, mediaType: file.type || "image/png" })
+        body: JSON.stringify({ image: compressed, mediaType: "image/jpeg" })
       });
+      if (!response.ok) { const errData = await response.json().catch(() => ({})); throw new Error(errData.error || errData.detail || "OCR request failed: " + response.status); }
       const result = await response.json();
-      const text = result.content?.map(c => c.text || "").join("") || "";
+      const text = result.content?.map(c => c.text || "").join("") || result.error || "";
+      if (result.error) throw new Error(result.error);
       const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
       if (Array.isArray(parsed) && parsed.length > 0) {
         const knownLevered = new Set(LEVERED_ETFS.map(e => e.ticker));
