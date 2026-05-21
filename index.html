@@ -1196,20 +1196,20 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
 
   const subTabs = [
     { id: "walls", label: "Walls" },
-    { id: "rr", label: "25\u0394 Risk Reversal" },
+    { id: "rr", label: "25Δ Risk Reversal" },
     { id: "zdte", label: "0DTE Flow" },
     { id: "skewspread", label: "Skew Spread" },
-    { id: "spotupvolup", label: "Spot\u2191Vol\u2191" },
+    { id: "spotupvolup", label: "Spot↑Vol↑" },
     { id: "volsurge", label: "Vol Surge" },
   ];
 
   // Color helpers
   const BG_BUY = "rgba(34,197,94,0.06)";
   const BG_SELL = "rgba(239,68,68,0.06)";
-  const BG_NEUTRAL = "rgba(0,0,0,0.025)";
+  const BG_NEUTRAL = "rgba(0,0,0,0.045)";
   const BG_BUY_H = "rgba(34,197,94,0.12)";
   const BG_SELL_H = "rgba(239,68,68,0.12)";
-  const BG_NEUTRAL_H = "rgba(0,0,0,0.05)";
+  const BG_NEUTRAL_H = "rgba(0,0,0,0.08)";
   const bgFor = (noData, side) => noData ? BG_NEUTRAL : side === "buy" ? BG_BUY : BG_SELL;
   const bgHFor = (noData, side) => noData ? BG_NEUTRAL_H : side === "buy" ? BG_BUY_H : BG_SELL_H;
 
@@ -1237,14 +1237,15 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   );
 
   // Build one side: pinned placed on the side their reading leans toward
-  const buildSide = (validSet, sortFn, sideTickers, max = 10) => {
+  // side="buy"|"sell" — no-data pinned tickers only appear on buy side to avoid duplication
+  const buildSide = (validSet, sortFn, sideTickers, side, max = 10) => {
     const pinned = [];
     const hits = [];
     PINNED.forEach(t => {
       const fromValid = validSet.find(d => d.ticker === t);
       const fromAll = data.find(d => d.ticker === t);
       if (fromValid && sideTickers.has(t)) pinned.push({ ...fromValid, _noSig: false });
-      else if (fromAll) pinned.push({ ...fromAll, _noSig: true });
+      else if (fromAll && side === "buy") pinned.push({ ...fromAll, _noSig: true });
     });
     validSet.filter(d => !PINNED.includes(d.ticker) && sideTickers.has(d.ticker)).forEach(d => hits.push(d));
     hits.sort(sortFn);
@@ -1297,9 +1298,9 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
         <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
         {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>{pinnedLoading ? "Fetching live..." : "Click to load"}</span> : <>
           <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
-          <span style={{ minWidth: "55px" }}>{"\u2192"} {fmtP(d[wallKey])}</span>
+          <span style={{ minWidth: "55px" }}>{"→"} {fmtP(d[wallKey])}</span>
           <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
-          <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% {"\u00B7"} {(d._oi||0).toLocaleString()}</span>
+          <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% {"·"} {(d._oi||0).toLocaleString()}</span>
         </>}
       </div>;
     };
@@ -1324,8 +1325,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const renderRR = () => {
     const valid = data.filter(d => d.spot > 0 && d.rr25d !== 0);
     const { buySide, sellSide } = assignPinnedSide(valid, d => d.rr25d);
-    const buy = buildSide(valid, (a,b) => a.rr25d - b.rr25d, buySide);
-    const sell = buildSide(valid, (a,b) => b.rr25d - a.rr25d, sellSide);
+    const buy = buildSide(valid, (a,b) => a.rr25d - b.rr25d, buySide, "buy");
+    const sell = buildSide(valid, (a,b) => b.rr25d - a.rr25d, sellSide, "sell");
 
     const rrFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1338,8 +1339,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal \u2014 Extreme Put Skew (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={rrFields} emptyMsg="No extreme negative RR readings" side="buy" />
-      <SigCol title="Sell Signal \u2014 Call Skew (Contrarian Bearish)" pinned={sell.pinned} hits={sell.hits} renderFields={rrFields} emptyMsg="No elevated RR readings" side="sell" />
+      <SigCol title="Buy Signal — Extreme Put Skew (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={rrFields} emptyMsg="No extreme negative RR readings" side="buy" />
+      <SigCol title="Sell Signal — Call Skew (Contrarian Bearish)" pinned={sell.pinned} hits={sell.hits} renderFields={rrFields} emptyMsg="No elevated RR readings" side="sell" />
     </div>;
   };
 
@@ -1347,8 +1348,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const renderZdte = () => {
     const valid = data.filter(d => d.spot > 0 && d.zdteVol > 0 && d.zdteDpc > 0);
     const { buySide, sellSide } = assignPinnedSide(valid, d => d.zdteDpc);
-    const buy = buildSide(valid, (a,b) => a.zdteDpc - b.zdteDpc, buySide);
-    const sell = buildSide(valid, (a,b) => b.zdteDpc - a.zdteDpc, sellSide);
+    const buy = buildSide(valid, (a,b) => a.zdteDpc - b.zdteDpc, buySide, "buy");
+    const sell = buildSide(valid, (a,b) => b.zdteDpc - a.zdteDpc, sellSide, "sell");
 
     const zdteFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1360,8 +1361,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal \u2014 Call-Heavy 0DTE Flow" pinned={buy.pinned} hits={buy.hits} renderFields={zdteFields} emptyMsg="No extreme call-heavy 0DTE flow" side="buy" />
-      <SigCol title="Sell Signal \u2014 Put-Heavy 0DTE Flow" pinned={sell.pinned} hits={sell.hits} renderFields={zdteFields} emptyMsg="No extreme put-heavy 0DTE flow" side="sell" />
+      <SigCol title="Buy Signal — Call-Heavy 0DTE Flow" pinned={buy.pinned} hits={buy.hits} renderFields={zdteFields} emptyMsg="No extreme call-heavy 0DTE flow" side="buy" />
+      <SigCol title="Sell Signal — Put-Heavy 0DTE Flow" pinned={sell.pinned} hits={sell.hits} renderFields={zdteFields} emptyMsg="No extreme put-heavy 0DTE flow" side="sell" />
     </div>;
   };
 
@@ -1369,8 +1370,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const renderSkewSpread = () => {
     const valid = data.filter(d => d.spot > 0 && (d.nearTermSkew !== 0 || d.farTermSkew !== 0));
     const { buySide, sellSide } = assignPinnedSide(valid, d => d.skewTermSpread);
-    const buy = buildSide(valid, (a,b) => a.skewTermSpread - b.skewTermSpread, buySide);
-    const sell = buildSide(valid, (a,b) => b.skewTermSpread - a.skewTermSpread, sellSide);
+    const buy = buildSide(valid, (a,b) => a.skewTermSpread - b.skewTermSpread, buySide, "buy");
+    const sell = buildSide(valid, (a,b) => b.skewTermSpread - a.skewTermSpread, sellSide, "sell");
 
     const skewFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1381,8 +1382,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal \u2014 Skew Flattening (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={skewFields} emptyMsg="No flattening readings" side="buy" />
-      <SigCol title="Sell Signal \u2014 Skew Steepening (Risk-Off)" pinned={sell.pinned} hits={sell.hits} renderFields={skewFields} emptyMsg="No steepening readings" side="sell" />
+      <SigCol title="Buy Signal — Skew Flattening (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={skewFields} emptyMsg="No flattening readings" side="buy" />
+      <SigCol title="Sell Signal — Skew Steepening (Risk-Off)" pinned={sell.pinned} hits={sell.hits} renderFields={skewFields} emptyMsg="No steepening readings" side="sell" />
     </div>;
   };
 
@@ -1395,7 +1396,7 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     });
     const allTickers = new Set(valid.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
     PINNED.forEach(t => allTickers.add(t));
-    const sell = buildSide(valid, (a,b) => (b.changePerc||0) - (a.changePerc||0), allTickers);
+    const sell = buildSide(valid, (a,b) => (b.changePerc||0) - (a.changePerc||0), allTickers, "sell");
 
     const suvFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1413,7 +1414,7 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
           Spot-Up/Vol-Up is an inherently bearish signal (FOMO / crowding warning). No buy-side readings.
         </div>
       </div>
-      <SigCol title="Sell Signal \u2014 FOMO / Speculative Call Chasing" pinned={sell.pinned} hits={sell.hits} renderFields={suvFields} emptyMsg="No spot-up/vol-up divergences detected" side="sell" />
+      <SigCol title="Sell Signal — FOMO / Speculative Call Chasing" pinned={sell.pinned} hits={sell.hits} renderFields={suvFields} emptyMsg="No spot-up/vol-up divergences detected" side="sell" />
     </div>;
   };
 
@@ -1434,8 +1435,8 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
       if (s && s.callPct > 60) buySideTickers.add(t);
       else if (s && s.callPct < 40) sellSideTickers.add(t);
     });
-    const buyList = buildSide(callMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), buySideTickers);
-    const sellList = buildSide(putMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), sellSideTickers);
+    const buyList = buildSide(callMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), buySideTickers, "buy");
+    const sellList = buildSide(putMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), sellSideTickers, "sell");
 
     const vsFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1445,18 +1446,18 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal \u2014 Call Volume Surges" pinned={buyList.pinned} hits={buyList.hits} renderFields={vsFields} emptyMsg="No call-dominant volume surges" side="buy" />
-      <SigCol title="Sell Signal \u2014 Put Volume Surges" pinned={sellList.pinned} hits={sellList.hits} renderFields={vsFields} emptyMsg="No put-dominant volume surges" side="sell" />
+      <SigCol title="Buy Signal — Call Volume Surges" pinned={buyList.pinned} hits={buyList.hits} renderFields={vsFields} emptyMsg="No call-dominant volume surges" side="buy" />
+      <SigCol title="Sell Signal — Put Volume Surges" pinned={sellList.pinned} hits={sellList.hits} renderFields={vsFields} emptyMsg="No put-dominant volume surges" side="sell" />
     </div>;
   };
 
   const sigDescriptions = {
-    walls: "SPY/QQQ pinned \u00B7 Others screened \u226520% OI within 2.5%. Put walls = support (buy). Call walls = resistance (sell).",
-    rr: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Buy: most negative RR (contrarian bullish). Sell: least negative / positive RR.",
-    zdte: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Buy: call-heavy (low P/C). Sell: put-heavy (high P/C).",
-    skewspread: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Buy: most negative spread (flattening). Sell: most positive (steepening).",
-    spotupvolup: "Top 10 \u00B7 Spot-up/vol-up is inherently bearish \u2014 FOMO / speculative call chasing. Sell side only.",
-    volsurge: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Call surges = buy. Put surges = sell. Balanced (40-60%) dropped.",
+    walls: "SPY/QQQ pinned · Others screened ≥20% OI within 2.5%. Put walls = support (buy). Call walls = resistance (sell).",
+    rr: "SPY/QQQ placed by reading · Top 10 per side · Buy: most negative RR (contrarian bullish). Sell: least negative / positive RR.",
+    zdte: "SPY/QQQ placed by reading · Top 10 per side · Buy: call-heavy (low P/C). Sell: put-heavy (high P/C).",
+    skewspread: "SPY/QQQ placed by reading · Top 10 per side · Buy: most negative spread (flattening). Sell: most positive (steepening).",
+    spotupvolup: "Top 10 · Spot-up/vol-up is inherently bearish — FOMO / speculative call chasing. Sell side only.",
+    volsurge: "SPY/QQQ placed by reading · Top 10 per side · Call surges = buy. Put surges = sell. Balanced (40-60%) dropped.",
   };
 
   const isRescanBusy = subTab === "walls" ? wallScanning : sigRescan;
