@@ -1186,16 +1186,22 @@ function SignalScanner({ data, historyCache, onSelect }) {
     </div>
   );
 
-  // ── Helper: split into pinned + sorted hits (top 10) ──
-  const splitPinnedHits = (filtered, sortFn, max = 10) => {
+  // ── Helper: split into pinned + sorted hits (top 10), deduped ──
+  // validSet = tickers that meet signal criteria; allData = full data for pinned fallback
+  // sideFn returns "buy"|"sell"|null for each ticker to prevent duplicates across columns
+  const buildSide = (validSet, sortFn, sideTickers, max = 10) => {
     const pinned = [];
     const hits = [];
-    filtered.forEach(d => {
-      if (PINNED.includes(d.ticker)) pinned.push(d);
-      else hits.push(d);
+    // Always include PINNED from full data, mark _noSig if not in validSet
+    PINNED.forEach(t => {
+      const fromValid = validSet.find(d => d.ticker === t);
+      const fromAll = data.find(d => d.ticker === t);
+      if (fromValid) pinned.push({ ...fromValid, _noSig: false });
+      else if (fromAll) pinned.push({ ...fromAll, _noSig: true });
     });
+    // Non-pinned: only include if in sideTickers set
+    validSet.filter(d => !PINNED.includes(d.ticker) && sideTickers.has(d.ticker)).forEach(d => hits.push(d));
     hits.sort(sortFn);
-    pinned.sort((a,b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
     return { pinned, hits: hits.slice(0, max) };
   };
 
@@ -1204,13 +1210,13 @@ function SignalScanner({ data, historyCache, onSelect }) {
   // ════════════════════════════════════════════════════════════════
   const renderRR = () => {
     const valid = data.filter(d => d.spot > 0 && d.rr25d !== 0 && d._live);
-    // Buy side: most extreme negative RR (contrarian bullish)
-    const buy = splitPinnedHits(valid, (a,b) => a.rr25d - b.rr25d);
-    // Sell side: least negative / most positive RR (contrarian bearish)
-    const sell = splitPinnedHits(valid, (a,b) => b.rr25d - a.rr25d);
-    // Mark pinned as _noSig if rr25d is 0
-    buy.pinned.forEach(d => { if (d.rr25d === 0) d._noSig = true; });
-    sell.pinned.forEach(d => { if (d.rr25d === 0) d._noSig = true; });
+    // Dedup: sort by RR ascending. Bottom half = buy (most negative), top half = sell (most positive)
+    const sorted = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => a.rr25d - b.rr25d);
+    const mid = Math.ceil(sorted.length / 2);
+    const buySide = new Set(sorted.slice(0, mid).map(d => d.ticker));
+    const sellSide = new Set(sorted.slice(mid).map(d => d.ticker));
+    const buy = buildSide(valid, (a,b) => a.rr25d - b.rr25d, buySide);
+    const sell = buildSide(valid, (a,b) => b.rr25d - a.rr25d, sellSide);
 
     const rrFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1232,13 +1238,13 @@ function SignalScanner({ data, historyCache, onSelect }) {
   // SUB-TAB: 0DTE FLOW
   // ════════════════════════════════════════════════════════════════
   const renderZdte = () => {
-    const valid = data.filter(d => d.spot > 0 && d.zdteVol > 0 && d._live);
-    // Buy side: lowest 0DTE P/C (call-heavy = bullish)
-    const buy = splitPinnedHits(valid.filter(d => d.zdteDpc > 0), (a,b) => a.zdteDpc - b.zdteDpc);
-    // Sell side: highest 0DTE P/C (put-heavy = bearish)
-    const sell = splitPinnedHits(valid.filter(d => d.zdteDpc > 0), (a,b) => b.zdteDpc - a.zdteDpc);
-    buy.pinned.forEach(d => { if (!d.zdteVol) d._noSig = true; });
-    sell.pinned.forEach(d => { if (!d.zdteVol) d._noSig = true; });
+    const valid = data.filter(d => d.spot > 0 && d.zdteVol > 0 && d.zdteDpc > 0 && d._live);
+    const sorted = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => a.zdteDpc - b.zdteDpc);
+    const mid = Math.ceil(sorted.length / 2);
+    const buySide = new Set(sorted.slice(0, mid).map(d => d.ticker));
+    const sellSide = new Set(sorted.slice(mid).map(d => d.ticker));
+    const buy = buildSide(valid, (a,b) => a.zdteDpc - b.zdteDpc, buySide);
+    const sell = buildSide(valid, (a,b) => b.zdteDpc - a.zdteDpc, sellSide);
 
     const zdteFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1262,12 +1268,12 @@ function SignalScanner({ data, historyCache, onSelect }) {
   // ════════════════════════════════════════════════════════════════
   const renderSkewSpread = () => {
     const valid = data.filter(d => d.spot > 0 && (d.nearTermSkew !== 0 || d.farTermSkew !== 0) && d._live);
-    // Buy side: most negative spread (complacency = contrarian bullish)
-    const buy = splitPinnedHits(valid, (a,b) => a.skewTermSpread - b.skewTermSpread);
-    // Sell side: most positive spread (risk-off = bearish)
-    const sell = splitPinnedHits(valid, (a,b) => b.skewTermSpread - a.skewTermSpread);
-    buy.pinned.forEach(d => { if (d.nearTermSkew === 0 && d.farTermSkew === 0) d._noSig = true; });
-    sell.pinned.forEach(d => { if (d.nearTermSkew === 0 && d.farTermSkew === 0) d._noSig = true; });
+    const sorted = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => a.skewTermSpread - b.skewTermSpread);
+    const mid = Math.ceil(sorted.length / 2);
+    const buySide = new Set(sorted.slice(0, mid).map(d => d.ticker));
+    const sellSide = new Set(sorted.slice(mid).map(d => d.ticker));
+    const buy = buildSide(valid, (a,b) => a.skewTermSpread - b.skewTermSpread, buySide);
+    const sell = buildSide(valid, (a,b) => b.skewTermSpread - a.skewTermSpread, sellSide);
 
     const skewFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1292,16 +1298,12 @@ function SignalScanner({ data, historyCache, onSelect }) {
     // Inherently bearish — sell side only
     const valid = data.filter(d => {
       if (!d.spot || d.spot <= 0 || !d._live || !d.changePerc) return false;
-      // Spot up AND call IV elevated (smile ratio < 1.0 or skew curve forward or calls richer)
       if (d.changePerc < 0.3) return false;
-      // Check if vol is also up: call IV > put IV, or forward skew, or smile < 1.0
       const volUp = d.skewCurve === "forward" || (d.smileRatio > 0 && d.smileRatio < 1.0) || d.rr25d > -1;
       return volUp;
     });
-    const sell = splitPinnedHits(valid, (a,b) => b.changePerc - a.changePerc);
-    // Pin entries that don't match are no-data
-    const pinnedNoSig = PINNED.map(t => data.find(d => d.ticker === t)).filter(Boolean).filter(d => !valid.includes(d));
-    pinnedNoSig.forEach(d => d._noSig = true);
+    const allTickers = new Set(valid.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
+    const sell = buildSide(valid, (a,b) => b.changePerc - a.changePerc, allTickers);
 
     const suvFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1335,10 +1337,18 @@ function SignalScanner({ data, historyCache, onSelect }) {
     const callSurges = surgeData.filter(s => s.callPct > 60);
     const putSurges = surgeData.filter(s => s.callPct < 40);
 
-    const buyList = splitPinnedHits(callSurges.map(s => ({ ...s, ...data.find(d => d.ticker === s.ticker) || {}, _surgeRatio: s.ratio, _callPct: s.callPct })), (a,b) => b._surgeRatio - a._surgeRatio);
-    const sellList = splitPinnedHits(putSurges.map(s => ({ ...s, ...data.find(d => d.ticker === s.ticker) || {}, _surgeRatio: s.ratio, _callPct: s.callPct })), (a,b) => b._surgeRatio - a._surgeRatio);
-    buyList.pinned.forEach(d => { if (!callSurges.find(s => s.ticker === d.ticker)) d._noSig = true; });
-    sellList.pinned.forEach(d => { if (!putSurges.find(s => s.ticker === d.ticker)) d._noSig = true; });
+    // Merge surge data onto main data objects
+    const mergeWithData = (surges) => surges.map(s => {
+      const d = data.find(dd => dd.ticker === s.ticker) || {};
+      return { ...d, ...s, _surgeRatio: s.ratio, _callPct: s.callPct };
+    });
+
+    const callMerged = mergeWithData(callSurges);
+    const putMerged = mergeWithData(putSurges);
+    const buySideTickers = new Set(callMerged.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
+    const sellSideTickers = new Set(putMerged.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
+    const buyList = buildSide(callMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), buySideTickers);
+    const sellList = buildSide(putMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), sellSideTickers);
 
     const vsFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1767,10 +1777,8 @@ function App() {
   const tabs = [
     { id: "scanner", label: "Scanner" },
     { id: "volume", label: "Opts Volume" },
-    { id: "volsurge", label: "Vol Surge" },
     { id: "walls", label: "Walls" },
     { id: "signals", label: "Signals" },
-    { id: "voldiv", label: "Vol Divergence" },
     { id: "cross", label: "Cross-Asset" },
     { id: "rebalance", label: "Rebalance" },
   ];
@@ -1804,17 +1812,15 @@ function App() {
 
     {/* Tabs */}
     <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid rgba(74,144,217,0.1)", paddingBottom: "0" }}>
-      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "voldiv" && volDivs.length === 0 && !volDivLoading) scanVolDivs(); if (t.id === "walls") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
+      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "walls") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
     </div>
 
     {/* Tab content */}
     {loading && data.length === 0 ? <div style={{ padding: "40px", textAlign: "center", opacity: 0.5 }}>Loading snapshot data...</div> :
       tab === "scanner" ? <Scanner data={data} onSelect={lookupTicker} /> :
       tab === "volume" ? <OptionsVolume data={data} onSelect={lookupTicker} /> :
-      tab === "volsurge" ? <VolumeSurge data={data} historyCache={historyCache} onSelect={lookupTicker} /> :
       tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} /> :
       tab === "signals" ? <SignalScanner data={data} historyCache={historyCache} onSelect={lookupTicker} /> :
-      tab === "voldiv" ? <VolDivergence divs={volDivs} loading={volDivLoading} onScan={scanVolDivs} /> :
       tab === "cross" ? <CrossAsset data={data} /> :
       tab === "rebalance" ? <Rebalance data={data} /> : null
     }
