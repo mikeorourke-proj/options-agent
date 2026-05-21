@@ -1122,9 +1122,9 @@ function VolumeSurge({ data, historyCache, onSelect }) {
 }
 
 // ─── SIGNAL SCANNER TABS (v5) ─────────────────────────────────────
-function SignalScanner({ data, historyCache, onSelect }) {
+function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey }) {
   const PINNED = ["SPY", "QQQ"];
-  const [subTab, setSubTab] = useState("rr");
+  const [subTab, setSubTab] = useState("walls");
   const [surgeData, setSurgeData] = useState(null);
   const [surgeLoading, setSurgeLoading] = useState(false);
 
@@ -1159,62 +1159,159 @@ function SignalScanner({ data, historyCache, onSelect }) {
   }, [subTab, data, historyCache, surgeData, surgeLoading]);
 
   const subTabs = [
-    { id: "rr", label: "25Δ Risk Reversal" },
+    { id: "walls", label: "Walls" },
+    { id: "rr", label: "25\u0394 Risk Reversal" },
     { id: "zdte", label: "0DTE Flow" },
     { id: "skewspread", label: "Skew Spread" },
-    { id: "spotupvolup", label: "Spot↑Vol↑" },
+    { id: "spotupvolup", label: "Spot\u2191Vol\u2191" },
     { id: "volsurge", label: "Vol Surge" },
   ];
 
-  // ── Shared row + column components (matching Walls pattern) ──
-  const SigRow = ({ d, fields, isPinned, noData }) => (
-    <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: isPinned ? "rgba(74,144,217,0.03)" : "transparent" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background=isPinned?"rgba(74,144,217,0.03)":"transparent"}>
+  // Color helpers
+  const BG_BUY = "rgba(34,197,94,0.06)";
+  const BG_SELL = "rgba(239,68,68,0.06)";
+  const BG_NEUTRAL = "rgba(0,0,0,0.025)";
+  const BG_BUY_H = "rgba(34,197,94,0.12)";
+  const BG_SELL_H = "rgba(239,68,68,0.12)";
+  const BG_NEUTRAL_H = "rgba(0,0,0,0.05)";
+
+  const bgFor = (noData, side) => noData ? BG_NEUTRAL : side === "buy" ? BG_BUY : BG_SELL;
+  const bgHFor = (noData, side) => noData ? BG_NEUTRAL_H : side === "buy" ? BG_BUY_H : BG_SELL_H;
+
+  // Shared row component
+  const SigRow = ({ d, fields, noData, side }) => {
+    const bg = bgFor(noData, side);
+    const bgH = bgHFor(noData, side);
+    return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: bg, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onMouseEnter={e=>e.currentTarget.style.background=bgH} onMouseLeave={e=>e.currentTarget.style.background=bg}>
       <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
       {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>No data</span> : fields}
-    </div>
-  );
+    </div>;
+  };
 
-  const SigCol = ({ title, pinned, hits, renderFields, emptyMsg }) => (
+  // Shared column component
+  const SigCol = ({ title, pinned, hits, renderFields, emptyMsg, side }) => (
     <div style={{ flex: 1 }}>
       <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
       <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
-        {pinned.map(d => <SigRow key={d.ticker} d={d} isPinned={true} noData={d._noSig} fields={renderFields(d)} />)}
+        {pinned.map(d => <SigRow key={d.ticker} d={d} noData={d._noSig} side={d._noSig ? "neutral" : side} fields={renderFields(d)} />)}
         {pinned.length > 0 && hits.length > 0 && <div style={{ borderBottom: "2px solid rgba(74,144,217,0.12)" }} />}
-        {hits.map(d => <SigRow key={d.ticker} d={d} isPinned={false} noData={false} fields={renderFields(d)} />)}
-        {hits.length === 0 && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>{emptyMsg || "No signals"}</div>}
+        {hits.map(d => <SigRow key={d.ticker} d={d} noData={false} side={side} fields={renderFields(d)} />)}
+        {hits.length === 0 && pinned.every(pp => pp._noSig) && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>{emptyMsg || "No signals"}</div>}
       </div>
     </div>
   );
 
-  // ── Helper: split into pinned + sorted hits (top 10), deduped ──
-  // validSet = tickers that meet signal criteria; allData = full data for pinned fallback
-  // sideFn returns "buy"|"sell"|null for each ticker to prevent duplicates across columns
+  // Build one side: pinned placed on the side their reading leans toward
   const buildSide = (validSet, sortFn, sideTickers, max = 10) => {
     const pinned = [];
     const hits = [];
-    // Always include PINNED from full data, mark _noSig if not in validSet
     PINNED.forEach(t => {
       const fromValid = validSet.find(d => d.ticker === t);
       const fromAll = data.find(d => d.ticker === t);
-      if (fromValid) pinned.push({ ...fromValid, _noSig: false });
+      if (fromValid && sideTickers.has(t)) pinned.push({ ...fromValid, _noSig: false });
       else if (fromAll) pinned.push({ ...fromAll, _noSig: true });
     });
-    // Non-pinned: only include if in sideTickers set
     validSet.filter(d => !PINNED.includes(d.ticker) && sideTickers.has(d.ticker)).forEach(d => hits.push(d));
     hits.sort(sortFn);
     return { pinned, hits: hits.slice(0, max) };
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // SUB-TAB: 25-DELTA RISK REVERSAL
-  // ════════════════════════════════════════════════════════════════
+  // Assign pinned tickers to buy or sell based on their reading vs median
+  const assignPinnedSide = (valid, valueFn) => {
+    const nonPinned = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => valueFn(a) - valueFn(b));
+    const mid = Math.ceil(nonPinned.length / 2);
+    const midVal = nonPinned.length > 0 ? valueFn(nonPinned[Math.min(mid, nonPinned.length-1)]) : 0;
+    const buySide = new Set(nonPinned.slice(0, mid).map(d => d.ticker));
+    const sellSide = new Set(nonPinned.slice(mid).map(d => d.ticker));
+    PINNED.forEach(t => {
+      const d = valid.find(dd => dd.ticker === t);
+      if (d) { if (valueFn(d) <= midVal) buySide.add(t); else sellSide.add(t); }
+    });
+    return { buySide, sellSide };
+  };
+
+  // ══════════ WALLS SUB-TAB ══════════
+  const renderWalls = () => {
+    const [scanning, setScanning] = React.useState(false);
+    const [pinnedLoading, setPinnedLoading] = React.useState(false);
+    const lastKey = React.useRef(0);
+
+    React.useEffect(() => {
+      if (!wallScanKey || wallScanKey <= lastKey.current || !onFetchWalls) return;
+      lastKey.current = wallScanKey;
+      setPinnedLoading(true);
+      onFetchWalls(PINNED).finally(() => setPinnedLoading(false));
+    }, [wallScanKey]);
+
+    const rescan = async () => {
+      if (!onFetchWalls) return;
+      setScanning(true);
+      try { await onFetchWalls(DEFAULT_WATCHLIST); } catch(e) { console.warn("Rescan:", e); }
+      setScanning(false);
+    };
+
+    const buildWallList = (wallKey, confKey, oiKey, distFn) => {
+      const pinned = [], hits = [];
+      data.forEach(d => {
+        if (!d.spot || d.spot <= 0) return;
+        const wall = d[wallKey]||0, conf = d[confKey]||0, oi = d[oiKey]||0;
+        const isPinned = PINNED.includes(d.ticker);
+        if (wall <= 0 && !isPinned) return;
+        const dist = wall > 0 ? distFn(d.spot, wall) : 999;
+        const noData = wall <= 0;
+        const row = { ...d, dist, noData, _conf: conf, _oi: oi };
+        if (isPinned) pinned.push(row);
+        else if (!noData && conf >= 20 && dist >= -1 && dist <= 2.5) hits.push(row);
+      });
+      hits.sort((a,b) => a.dist - b.dist);
+      pinned.sort((a,b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
+      return { pinned, hits };
+    };
+
+    const putList = buildWallList("putWall", "putWallConf", "putWallOI", (s,w) => (s-w)/s*100);
+    const callList = buildWallList("callWall", "callWallConf", "callWallOI", (s,w) => (w-s)/s*100);
+
+    const WallRow = ({ d, wallKey }) => {
+      const noData = d.noData;
+      const side = wallKey === "putWall" ? "buy" : "sell";
+      const bg = bgFor(noData, side);
+      const bgH = bgHFor(noData, side);
+      return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: bg, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onMouseEnter={e=>e.currentTarget.style.background=bgH} onMouseLeave={e=>e.currentTarget.style.background=bg}>
+        <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
+        {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>{pinnedLoading ? "Fetching live..." : "Click to load"}</span> : <>
+          <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
+          <span style={{ minWidth: "55px" }}>{"\u2192"} {fmtP(d[wallKey])}</span>
+          <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
+          <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% {"\u00B7"} {(d._oi||0).toLocaleString()}</span>
+        </>}
+      </div>;
+    };
+
+    const WallCol = ({ pinned, hits, title, wallKey }) => <div style={{ flex: 1 }}>
+      <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
+      <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
+        {pinned.map(d => <WallRow key={d.ticker} d={d} wallKey={wallKey} />)}
+        {pinned.length > 0 && hits.length > 0 && <div style={{ borderBottom: "2px solid rgba(74,144,217,0.12)" }} />}
+        {hits.map(d => <WallRow key={d.ticker} d={d} wallKey={wallKey} />)}
+        {hits.length === 0 && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>No other tickers within 2.5%</div>}
+      </div>
+    </div>;
+
+    return <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "10px" }}>
+        <button onClick={rescan} disabled={scanning} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: scanning ? "wait" : "pointer", color: "#2B6CB0", opacity: scanning ? 0.5 : 1 }}>{scanning ? "Scanning..." : "Rescan All"}</button>
+      </div>
+      <div style={{ display: "flex", gap: "16px" }}>
+        <WallCol pinned={putList.pinned} hits={putList.hits} title="Put Walls (Support)" wallKey="putWall" />
+        <WallCol pinned={callList.pinned} hits={callList.hits} title="Call Walls (Resistance)" wallKey="callWall" />
+      </div>
+    </div>;
+  };
+
+  // ══════════ 25-DELTA RISK REVERSAL ══════════
   const renderRR = () => {
-    const valid = data.filter(d => d.spot > 0 && d.rr25d !== 0 && d._live);
-    // Dedup: sort by RR ascending. Bottom half = buy (most negative), top half = sell (most positive)
-    const sorted = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => a.rr25d - b.rr25d);
-    const mid = Math.ceil(sorted.length / 2);
-    const buySide = new Set(sorted.slice(0, mid).map(d => d.ticker));
-    const sellSide = new Set(sorted.slice(mid).map(d => d.ticker));
+    const valid = data.filter(d => d.spot > 0 && d.rr25d !== 0);
+    const { buySide, sellSide } = assignPinnedSide(valid, d => d.rr25d);
     const buy = buildSide(valid, (a,b) => a.rr25d - b.rr25d, buySide);
     const sell = buildSide(valid, (a,b) => b.rr25d - a.rr25d, sellSide);
 
@@ -1229,20 +1326,15 @@ function SignalScanner({ data, historyCache, onSelect }) {
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal — Extreme Put Skew (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={rrFields} emptyMsg="No extreme negative RR readings" />
-      <SigCol title="Sell Signal — Call Skew (Contrarian Bearish)" pinned={sell.pinned} hits={sell.hits} renderFields={rrFields} emptyMsg="No elevated RR readings" />
+      <SigCol title="Buy Signal \u2014 Extreme Put Skew (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={rrFields} emptyMsg="No extreme negative RR readings" side="buy" />
+      <SigCol title="Sell Signal \u2014 Call Skew (Contrarian Bearish)" pinned={sell.pinned} hits={sell.hits} renderFields={rrFields} emptyMsg="No elevated RR readings" side="sell" />
     </div>;
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // SUB-TAB: 0DTE FLOW
-  // ════════════════════════════════════════════════════════════════
+  // ══════════ 0DTE FLOW ══════════
   const renderZdte = () => {
-    const valid = data.filter(d => d.spot > 0 && d.zdteVol > 0 && d.zdteDpc > 0 && d._live);
-    const sorted = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => a.zdteDpc - b.zdteDpc);
-    const mid = Math.ceil(sorted.length / 2);
-    const buySide = new Set(sorted.slice(0, mid).map(d => d.ticker));
-    const sellSide = new Set(sorted.slice(mid).map(d => d.ticker));
+    const valid = data.filter(d => d.spot > 0 && d.zdteVol > 0 && d.zdteDpc > 0);
+    const { buySide, sellSide } = assignPinnedSide(valid, d => d.zdteDpc);
     const buy = buildSide(valid, (a,b) => a.zdteDpc - b.zdteDpc, buySide);
     const sell = buildSide(valid, (a,b) => b.zdteDpc - a.zdteDpc, sellSide);
 
@@ -1251,27 +1343,20 @@ function SignalScanner({ data, historyCache, onSelect }) {
       <span style={{ fontWeight: 600, minWidth: "65px", color: d.zdteDpc < 0.7 ? "#0F6E56" : d.zdteDpc > 1.3 ? "#A32D2D" : "inherit" }}>
         P/C: {d.zdteDpc.toFixed(2)}
       </span>
-      <span style={{ fontSize: "10px", opacity: 0.6 }}>
-        0DTE: {(d.zdtePct||0).toFixed(0)}%
-      </span>
+      <span style={{ fontSize: "10px", opacity: 0.6 }}>0DTE: {(d.zdtePct||0).toFixed(0)}%</span>
       <span style={{ fontSize: "10px", opacity: 0.5 }}><Regime r={d.regime}/></span>
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal — Call-Heavy 0DTE Flow" pinned={buy.pinned} hits={buy.hits} renderFields={zdteFields} emptyMsg="No extreme call-heavy 0DTE flow" />
-      <SigCol title="Sell Signal — Put-Heavy 0DTE Flow" pinned={sell.pinned} hits={sell.hits} renderFields={zdteFields} emptyMsg="No extreme put-heavy 0DTE flow" />
+      <SigCol title="Buy Signal \u2014 Call-Heavy 0DTE Flow" pinned={buy.pinned} hits={buy.hits} renderFields={zdteFields} emptyMsg="No extreme call-heavy 0DTE flow" side="buy" />
+      <SigCol title="Sell Signal \u2014 Put-Heavy 0DTE Flow" pinned={sell.pinned} hits={sell.hits} renderFields={zdteFields} emptyMsg="No extreme put-heavy 0DTE flow" side="sell" />
     </div>;
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // SUB-TAB: SKEW TERM SPREAD
-  // ════════════════════════════════════════════════════════════════
+  // ══════════ SKEW TERM SPREAD ══════════
   const renderSkewSpread = () => {
-    const valid = data.filter(d => d.spot > 0 && (d.nearTermSkew !== 0 || d.farTermSkew !== 0) && d._live);
-    const sorted = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => a.skewTermSpread - b.skewTermSpread);
-    const mid = Math.ceil(sorted.length / 2);
-    const buySide = new Set(sorted.slice(0, mid).map(d => d.ticker));
-    const sellSide = new Set(sorted.slice(mid).map(d => d.ticker));
+    const valid = data.filter(d => d.spot > 0 && (d.nearTermSkew !== 0 || d.farTermSkew !== 0));
+    const { buySide, sellSide } = assignPinnedSide(valid, d => d.skewTermSpread);
     const buy = buildSide(valid, (a,b) => a.skewTermSpread - b.skewTermSpread, buySide);
     const sell = buildSide(valid, (a,b) => b.skewTermSpread - a.skewTermSpread, sellSide);
 
@@ -1280,30 +1365,25 @@ function SignalScanner({ data, historyCache, onSelect }) {
       <span style={{ fontWeight: 600, minWidth: "65px", color: d.skewTermSpread > 3 ? "#A32D2D" : d.skewTermSpread < -2 ? "#0F6E56" : "inherit" }}>
         {d.skewTermSpread > 0 ? "+" : ""}{d.skewTermSpread.toFixed(1)}pts
       </span>
-      <span style={{ fontSize: "10px", opacity: 0.6 }}>
-        Near:{(d.nearTermSkew||0).toFixed(1)} Far:{(d.farTermSkew||0).toFixed(1)}
-      </span>
+      <span style={{ fontSize: "10px", opacity: 0.6 }}>Near:{(d.nearTermSkew||0).toFixed(1)} Far:{(d.farTermSkew||0).toFixed(1)}</span>
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal — Skew Flattening (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={skewFields} emptyMsg="No flattening readings" />
-      <SigCol title="Sell Signal — Skew Steepening (Risk-Off)" pinned={sell.pinned} hits={sell.hits} renderFields={skewFields} emptyMsg="No steepening readings" />
+      <SigCol title="Buy Signal \u2014 Skew Flattening (Contrarian Bullish)" pinned={buy.pinned} hits={buy.hits} renderFields={skewFields} emptyMsg="No flattening readings" side="buy" />
+      <SigCol title="Sell Signal \u2014 Skew Steepening (Risk-Off)" pinned={sell.pinned} hits={sell.hits} renderFields={skewFields} emptyMsg="No steepening readings" side="sell" />
     </div>;
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // SUB-TAB: SPOT-UP/VOL-UP
-  // ════════════════════════════════════════════════════════════════
+  // ══════════ SPOT-UP/VOL-UP ══════════
   const renderSpotUpVolUp = () => {
-    // Inherently bearish — sell side only
     const valid = data.filter(d => {
-      if (!d.spot || d.spot <= 0 || !d._live || !d.changePerc) return false;
+      if (!d.spot || d.spot <= 0 || !d.changePerc) return false;
       if (d.changePerc < 0.3) return false;
-      const volUp = d.skewCurve === "forward" || (d.smileRatio > 0 && d.smileRatio < 1.0) || d.rr25d > -1;
-      return volUp;
+      return d.skewCurve === "forward" || (d.smileRatio > 0 && d.smileRatio < 1.0) || d.rr25d > -1;
     });
     const allTickers = new Set(valid.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
-    const sell = buildSide(valid, (a,b) => b.changePerc - a.changePerc, allTickers);
+    PINNED.forEach(t => allTickers.add(t));
+    const sell = buildSide(valid, (a,b) => (b.changePerc||0) - (a.changePerc||0), allTickers);
 
     const suvFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1317,78 +1397,69 @@ function SignalScanner({ data, historyCache, onSelect }) {
     return <div style={{ display: "flex", gap: "16px" }}>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>Buy Signal</div>
-        <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", padding: "12px", opacity: 0.4, fontSize: "11px", textAlign: "center" }}>
+        <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", padding: "12px", background: BG_NEUTRAL, opacity: 0.5, fontSize: "11px", textAlign: "center" }}>
           Spot-Up/Vol-Up is an inherently bearish signal (FOMO / crowding warning). No buy-side readings.
         </div>
       </div>
-      <SigCol title="Sell Signal — FOMO / Speculative Call Chasing" pinned={sell.pinned} hits={sell.hits} renderFields={suvFields} emptyMsg="No spot-up/vol-up divergences detected" />
+      <SigCol title="Sell Signal \u2014 FOMO / Speculative Call Chasing" pinned={sell.pinned} hits={sell.hits} renderFields={suvFields} emptyMsg="No spot-up/vol-up divergences detected" side="sell" />
     </div>;
   };
 
-  // ════════════════════════════════════════════════════════════════
-  // SUB-TAB: VOLUME SURGE
-  // ════════════════════════════════════════════════════════════════
+  // ══════════ VOLUME SURGE ══════════
   const renderVolSurge = () => {
     if (surgeLoading) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Computing volume surges vs 5d averages...</div>;
     if (!surgeData) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Loading...</div>;
 
-    // Call surges: callPct > 60 (buy side), Put surges: callPct < 40 (sell side)
-    // Drop if both surge similarly (40-60% call)
     const callSurges = surgeData.filter(s => s.callPct > 60);
     const putSurges = surgeData.filter(s => s.callPct < 40);
-
-    // Merge surge data onto main data objects
-    const mergeWithData = (surges) => surges.map(s => {
-      const d = data.find(dd => dd.ticker === s.ticker) || {};
-      return { ...d, ...s, _surgeRatio: s.ratio, _callPct: s.callPct };
-    });
-
+    const mergeWithData = (surges) => surges.map(s => ({ ...(data.find(dd => dd.ticker === s.ticker)||{}), ...s, _surgeRatio: s.ratio, _callPct: s.callPct }));
     const callMerged = mergeWithData(callSurges);
     const putMerged = mergeWithData(putSurges);
     const buySideTickers = new Set(callMerged.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
     const sellSideTickers = new Set(putMerged.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
+    PINNED.forEach(t => {
+      const s = surgeData.find(sd => sd.ticker === t);
+      if (s && s.callPct > 60) buySideTickers.add(t);
+      else if (s && s.callPct < 40) sellSideTickers.add(t);
+    });
     const buyList = buildSide(callMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), buySideTickers);
     const sellList = buildSide(putMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), sellSideTickers);
 
     const vsFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
-      <span style={{ fontWeight: 600, minWidth: "45px", color: d._surgeRatio >= 2 ? "#A32D2D" : "#BA7517" }}>{(d._surgeRatio||0).toFixed(1)}x</span>
-      <span style={{ fontSize: "10px", opacity: 0.6 }}>
-        {d._callPct > 60 ? "Call " : "Put "}{Math.round(d._callPct > 50 ? d._callPct : 100-d._callPct)}%
-      </span>
+      <span style={{ fontWeight: 600, minWidth: "45px", color: (d._surgeRatio||0) >= 2 ? "#A32D2D" : "#BA7517" }}>{(d._surgeRatio||0).toFixed(1)}x</span>
+      <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._callPct||50) > 60 ? "Call " : "Put "}{Math.round((d._callPct||50) > 50 ? (d._callPct||50) : 100-(d._callPct||50))}%</span>
       <span style={{ fontSize: "10px", opacity: 0.5 }}><Regime r={d.regime}/></span>
     </>;
 
     return <div style={{ display: "flex", gap: "16px" }}>
-      <SigCol title="Buy Signal — Call Volume Surges" pinned={buyList.pinned} hits={buyList.hits} renderFields={vsFields} emptyMsg="No call-dominant volume surges" />
-      <SigCol title="Sell Signal — Put Volume Surges" pinned={sellList.pinned} hits={sellList.hits} renderFields={vsFields} emptyMsg="No put-dominant volume surges" />
+      <SigCol title="Buy Signal \u2014 Call Volume Surges" pinned={buyList.pinned} hits={buyList.hits} renderFields={vsFields} emptyMsg="No call-dominant volume surges" side="buy" />
+      <SigCol title="Sell Signal \u2014 Put Volume Surges" pinned={sellList.pinned} hits={sellList.hits} renderFields={vsFields} emptyMsg="No put-dominant volume surges" side="sell" />
     </div>;
   };
 
   const sigDescriptions = {
-    rr: "Sorted by 25-delta risk reversal extremes. Buy: most negative RR (contrarian bullish per Borochin & Zhao). Sell: least negative / positive RR (contrarian bearish).",
-    zdte: "Sorted by 0DTE delta-weighted P/C ratio. Buy: call-heavy (low P/C). Sell: put-heavy (high P/C). Only tickers with 0DTE volume.",
-    skewspread: "Sorted by near-term minus long-term skew spread. Buy: most negative (flattening/complacency). Sell: most positive (steepening/risk-off).",
-    spotupvolup: "Spot-up/vol-up is inherently bearish — FOMO / speculative call chasing. Sell side only.",
-    volsurge: "Call volume surges on buy side, put volume surges on sell side. Balanced surges (40-60% call) are dropped.",
+    walls: "SPY/QQQ pinned \u00B7 Others screened \u226520% OI within 2.5%. Put walls = support (buy). Call walls = resistance (sell).",
+    rr: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Buy: most negative RR (contrarian bullish). Sell: least negative / positive RR.",
+    zdte: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Buy: call-heavy (low P/C). Sell: put-heavy (high P/C).",
+    skewspread: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Buy: most negative spread (flattening). Sell: most positive (steepening).",
+    spotupvolup: "Top 10 \u00B7 Spot-up/vol-up is inherently bearish \u2014 FOMO / speculative call chasing. Sell side only.",
+    volsurge: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Call surges = buy. Put surges = sell. Balanced (40-60%) dropped.",
   };
 
   return <div>
-    {/* Sub-tab bar */}
     <div style={{ display: "flex", gap: "4px", marginBottom: "10px", flexWrap: "wrap" }}>
       {subTabs.map(st => <button key={st.id} onClick={() => setSubTab(st.id)} style={{ background: subTab === st.id ? "rgba(74,144,217,0.12)" : "rgba(74,144,217,0.04)", border: subTab === st.id ? "1px solid rgba(74,144,217,0.3)" : "1px solid transparent", borderRadius: "6px", padding: "5px 12px", fontSize: "11px", cursor: "pointer", fontWeight: subTab === st.id ? 600 : 400, color: subTab === st.id ? "#2B6CB0" : "inherit", opacity: subTab === st.id ? 1 : 0.6 }}>{st.label}</button>)}
     </div>
-    {/* Description */}
-    <div style={{ fontSize: "11px", opacity: 0.5, marginBottom: "10px" }}>SPY/QQQ pinned · Top 10 per side · {sigDescriptions[subTab]}</div>
-    {/* Content */}
-    {subTab === "rr" ? renderRR() :
+    <div style={{ fontSize: "11px", opacity: 0.5, marginBottom: "10px" }}>{sigDescriptions[subTab]}</div>
+    {subTab === "walls" ? renderWalls() :
+     subTab === "rr" ? renderRR() :
      subTab === "zdte" ? renderZdte() :
      subTab === "skewspread" ? renderSkewSpread() :
      subTab === "spotupvolup" ? renderSpotUpVolUp() :
      subTab === "volsurge" ? renderVolSurge() : null}
   </div>;
 }
-
 // ─── LEVERED ETF REBALANCE TAB ────────────────────────────────────
 const LEVERED_ETFS = [
   { ticker: "TQQQ", underlying: "QQQ", name: "ProShares UltraPro QQQ", x: 3, gamma: 6 },
@@ -1777,7 +1848,6 @@ function App() {
   const tabs = [
     { id: "scanner", label: "Scanner" },
     { id: "volume", label: "Opts Volume" },
-    { id: "walls", label: "Walls" },
     { id: "signals", label: "Signals" },
     { id: "cross", label: "Cross-Asset" },
     { id: "rebalance", label: "Rebalance" },
@@ -1812,15 +1882,14 @@ function App() {
 
     {/* Tabs */}
     <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid rgba(74,144,217,0.1)", paddingBottom: "0" }}>
-      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "walls") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
+      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "signals") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
     </div>
 
     {/* Tab content */}
     {loading && data.length === 0 ? <div style={{ padding: "40px", textAlign: "center", opacity: 0.5 }}>Loading snapshot data...</div> :
       tab === "scanner" ? <Scanner data={data} onSelect={lookupTicker} /> :
       tab === "volume" ? <OptionsVolume data={data} onSelect={lookupTicker} /> :
-      tab === "walls" ? <WallProximity data={data} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} /> :
-      tab === "signals" ? <SignalScanner data={data} historyCache={historyCache} onSelect={lookupTicker} /> :
+      tab === "signals" ? <SignalScanner data={data} historyCache={historyCache} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} /> :
       tab === "cross" ? <CrossAsset data={data} /> :
       tab === "rebalance" ? <Rebalance data={data} /> : null
     }
