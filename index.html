@@ -1128,35 +1128,71 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const [surgeData, setSurgeData] = useState(null);
   const [surgeLoading, setSurgeLoading] = useState(false);
 
-  // Compute volume surge data on first open of that sub-tab
+  // Walls state — hooks must be at component level
+  const [wallScanning, setWallScanning] = useState(false);
+  const [pinnedLoading, setPinnedLoading] = useState(false);
+  const wallLastKey = useRef(0);
+
+  // Generic rescan state for non-wall signal tabs
+  const [sigRescan, setSigRescan] = useState(false);
+
+  // Auto-fetch pinned walls when wallScanKey increments and walls sub-tab is active
   useEffect(() => {
-    if (subTab !== "volsurge" || surgeData !== null || surgeLoading) return;
+    if (!wallScanKey || wallScanKey <= wallLastKey.current || !onFetchWalls) return;
+    wallLastKey.current = wallScanKey;
+    if (subTab === "walls") {
+      setPinnedLoading(true);
+      onFetchWalls(PINNED).finally(() => setPinnedLoading(false));
+    }
+  }, [wallScanKey, subTab, onFetchWalls]);
+
+  // Compute volume surge data on first open of that sub-tab (or on rescan)
+  const computeSurges = useCallback(async (force) => {
+    if (!force && surgeData !== null) return;
     setSurgeLoading(true);
-    (async () => {
-      const results = [];
-      for (const d of data.filter(t => t.spot > 0 && t.optVolRaw > 0)) {
-        try {
-          let hist = historyCache[d.ticker];
-          if (!hist) {
-            const r = await fetch("/.netlify/functions/snapshot?ticker=" + d.ticker + "&history=true");
-            if (r.ok) { const j = await r.json(); hist = j.points || []; }
-          }
-          if (!hist || hist.length < 3) continue;
-          const recentVols = hist.slice(-30).map(p => p.optVolRaw || 0).filter(v => v > 0);
-          if (recentVols.length < 3) continue;
-          const avg5 = recentVols.slice(-5).reduce((s,v)=>s+v,0) / Math.min(recentVols.length, 5);
-          const ratio = avg5 > 0 ? d.optVolRaw / avg5 : 0;
-          const callVol = (d.cdf || 0) > 0 ? d.cdf : 0;
-          const putVol = (d.pdf || 0) > 0 ? d.pdf : 0;
-          const totalFlow = callVol + putVol;
-          const callPct = totalFlow > 0 ? (callVol / totalFlow * 100) : 50;
-          if (ratio >= 1.5) results.push({ ticker: d.ticker, spot: d.spot, ratio, callPct, regime: d.regime, dpc: d.dpc });
-        } catch(e) {}
-      }
-      setSurgeData(results);
-      setSurgeLoading(false);
-    })();
-  }, [subTab, data, historyCache, surgeData, surgeLoading]);
+    const results = [];
+    for (const d of data.filter(t => t.spot > 0 && t.optVolRaw > 0)) {
+      try {
+        let hist = historyCache[d.ticker];
+        if (!hist) {
+          const r = await fetch("/.netlify/functions/snapshot?ticker=" + d.ticker + "&history=true");
+          if (r.ok) { const j = await r.json(); hist = j.points || []; }
+        }
+        if (!hist || hist.length < 3) continue;
+        const recentVols = hist.slice(-30).map(p => p.optVolRaw || 0).filter(v => v > 0);
+        if (recentVols.length < 3) continue;
+        const avg5 = recentVols.slice(-5).reduce((s,v)=>s+v,0) / Math.min(recentVols.length, 5);
+        const ratio = avg5 > 0 ? d.optVolRaw / avg5 : 0;
+        const callVol = (d.cdf || 0) > 0 ? d.cdf : 0;
+        const putVol = (d.pdf || 0) > 0 ? d.pdf : 0;
+        const totalFlow = callVol + putVol;
+        const callPct = totalFlow > 0 ? (callVol / totalFlow * 100) : 50;
+        if (ratio >= 1.5) results.push({ ticker: d.ticker, spot: d.spot, ratio, callPct, regime: d.regime, dpc: d.dpc });
+      } catch(e) {}
+    }
+    setSurgeData(results);
+    setSurgeLoading(false);
+  }, [data, historyCache, surgeData]);
+
+  useEffect(() => {
+    if (subTab === "volsurge" && surgeData === null && !surgeLoading) computeSurges(false);
+  }, [subTab, surgeData, surgeLoading, computeSurges]);
+
+  // Rescan handler: re-fetches live chains for full watchlist then refreshes current tab
+  const rescanSignals = async () => {
+    if (!onFetchWalls) return;
+    setSigRescan(true);
+    try { await onFetchWalls(DEFAULT_WATCHLIST); } catch(e) { console.warn("Rescan:", e); }
+    if (subTab === "volsurge") await computeSurges(true);
+    setSigRescan(false);
+  };
+
+  const rescanWalls = async () => {
+    if (!onFetchWalls) return;
+    setWallScanning(true);
+    try { await onFetchWalls(DEFAULT_WATCHLIST); } catch(e) { console.warn("Rescan:", e); }
+    setWallScanning(false);
+  };
 
   const subTabs = [
     { id: "walls", label: "Walls" },
@@ -1174,7 +1210,6 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const BG_BUY_H = "rgba(34,197,94,0.12)";
   const BG_SELL_H = "rgba(239,68,68,0.12)";
   const BG_NEUTRAL_H = "rgba(0,0,0,0.05)";
-
   const bgFor = (noData, side) => noData ? BG_NEUTRAL : side === "buy" ? BG_BUY : BG_SELL;
   const bgHFor = (noData, side) => noData ? BG_NEUTRAL_H : side === "buy" ? BG_BUY_H : BG_SELL_H;
 
@@ -1232,24 +1267,6 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
 
   // ══════════ WALLS SUB-TAB ══════════
   const renderWalls = () => {
-    const [scanning, setScanning] = React.useState(false);
-    const [pinnedLoading, setPinnedLoading] = React.useState(false);
-    const lastKey = React.useRef(0);
-
-    React.useEffect(() => {
-      if (!wallScanKey || wallScanKey <= lastKey.current || !onFetchWalls) return;
-      lastKey.current = wallScanKey;
-      setPinnedLoading(true);
-      onFetchWalls(PINNED).finally(() => setPinnedLoading(false));
-    }, [wallScanKey]);
-
-    const rescan = async () => {
-      if (!onFetchWalls) return;
-      setScanning(true);
-      try { await onFetchWalls(DEFAULT_WATCHLIST); } catch(e) { console.warn("Rescan:", e); }
-      setScanning(false);
-    };
-
     const buildWallList = (wallKey, confKey, oiKey, distFn) => {
       const pinned = [], hits = [];
       data.forEach(d => {
@@ -1297,14 +1314,9 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
       </div>
     </div>;
 
-    return <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "10px" }}>
-        <button onClick={rescan} disabled={scanning} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: scanning ? "wait" : "pointer", color: "#2B6CB0", opacity: scanning ? 0.5 : 1 }}>{scanning ? "Scanning..." : "Rescan All"}</button>
-      </div>
-      <div style={{ display: "flex", gap: "16px" }}>
-        <WallCol pinned={putList.pinned} hits={putList.hits} title="Put Walls (Support)" wallKey="putWall" />
-        <WallCol pinned={callList.pinned} hits={callList.hits} title="Call Walls (Resistance)" wallKey="callWall" />
-      </div>
+    return <div style={{ display: "flex", gap: "16px" }}>
+      <WallCol pinned={putList.pinned} hits={putList.hits} title="Put Walls (Support)" wallKey="putWall" />
+      <WallCol pinned={callList.pinned} hits={callList.hits} title="Call Walls (Resistance)" wallKey="callWall" />
     </div>;
   };
 
@@ -1447,9 +1459,17 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     volsurge: "SPY/QQQ placed by reading \u00B7 Top 10 per side \u00B7 Call surges = buy. Put surges = sell. Balanced (40-60%) dropped.",
   };
 
+  const isRescanBusy = subTab === "walls" ? wallScanning : sigRescan;
+  const handleRescan = subTab === "walls" ? rescanWalls : rescanSignals;
+  const rescanLabel = isRescanBusy ? "Scanning..." : subTab === "walls" ? "Rescan All" : "Rescan Live";
+
   return <div>
-    <div style={{ display: "flex", gap: "4px", marginBottom: "10px", flexWrap: "wrap" }}>
-      {subTabs.map(st => <button key={st.id} onClick={() => setSubTab(st.id)} style={{ background: subTab === st.id ? "rgba(74,144,217,0.12)" : "rgba(74,144,217,0.04)", border: subTab === st.id ? "1px solid rgba(74,144,217,0.3)" : "1px solid transparent", borderRadius: "6px", padding: "5px 12px", fontSize: "11px", cursor: "pointer", fontWeight: subTab === st.id ? 600 : 400, color: subTab === st.id ? "#2B6CB0" : "inherit", opacity: subTab === st.id ? 1 : 0.6 }}>{st.label}</button>)}
+    {/* Sub-tab bar + Rescan button */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+        {subTabs.map(st => <button key={st.id} onClick={() => setSubTab(st.id)} style={{ background: subTab === st.id ? "rgba(74,144,217,0.12)" : "rgba(74,144,217,0.04)", border: subTab === st.id ? "1px solid rgba(74,144,217,0.3)" : "1px solid transparent", borderRadius: "6px", padding: "5px 12px", fontSize: "11px", cursor: "pointer", fontWeight: subTab === st.id ? 600 : 400, color: subTab === st.id ? "#2B6CB0" : "inherit", opacity: subTab === st.id ? 1 : 0.6 }}>{st.label}</button>)}
+      </div>
+      <button onClick={handleRescan} disabled={isRescanBusy} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: isRescanBusy ? "wait" : "pointer", color: "#2B6CB0", opacity: isRescanBusy ? 0.5 : 1, whiteSpace: "nowrap" }}>{rescanLabel}</button>
     </div>
     <div style={{ fontSize: "11px", opacity: 0.5, marginBottom: "10px" }}>{sigDescriptions[subTab]}</div>
     {subTab === "walls" ? renderWalls() :
