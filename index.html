@@ -228,8 +228,10 @@ function computeFromChain(d, chainData) {
 
   // ═══ SKEW ENGINE — Handbook Sections 5.2-5.6 ═══
   // 25-Delta Skew
-  const puts25d = valid.filter(c => c.details.contract_type === "put" && c.greeks.delta && Math.abs(c.greeks.delta) > 0.20 && Math.abs(c.greeks.delta) < 0.30 && c.implied_volatility > 0);
-  const calls25d = valid.filter(c => c.details.contract_type === "call" && c.greeks.delta && c.greeks.delta > 0.20 && c.greeks.delta < 0.30 && c.implied_volatility > 0);
+  const dteOf = c => { const [ey, em, ed] = c.details.expiration_date.split("-").map(Number); return Math.round((new Date(ey, em - 1, ed) - todayMidnight) / 864e5); };
+  const skewWindow = valid.filter(c => { const dte = dteOf(c); return dte >= 7 && dte <= 60; });
+  const puts25d = skewWindow.filter(c => c.details.contract_type === "put" && c.greeks.delta && Math.abs(c.greeks.delta) > 0.20 && Math.abs(c.greeks.delta) < 0.30 && c.implied_volatility > 0);
+  const calls25d = skewWindow.filter(c => c.details.contract_type === "call" && c.greeks.delta && c.greeks.delta > 0.20 && c.greeks.delta < 0.30 && c.implied_volatility > 0);
   if (puts25d.length > 0 && calls25d.length > 0) {
     const putIV = puts25d.reduce((s, c) => s + c.implied_volatility, 0) / puts25d.length;
     const callIV = calls25d.reduce((s, c) => s + c.implied_volatility, 0) / calls25d.length;
@@ -360,70 +362,6 @@ function computeFromChain(d, chainData) {
   return d;
 }
 
-// Vol divergence scanner (kept compact — same logic as before)
-async function fetchVolDivergencesLive(watchlist) {
-  const results = [];
-  for (let i = 0; i < watchlist.length; i++) {
-    const ticker = watchlist[i];
-    const polyQuote = await fetchPoly("quote", ticker);
-    let spot = 0, changePct = 0;
-    if (polyQuote && polyQuote.results && polyQuote.results.length > 0) {
-      const q = polyQuote.results[0]; spot = q.c || q.vw || 0; changePct = q.changePerc || 0;
-      if (!changePct && q.prevClose > 0) changePct = ((spot - q.prevClose) / q.prevClose) * 100;
-    }
-    if (spot <= 0) continue;
-    const chain = await fetchPoly("chain", ticker);
-    if (!chain || !chain.results || chain.results.length < 5) continue;
-    const now = new Date();
-    const todayET = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const todayDate = new Date(todayET.getFullYear(), todayET.getMonth(), todayET.getDate());
-    const contracts = chain.results.filter(c => c.details && c.greeks && c.details.expiration_date);
-    if (Math.abs(changePct) >= 0.15) {
-      const otm = contracts.filter(c => { const exp = c.details.expiration_date; if(!exp) return false; const [ey,em,ed]=exp.split("-").map(Number); const dte=Math.round((new Date(ey,em-1,ed)-todayDate)/864e5); if(dte<14||dte>75) return false; const otmPct=Math.abs(c.details.strike_price-spot)/spot; if(otmPct<0.02||otmPct>0.20) return false; const isC=c.details.contract_type==="call"; return isC ? c.details.strike_price>spot : c.details.strike_price<spot; });
-      if (otm.length>=2) {
-        const tType = changePct > 0.15 ? "put" : "call";
-        const tContracts = otm.filter(c => c.details.contract_type === tType);
-        if (tContracts.length >= 1) {
-          const ivs = tContracts.map(c => c.implied_volatility||0).filter(v => v > 0);
-          if (ivs.length >= 1) {
-            const avgIV = ivs.reduce((s,v)=>s+v,0)/ivs.length;
-            const tVol = tContracts.reduce((s,c)=>s+((c.day&&c.day.volume)||0),0);
-            const tOI = tContracts.reduce((s,c)=>s+(c.open_interest||0),0);
-            const voiR = tOI > 0 ? tVol/tOI : 0;
-            if ((tVol >= 50 || voiR >= 0.3) && avgIV >= 0.10) {
-              const isPut = tType === "put";
-              const sev = Math.min(100, Math.round((avgIV*100 > 50 ? 25 : 15) + (voiR > 3 ? 25 : 5) + (tVol > 2000 ? 20 : 5) + 10));
-              results.push({ ticker, spot, shareChg: changePct, isPutDiv: isPut, divType: "otm", type: isPut ? "Puts up / shares up" : "Calls up / shares down", signal: isPut ? "Informed downside into strength" : "Informed upside into weakness", severity: sev, ivJump: avgIV*100, currentIV: avgIV*100, priorIV: avgIV*75, volume: tVol, avgOI: tOI, volOIRatio: voiR, chainStrikesElevated: ivs.length, chainTotalStrikes: tContracts.length, at: assetType(ticker), _live: true });
-            }
-          }
-        }
-      }
-    }
-    if (Math.abs(changePct) >= 0.3) {
-      const nearATM = contracts.filter(c => { if (!c.implied_volatility || c.implied_volatility <= 0) return false; const [ey,em,ed]=c.details.expiration_date.split("-").map(Number); const dte=Math.round((new Date(ey,em-1,ed)-todayDate)/864e5); return dte>=7&&dte<=60&&Math.abs(c.greeks.delta||0)>=0.15&&Math.abs(c.greeks.delta||0)<=0.85; });
-      if (nearATM.length >= 4) {
-        const nC = nearATM.filter(c => c.details.contract_type === "call");
-        const nP = nearATM.filter(c => c.details.contract_type === "put");
-        const aCIV = nC.length>0 ? nC.reduce((s,c)=>s+c.implied_volatility,0)/nC.length*100 : 0;
-        const aPIV = nP.length>0 ? nP.reduce((s,c)=>s+c.implied_volatility,0)/nP.length*100 : 0;
-        const cVol = nC.reduce((s,c)=>s+((c.day&&c.day.volume)||0),0);
-        const pVol = nP.reduce((s,c)=>s+((c.day&&c.day.volume)||0),0);
-        const tNV = cVol+pVol; const cDom = tNV>0?cVol/tNV:0.5;
-        const cIVR = aCIV > aPIV && aPIV > 0;
-        if (changePct>0.3 && (cIVR || (aCIV>25 && cDom>0.60))) {
-          const sev = Math.min(100, Math.round((cIVR?25:0)+(aCIV>50?20:aCIV>35?12:5)+(cDom>0.75?20:5)+(changePct>3?15:5)));
-          if (!results.find(r=>r.ticker===ticker) && sev>=25) results.push({ ticker, spot, shareChg: changePct, isPutDiv: false, divType: "spotUpVolUp", type: "Spot up / vol up", signal: "Speculative call chasing", callIV: aCIV, putIV: aPIV, callIVRicher: cIVR, callDominance: Math.round(cDom*100), severity: sev, ivJump: aCIV, currentIV: aCIV, priorIV: aCIV*0.85, chainStrikesElevated: 0, chainTotalStrikes: nC.length, at: assetType(ticker), _live: true });
-        }
-        if (changePct<-0.3 && aPIV>0 && aPIV<25 && !cIVR) {
-          const sev = Math.min(100, Math.round((aPIV<15?25:5)+(Math.abs(changePct)>3?20:5)+15));
-          if (!results.find(r=>r.ticker===ticker) && sev>=30) results.push({ ticker, spot, shareChg: changePct, isPutDiv: true, divType: "spotDownVolDown", type: "Spot down / vol down", signal: "IV compressed into selloff", callIV: aCIV, putIV: aPIV, severity: sev, ivJump: aPIV, currentIV: aPIV, priorIV: aPIV*1.15, chainStrikesElevated: 0, chainTotalStrikes: nP.length, at: assetType(ticker), _live: true });
-        }
-      }
-    }
-  }
-  return results.sort((a, b) => b.severity - a.severity);
-}
-
 async function fetchTickerLive(ticker, idx) {
   const base = emptyTicker(ticker);
   const polyQuote = await fetchPoly("quote", ticker);
@@ -498,7 +436,7 @@ function buildSummary(d) {
   if (d.skewSignals.length > 0) { factors.push({ sig: "Skew signal", det: d.skewSignals[0].label, imp: d.skewSignals[0].severity==="high"?"critical":"neutral", dir: d.skewSignals[0].type==="steepening"?"bearish":"neutral" }); if (d.skewSignals[0].type==="steepening") score -= 8; }
   if (Math.abs(d.zdg) > 5e8) { const zs = d.zdr==="negative"?-d.zds:d.zds; score += d.zdr==="negative"?-10:5; factors.push({ sig: "0DTE gamma", det: d.zdr + " — " + fmtEq(zs).label + " expiring", imp: d.zdr==="negative"?"amplifying":"suppressing", dir: d.zdr==="negative"?"volatile":"neutral" }); }
   const bigT = d.trades.filter(t => Math.abs(t.eqShares)>30000);
-  if (bigT.length) { const net = bigT.reduce((s,t)=>s+(t.side==="bought"?Math.abs(t.eqShares):-Math.abs(t.eqShares)),0); score += net>0?8:-8; factors.push({ sig: "Sweeps", det: bigT.length + " prints, net " + fmtEq(net).label, imp: net>0?"bullish":"bearish", dir: net>0?"bullish":"bearish" }); }
+  if (bigT.length) { const net = bigT.reduce((s,t)=>s+t.eqShares,0); score += net>0?8:-8; factors.push({ sig: "Sweeps", det: bigT.length + " prints, net " + fmtEq(net).label, imp: net>0?"bullish":"bearish", dir: net>0?"bullish":"bearish" }); }
   const pd = maxPainDist;
   if (Math.abs(pd) > 1) { score += pd>0?5:-5; factors.push({ sig: "Max pain", det: "Pin " + fmtP(d.maxPain) + " (" + (pd>0?"+":"") + pd.toFixed(1) + "%)", imp: "pin", dir: pd>0?"bullish":"bearish" }); }
 
@@ -899,113 +837,6 @@ function OptionsVolume({ data, onSelect }) {
   </div>;
 }
 
-// ─── WALL PROXIMITY TAB ─────────────────────────────────────────────
-function WallProximity({ data, onSelect, onFetchWalls, wallScanKey }) {
-  const PINNED = ["SPY", "QQQ"];
-  const [scanning, setScanning] = useState(false);
-  const [pinnedLoading, setPinnedLoading] = useState(false);
-  const lastScanKey = useRef(0);
-
-  // Auto-fetch SPY/QQQ live every time the tab opens (wallScanKey changes)
-  useEffect(() => {
-    if (wallScanKey <= lastScanKey.current) return;
-    lastScanKey.current = wallScanKey;
-    setPinnedLoading(true);
-    onFetchWalls(PINNED).finally(() => setPinnedLoading(false));
-  }, [wallScanKey, onFetchWalls]);
-
-  // Manual rescan button — fetches live for the full watchlist to find new proximity hits
-  const rescan = async () => {
-    setScanning(true);
-    try { await onFetchWalls(DEFAULT_WATCHLIST); } catch (e) { console.warn("Rescan:", e); }
-    setScanning(false);
-  };
-
-  // Build proximity lists — pinned always at top regardless of concentration
-  const buildList = (wallKey, confKey, oiKey, distFn) => {
-    const pinned = [];
-    const hits = [];
-    data.forEach(d => {
-      if (!d.spot || d.spot <= 0) return;
-      const wall = d[wallKey] || 0;
-      const conf = d[confKey] || 0;
-      const oi = d[oiKey] || 0;
-      const isPinned = PINNED.includes(d.ticker);
-      if (wall <= 0 && !isPinned) return;
-      const dist = wall > 0 ? distFn(d.spot, wall) : 999;
-      const noData = wall <= 0 || !d._live;
-      const row = { ...d, dist, wallType: wallKey === "callWall" ? "call" : "put", noData, _conf: conf, _oi: oi };
-      if (isPinned) pinned.push(row);
-      else if (!noData && conf >= 20 && dist >= -1 && dist <= 2.5) hits.push(row);
-    });
-    hits.sort((a, b) => a.dist - b.dist);
-    // Ensure pinned order: SPY first, then QQQ
-    pinned.sort((a, b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
-    return { pinned, hits };
-  };
-
-  const putList = buildList("putWall", "putWallConf", "putWallOI", (spot, wall) => (spot - wall) / spot * 100);
-  const callList = buildList("callWall", "callWallConf", "callWallOI", (spot, wall) => (wall - spot) / spot * 100);
-
-  const WallRow = ({ d, wallKey, confKey, oiKey, isPinned }) => {
-    const noData = d.noData;
-    return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: isPinned ? "rgba(74,144,217,0.03)" : "transparent" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background=isPinned?"rgba(74,144,217,0.03)":"transparent"}>
-      <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
-      {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>{pinnedLoading ? "Fetching live..." : "Click to load"}</span> : <>
-        <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
-        <span style={{ minWidth: "55px" }}>→ {fmtP(d[wallKey])}</span>
-        <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
-        <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% · {(d._oi||0).toLocaleString()}</span>
-      </>}
-    </div>;
-  };
-
-  const WallCol = ({ pinned, hits, title, wallKey, confKey, oiKey }) => <div style={{ flex: 1 }}>
-    <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
-    <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
-      {pinned.map((d, i) => <WallRow key={d.ticker} d={d} wallKey={wallKey} confKey={confKey} oiKey={oiKey} isPinned={true} />)}
-      {pinned.length > 0 && hits.length > 0 && <div style={{ borderBottom: "2px solid rgba(74,144,217,0.12)" }} />}
-      {hits.map((d, i) => <WallRow key={d.ticker} d={d} wallKey={wallKey} confKey={confKey} oiKey={oiKey} isPinned={false} />)}
-      {hits.length === 0 && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>No other tickers within 2.5%</div>}
-    </div>
-  </div>;
-
-  return <div>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-      <div style={{ fontSize: "11px", opacity: 0.5 }}>SPY/QQQ pinned · others screened ≥20% OI within 2.5%</div>
-      <button onClick={rescan} disabled={scanning} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: scanning ? "wait" : "pointer", color: "#2B6CB0", opacity: scanning ? 0.5 : 1 }}>{scanning ? "Scanning..." : "Rescan All"}</button>
-    </div>
-    <div style={{ display: "flex", gap: "16px" }}>
-      <WallCol pinned={putList.pinned} hits={putList.hits} title="Put Walls (Support)" wallKey="putWall" confKey="putWallConf" oiKey="putWallOI" />
-      <WallCol pinned={callList.pinned} hits={callList.hits} title="Call Walls (Resistance)" wallKey="callWall" confKey="callWallConf" oiKey="callWallOI" />
-    </div>
-  </div>;
-}
-
-// ─── VOL DIVERGENCE TAB ─────────────────────────────────────────────
-function VolDivergence({ divs, loading, onScan }) {
-  if (loading) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Scanning {DEFAULT_WATCHLIST.length} tickers for vol divergences...</div>;
-  return <div>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-      <div style={{ fontSize: "11px", opacity: 0.6 }}>{divs.length} divergence{divs.length !== 1 ? "s" : ""} found</div>
-      <button onClick={onScan} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: "pointer", color: "#2B6CB0" }}>Rescan</button>
-    </div>
-    {divs.length === 0 ? <div style={{ padding: "20px", textAlign: "center", opacity: 0.4, fontSize: "13px" }}>No divergences detected — markets aligned.</div> :
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-      {divs.map((dv, i) => <div key={i} style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "8px", padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-          <span style={{ fontSize: "16px", fontWeight: 500 }}>{dv.ticker}</span>
-          <span style={{ fontSize: "12px", opacity: 0.7 }}>{fmtP(dv.spot)}</span>
-          <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", background: dv.isPutDiv ? "rgba(226,75,74,0.1)" : "rgba(29,158,117,0.1)", color: dv.isPutDiv ? "#A32D2D" : "#0F6E56", fontWeight: 500 }}>{dv.type}</span>
-          <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "4px", fontWeight: 500, background: dv.severity > 60 ? "rgba(226,75,74,0.12)" : dv.severity > 35 ? "rgba(186,117,23,0.1)" : "rgba(128,128,128,0.06)", color: dv.severity > 60 ? "#A32D2D" : dv.severity > 35 ? "#BA7517" : "#888780" }}>{dv.severity}</span>
-        </div>
-        <div style={{ fontSize: "13px", lineHeight: 1.6, opacity: 0.82, fontFamily: "-apple-system,sans-serif" }}>Shares {fmtPct(dv.shareChg)} · {dv.signal}</div>
-        <div style={{ fontSize: "11px", opacity: 0.5, marginTop: "4px" }}>IV: {(dv.currentIV||0).toFixed(0)}% · Vol: {(dv.volume||0).toLocaleString()} cts</div>
-      </div>)}
-    </div>}
-  </div>;
-}
-
 // ─── CROSS-ASSET TAB ───────────────────────────────────────────────
 function CrossAsset({ data }) {
   const etfs = data.filter(d => d.at === "ETF" && d.spot > 0);
@@ -1057,74 +888,9 @@ function CrossAsset({ data }) {
   </div>;
 }
 
-// ─── VOLUME SURGE TAB ───────────────────────────────────────────
-function VolumeSurge({ data, historyCache, onSelect }) {
-  const [surges, setSurges] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function computeSurges() {
-      const results = [];
-      for (const d of data.filter(t => t.spot > 0 && t.optVolRaw > 0)) {
-        try {
-          let hist = historyCache[d.ticker];
-          if (!hist) {
-            const r = await fetch("/.netlify/functions/snapshot?ticker=" + d.ticker + "&history=true");
-            if (r.ok) { const j = await r.json(); hist = j.points || []; }
-          }
-          if (!hist || hist.length < 3) continue;
-          const recentVols = hist.slice(-30).map(p => p.optVolRaw || 0).filter(v => v > 0);
-          if (recentVols.length < 3) continue;
-          const avg5 = recentVols.slice(-5).reduce((s,v)=>s+v,0) / Math.min(recentVols.length, 5);
-          const avg30 = recentVols.reduce((s,v)=>s+v,0) / recentVols.length;
-          const ratio5 = avg5 > 0 ? d.optVolRaw / avg5 : 0;
-          const ratio30 = avg30 > 0 ? d.optVolRaw / avg30 : 0;
-          // Also check call vs put volume skew
-          const callVol = (d.cdf || 0) > 0 ? d.cdf : 0;
-          const putVol = (d.pdf || 0) > 0 ? d.pdf : 0;
-          const totalFlow = callVol + putVol;
-          const callPct = totalFlow > 0 ? (callVol / totalFlow * 100) : 50;
-          if (ratio5 >= 1.5 || ratio30 >= 1.5) {
-            results.push({ ticker: d.ticker, spot: d.spot, todayVol: d.optVolRaw, avg5d: Math.round(avg5), avg30d: Math.round(avg30), ratio5: ratio5, ratio30: ratio30, callPct: callPct, regime: d.regime, dpc: d.dpc, at: d.at });
-          }
-        } catch (e) { /* skip */ }
-      }
-      setSurges(results.sort((a, b) => Math.max(b.ratio5, b.ratio30) - Math.max(a.ratio5, a.ratio30)));
-      setLoading(false);
-    }
-    if (data.length > 0) computeSurges();
-  }, [data, historyCache]);
-
-  if (loading) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Computing volume surges vs 5d/30d averages...</div>;
-  if (surges.length === 0) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.4 }}>No volume surges detected — all tickers within normal ranges.</div>;
-
-  return <div>
-    <div style={{ fontSize: "11px", opacity: 0.6, marginBottom: "12px" }}>{surges.length} ticker{surges.length !== 1 ? "s" : ""} with options volume pacing above 1.5x their recent average</div>
-    <div style={{ border: "1px solid rgba(74,144,217,0.12)", borderRadius: "10px", overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "65px 65px 80px 70px 70px 65px 65px 1fr", padding: "8px 12px", fontSize: "9px", textTransform: "uppercase", opacity: 0.5, background: "rgba(74,144,217,0.04)", borderBottom: "1px solid rgba(74,144,217,0.08)" }}>
-        <span>Ticker</span><span>Spot</span><span>Today Vol</span><span>vs 5d</span><span>vs 30d</span><span>Call %</span><span>P/C</span><span>Regime</span>
-      </div>
-      {surges.map((s, i) => {
-        const maxR = Math.max(s.ratio5, s.ratio30);
-        return <div key={s.ticker} onClick={() => onSelect(s.ticker)} style={{ display: "grid", gridTemplateColumns: "65px 65px 80px 70px 70px 65px 65px 1fr", padding: "7px 12px", fontSize: "12px", cursor: "pointer", borderBottom: i < surges.length-1 ? "1px solid rgba(74,144,217,0.05)" : "none" }} onMouseEnter={e=>e.currentTarget.style.background="rgba(74,144,217,0.06)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-          <span style={{ fontWeight: 500 }}>{s.ticker}</span>
-          <span>{fmtP(s.spot)}</span>
-          <span style={{ fontWeight: 500 }}>{s.todayVol.toLocaleString()}</span>
-          <span style={{ color: s.ratio5 >= 2 ? "#A32D2D" : s.ratio5 >= 1.5 ? "#BA7517" : "inherit", fontWeight: s.ratio5 >= 2 ? 500 : 400 }}>{s.ratio5.toFixed(1)}x</span>
-          <span style={{ color: s.ratio30 >= 2 ? "#A32D2D" : s.ratio30 >= 1.5 ? "#BA7517" : "inherit", fontWeight: s.ratio30 >= 2 ? 500 : 400 }}>{s.ratio30.toFixed(1)}x</span>
-          <span style={{ color: s.callPct > 65 ? "#0F6E56" : s.callPct < 35 ? "#A32D2D" : "inherit" }}>{s.callPct.toFixed(0)}%</span>
-          <span style={{ color: s.dpc > 1.3 ? "#A32D2D" : s.dpc < 0.7 ? "#0F6E56" : "inherit" }}>{s.dpc.toFixed(2)}</span>
-          <span><Regime r={s.regime}/></span>
-        </div>;
-      })}
-    </div>
-  </div>;
-}
-
 // ─── SIGNAL SCANNER TABS (v5) ─────────────────────────────────────
-function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey }) {
+function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey, subTab }) {
   const PINNED = ["SPY", "QQQ"];
-  const [subTab, setSubTab] = useState("walls");
   const [surgeData, setSurgeData] = useState(null);
   const [surgeLoading, setSurgeLoading] = useState(false);
 
@@ -1194,15 +960,6 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     setWallScanning(false);
   };
 
-  const subTabs = [
-    { id: "walls", label: "Walls" },
-    { id: "rr", label: "25Δ Risk Reversal" },
-    { id: "zdte", label: "0DTE Flow" },
-    { id: "skewspread", label: "Skew Spread" },
-    { id: "spotupvolup", label: "Spot↑Vol↑" },
-    { id: "volsurge", label: "Vol Surge" },
-  ];
-
   // Color helpers
   const BG_BUY = "rgba(34,197,94,0.06)";
   const BG_SELL = "rgba(239,68,68,0.06)";
@@ -1213,57 +970,48 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const bgFor = (noData, side) => noData ? BG_NEUTRAL : side === "buy" ? BG_BUY : BG_SELL;
   const bgHFor = (noData, side) => noData ? BG_NEUTRAL_H : side === "buy" ? BG_BUY_H : BG_SELL_H;
 
-  // Shared row component
-  const SigRow = ({ d, fields, noData, side }) => {
-    const bg = bgFor(noData, side);
-    const bgH = bgHFor(noData, side);
-    return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: bg, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onMouseEnter={e=>e.currentTarget.style.background=bgH} onMouseLeave={e=>e.currentTarget.style.background=bg}>
+  // Shared row component. side: "buy" (green) | "sell" (red) | "neutral" (grey).
+  // Neutral pinned rows still show their reading with a small tag ("in range" / "no data").
+  const SigRow = ({ d, fields, side, tag, noDataLabel }) => {
+    const noData = side === "neutral" && !fields;
+    const bg = bgFor(side === "neutral", side);
+    const bgH = bgHFor(side === "neutral", side);
+    return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: bg, borderBottom: "1px solid rgba(0,0,0,0.04)", opacity: side === "neutral" ? 0.75 : 1 }} onMouseEnter={e=>e.currentTarget.style.background=bgH} onMouseLeave={e=>e.currentTarget.style.background=bg}>
       <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
-      {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>No data</span> : fields}
+      {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>{noDataLabel || "No data — click to load"}</span> : fields}
+      {tag && <span style={{ marginLeft: "auto", fontSize: "9px", textTransform: "uppercase", opacity: 0.45, whiteSpace: "nowrap" }}>{tag}</span>}
     </div>;
   };
 
   // Shared column component
-  const SigCol = ({ title, pinned, hits, renderFields, emptyMsg, side }) => (
+  const SigCol = ({ title, pinned, hits, renderFields, emptyMsg, side, noDataLabel }) => (
     <div style={{ flex: 1 }}>
       <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
       <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
-        {pinned.map(d => <SigRow key={d.ticker} d={d} noData={d._noSig} side={d._noSig ? "neutral" : side} fields={renderFields(d)} />)}
+        {pinned.map(d => <SigRow key={d.ticker} d={d} side={d._noSig ? "neutral" : side} fields={d._hasReading ? renderFields(d) : null} tag={d._noSig ? (d._hasReading ? "in range" : null) : null} noDataLabel={noDataLabel} />)}
         {pinned.length > 0 && hits.length > 0 && <div style={{ borderBottom: "2px solid rgba(74,144,217,0.12)" }} />}
-        {hits.map(d => <SigRow key={d.ticker} d={d} noData={false} side={side} fields={renderFields(d)} />)}
-        {hits.length === 0 && pinned.every(pp => pp._noSig) && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>{emptyMsg || "No signals"}</div>}
+        {hits.map(d => <SigRow key={d.ticker} d={d} side={side} fields={renderFields(d)} />)}
+        {hits.length === 0 && pinned.every(pp => pp._noSig) && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>{emptyMsg || "No tickers crossing threshold"}</div>}
       </div>
     </div>
   );
 
-  // Build one side: pinned placed on the side their reading leans toward
-  // side="buy"|"sell" — no-data pinned tickers only appear on buy side to avoid duplication
-  const buildSide = (validSet, sortFn, sideTickers, side, max = 10) => {
-    const pinned = [];
-    const hits = [];
+  // Threshold-gated split (Handbook §21 / Table 5.4): a ticker appears in a column ONLY
+  // when its reading crosses the documented signal threshold. SPY/QQQ are always pinned —
+  // on the side they qualify for, or greyed with their reading when in the normal range.
+  const buildThresholdSides = (valid, isBuy, isSell, sortBuy, sortSell, max = 10) => {
+    const nonPinned = valid.filter(d => !PINNED.includes(d.ticker));
+    const buyHits = nonPinned.filter(isBuy).sort(sortBuy).slice(0, max);
+    const sellHits = nonPinned.filter(isSell).sort(sortSell).slice(0, max);
+    const buyPinned = [], sellPinned = [];
     PINNED.forEach(t => {
-      const fromValid = validSet.find(d => d.ticker === t);
-      const fromAll = data.find(d => d.ticker === t);
-      if (fromValid && sideTickers.has(t)) pinned.push({ ...fromValid, _noSig: false });
-      else if (fromAll && side === "buy") pinned.push({ ...fromAll, _noSig: true });
+      const dv = valid.find(d => d.ticker === t);
+      if (dv && isBuy(dv)) buyPinned.push({ ...dv, _noSig: false, _hasReading: true });
+      else if (dv && isSell(dv)) sellPinned.push({ ...dv, _noSig: false, _hasReading: true });
+      else if (dv) buyPinned.push({ ...dv, _noSig: true, _hasReading: true });
+      else { const da = data.find(d => d.ticker === t); if (da) buyPinned.push({ ...da, _noSig: true, _hasReading: false }); }
     });
-    validSet.filter(d => !PINNED.includes(d.ticker) && sideTickers.has(d.ticker)).forEach(d => hits.push(d));
-    hits.sort(sortFn);
-    return { pinned, hits: hits.slice(0, max) };
-  };
-
-  // Assign pinned tickers to buy or sell based on their reading vs median
-  const assignPinnedSide = (valid, valueFn) => {
-    const nonPinned = [...valid].filter(d => !PINNED.includes(d.ticker)).sort((a,b) => valueFn(a) - valueFn(b));
-    const mid = Math.ceil(nonPinned.length / 2);
-    const midVal = nonPinned.length > 0 ? valueFn(nonPinned[Math.min(mid, nonPinned.length-1)]) : 0;
-    const buySide = new Set(nonPinned.slice(0, mid).map(d => d.ticker));
-    const sellSide = new Set(nonPinned.slice(mid).map(d => d.ticker));
-    PINNED.forEach(t => {
-      const d = valid.find(dd => dd.ticker === t);
-      if (d) { if (valueFn(d) <= midVal) buySide.add(t); else sellSide.add(t); }
-    });
-    return { buySide, sellSide };
+    return { buy: { pinned: buyPinned, hits: buyHits }, sell: { pinned: sellPinned, hits: sellHits } };
   };
 
   // ══════════ WALLS SUB-TAB ══════════
@@ -1277,56 +1025,39 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
         if (wall <= 0 && !isPinned) return;
         const dist = wall > 0 ? distFn(d.spot, wall) : 999;
         const noData = wall <= 0;
-        const row = { ...d, dist, noData, _conf: conf, _oi: oi };
+        const row = { ...d, dist, _conf: conf, _oi: oi, _noSig: noData, _hasReading: !noData };
         if (isPinned) pinned.push(row);
         else if (!noData && conf >= 20 && dist >= -1 && dist <= 2.5) hits.push(row);
       });
       hits.sort((a,b) => a.dist - b.dist);
       pinned.sort((a,b) => PINNED.indexOf(a.ticker) - PINNED.indexOf(b.ticker));
-      return { pinned, hits };
+      return { pinned, hits: hits.slice(0, 10) };
     };
 
     const putList = buildWallList("putWall", "putWallConf", "putWallOI", (s,w) => (s-w)/s*100);
     const callList = buildWallList("callWall", "callWallConf", "callWallOI", (s,w) => (w-s)/s*100);
 
-    const WallRow = ({ d, wallKey }) => {
-      const noData = d.noData;
-      const side = wallKey === "putWall" ? "buy" : "sell";
-      const bg = bgFor(noData, side);
-      const bgH = bgHFor(noData, side);
-      return <div onClick={() => onSelect(d.ticker)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "7px 10px", fontSize: "12px", cursor: "pointer", background: bg, borderBottom: "1px solid rgba(0,0,0,0.04)" }} onMouseEnter={e=>e.currentTarget.style.background=bgH} onMouseLeave={e=>e.currentTarget.style.background=bg}>
-        <span style={{ fontWeight: 600, minWidth: "45px" }}>{d.ticker}</span>
-        {noData ? <span style={{ opacity: 0.4, fontSize: "11px" }}>{pinnedLoading ? "Fetching live..." : "Click to load"}</span> : <>
-          <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
-          <span style={{ minWidth: "55px" }}>{"→"} {fmtP(d[wallKey])}</span>
-          <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
-          <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% {"·"} {(d._oi||0).toLocaleString()}</span>
-        </>}
-      </div>;
-    };
+    const wallFields = (wallKey) => (d) => <>
+      <span style={{ minWidth: "60px" }}>{fmtP(d.spot)}</span>
+      <span style={{ minWidth: "55px" }}>{"→"} {fmtP(d[wallKey])}</span>
+      <span style={{ color: d.dist < 1 ? "#E24B4A" : d.dist < 2 ? "#BA7517" : "#1D9E75", fontWeight: 500, minWidth: "45px" }}>{d.dist.toFixed(1)}%</span>
+      <span style={{ fontSize: "10px", opacity: 0.6 }}>{(d._conf||0).toFixed(0)}% {"·"} {(d._oi||0).toLocaleString()}</span>
+    </>;
 
-    const WallCol = ({ pinned, hits, title, wallKey }) => <div style={{ flex: 1 }}>
-      <div style={{ fontSize: "10px", textTransform: "uppercase", opacity: 0.6, marginBottom: "8px", fontWeight: 500 }}>{title}</div>
-      <div style={{ border: "1px solid rgba(74,144,217,0.1)", borderRadius: "8px", overflow: "hidden" }}>
-        {pinned.map(d => <WallRow key={d.ticker} d={d} wallKey={wallKey} />)}
-        {pinned.length > 0 && hits.length > 0 && <div style={{ borderBottom: "2px solid rgba(74,144,217,0.12)" }} />}
-        {hits.map(d => <WallRow key={d.ticker} d={d} wallKey={wallKey} />)}
-        {hits.length === 0 && <div style={{ padding: "8px 10px", opacity: 0.35, fontSize: "11px" }}>No other tickers within 2.5%</div>}
-      </div>
-    </div>;
-
+    const noDataLabel = pinnedLoading ? "Fetching live..." : "Click to load";
     return <div style={{ display: "flex", gap: "16px" }}>
-      <WallCol pinned={putList.pinned} hits={putList.hits} title="Put Walls (Support)" wallKey="putWall" />
-      <WallCol pinned={callList.pinned} hits={callList.hits} title="Call Walls (Resistance)" wallKey="callWall" />
+      <SigCol title="Put Walls (Support)" pinned={putList.pinned} hits={putList.hits} renderFields={wallFields("putWall")} emptyMsg="No other tickers within 2.5%" side="buy" noDataLabel={noDataLabel} />
+      <SigCol title="Call Walls (Resistance)" pinned={callList.pinned} hits={callList.hits} renderFields={wallFields("callWall")} emptyMsg="No other tickers within 2.5%" side="sell" noDataLabel={noDataLabel} />
     </div>;
   };
 
-  // ══════════ 25-DELTA RISK REVERSAL ══════════
+  // ══════════ 25-DELTA RISK REVERSAL  // ══════════ 25-DELTA RISK REVERSAL ══════════
   const renderRR = () => {
     const valid = data.filter(d => d.spot > 0 && d.rr25d !== 0);
-    const { buySide, sellSide } = assignPinnedSide(valid, d => d.rr25d);
-    const buy = buildSide(valid, (a,b) => a.rr25d - b.rr25d, buySide, "buy");
-    const sell = buildSide(valid, (a,b) => b.rr25d - a.rr25d, sellSide, "sell");
+    const { buy, sell } = buildThresholdSides(valid,
+      d => d.rr25d <= -8,                         // extreme put skew — contrarian bullish (§21)
+      d => d.rr25d >= -1,                         // call skew / flat RR — contrarian bearish
+      (a,b) => a.rr25d - b.rr25d, (a,b) => b.rr25d - a.rr25d);
 
     const rrFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1347,9 +1078,11 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   // ══════════ 0DTE FLOW ══════════
   const renderZdte = () => {
     const valid = data.filter(d => d.spot > 0 && d.zdteVol > 0 && d.zdteDpc > 0);
-    const { buySide, sellSide } = assignPinnedSide(valid, d => d.zdteDpc);
-    const buy = buildSide(valid, (a,b) => a.zdteDpc - b.zdteDpc, buySide, "buy");
-    const sell = buildSide(valid, (a,b) => b.zdteDpc - a.zdteDpc, sellSide, "sell");
+    const minShare = d => (d.zdtePct || 0) >= 20;  // signal only when 0DTE is a meaningful share of flow
+    const { buy, sell } = buildThresholdSides(valid,
+      d => d.zdteDpc <= 0.7 && minShare(d),        // call-heavy 0DTE flow
+      d => d.zdteDpc >= 1.3 && minShare(d),        // put-heavy 0DTE flow
+      (a,b) => a.zdteDpc - b.zdteDpc, (a,b) => b.zdteDpc - a.zdteDpc);
 
     const zdteFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1369,9 +1102,10 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   // ══════════ SKEW TERM SPREAD ══════════
   const renderSkewSpread = () => {
     const valid = data.filter(d => d.spot > 0 && (d.nearTermSkew !== 0 || d.farTermSkew !== 0));
-    const { buySide, sellSide } = assignPinnedSide(valid, d => d.skewTermSpread);
-    const buy = buildSide(valid, (a,b) => a.skewTermSpread - b.skewTermSpread, buySide, "buy");
-    const sell = buildSide(valid, (a,b) => b.skewTermSpread - a.skewTermSpread, sellSide, "sell");
+    const { buy, sell } = buildThresholdSides(valid,
+      d => d.skewTermSpread <= -2,                 // flattening — complacency / improving sentiment
+      d => d.skewTermSpread >= 3,                  // near-term steepening — genuine risk-off (§5.3)
+      (a,b) => a.skewTermSpread - b.skewTermSpread, (a,b) => b.skewTermSpread - a.skewTermSpread);
 
     const skewFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1394,9 +1128,14 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
       if (d.changePerc < 0.3) return false;
       return d.skewCurve === "forward" || (d.smileRatio > 0 && d.smileRatio < 1.0) || d.rr25d > -1;
     });
-    const allTickers = new Set(valid.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
-    PINNED.forEach(t => allTickers.add(t));
-    const sell = buildSide(valid, (a,b) => (b.changePerc||0) - (a.changePerc||0), allTickers, "sell");
+    const hits = valid.filter(d => !PINNED.includes(d.ticker)).sort((a,b) => (b.changePerc||0) - (a.changePerc||0)).slice(0, 10);
+    const pinned = [];
+    PINNED.forEach(t => {
+      const dv = valid.find(d => d.ticker === t);
+      if (dv) pinned.push({ ...dv, _noSig: false, _hasReading: true });
+      else { const da = data.find(d => d.ticker === t); if (da) pinned.push({ ...da, _noSig: true, _hasReading: (da.spot||0) > 0 }); }
+    });
+    const sell = { pinned, hits };
 
     const suvFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1423,20 +1162,11 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
     if (surgeLoading) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Computing volume surges vs 5d averages...</div>;
     if (!surgeData) return <div style={{ padding: "20px", textAlign: "center", opacity: 0.5 }}>Loading...</div>;
 
-    const callSurges = surgeData.filter(s => s.callPct > 60);
-    const putSurges = surgeData.filter(s => s.callPct < 40);
-    const mergeWithData = (surges) => surges.map(s => ({ ...(data.find(dd => dd.ticker === s.ticker)||{}), ...s, _surgeRatio: s.ratio, _callPct: s.callPct }));
-    const callMerged = mergeWithData(callSurges);
-    const putMerged = mergeWithData(putSurges);
-    const buySideTickers = new Set(callMerged.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
-    const sellSideTickers = new Set(putMerged.filter(d => !PINNED.includes(d.ticker)).map(d => d.ticker));
-    PINNED.forEach(t => {
-      const s = surgeData.find(sd => sd.ticker === t);
-      if (s && s.callPct > 60) buySideTickers.add(t);
-      else if (s && s.callPct < 40) sellSideTickers.add(t);
-    });
-    const buyList = buildSide(callMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), buySideTickers, "buy");
-    const sellList = buildSide(putMerged, (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), sellSideTickers, "sell");
+    const merged = surgeData.map(s => ({ ...(data.find(dd => dd.ticker === s.ticker)||{}), ...s, _surgeRatio: s.ratio, _callPct: s.callPct }));
+    const { buy: buyList, sell: sellList } = buildThresholdSides(merged,
+      d => (d._callPct||50) > 60,                  // call-dominant surge (ratio >= 1.5x already gated upstream)
+      d => (d._callPct||50) < 40,                  // put-dominant surge
+      (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0), (a,b) => (b._surgeRatio||0) - (a._surgeRatio||0));
 
     const vsFields = (d) => <>
       <span style={{ minWidth: "55px" }}>{fmtP(d.spot)}</span>
@@ -1453,11 +1183,11 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
 
   const sigDescriptions = {
     walls: "SPY/QQQ pinned · Others screened ≥20% OI within 2.5%. Put walls = support (buy). Call walls = resistance (sell).",
-    rr: "SPY/QQQ placed by reading · Top 10 per side · Buy: most negative RR (contrarian bullish). Sell: least negative / positive RR.",
-    zdte: "SPY/QQQ placed by reading · Top 10 per side · Buy: call-heavy (low P/C). Sell: put-heavy (high P/C).",
-    skewspread: "SPY/QQQ placed by reading · Top 10 per side · Buy: most negative spread (flattening). Sell: most positive (steepening).",
-    spotupvolup: "Top 10 · Spot-up/vol-up is inherently bearish — FOMO / speculative call chasing. Sell side only.",
-    volsurge: "SPY/QQQ placed by reading · Top 10 per side · Call surges = buy. Put surges = sell. Balanced (40-60%) dropped.",
+    rr: "Threshold-gated (Handbook §21): Buy = RR ≤ -8 (extreme put skew, contrarian bullish). Sell = RR ≥ -1 (call skew, contrarian bearish). Grey = in normal range.",
+    zdte: "Threshold-gated: Buy = 0DTE Δ P/C ≤ 0.70, Sell = ≥ 1.30, both requiring 0DTE ≥ 20% of volume. Grey = in normal range.",
+    skewspread: "Threshold-gated (§5.3): Sell = spread ≥ +3pts (near-term steepening, risk-off). Buy = ≤ -2pts (flattening). Grey = in normal range.",
+    spotupvolup: "Spot up ≥0.3% with forward skew / elevated RR — FOMO warning, inherently bearish. Sell side only.",
+    volsurge: "Volume ≥ 1.5x 5d average. Call-dominant (>60%) = buy attention flag. Put-dominant (<40%) = sell. Balanced surges dropped.",
   };
 
   const isRescanBusy = subTab === "walls" ? wallScanning : sigRescan;
@@ -1465,14 +1195,11 @@ function SignalScanner({ data, historyCache, onSelect, onFetchWalls, wallScanKey
   const rescanLabel = isRescanBusy ? "Scanning..." : subTab === "walls" ? "Rescan All" : "Rescan Live";
 
   return <div>
-    {/* Sub-tab bar + Rescan button */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-      <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-        {subTabs.map(st => <button key={st.id} onClick={() => setSubTab(st.id)} style={{ background: subTab === st.id ? "rgba(74,144,217,0.12)" : "rgba(74,144,217,0.04)", border: subTab === st.id ? "1px solid rgba(74,144,217,0.3)" : "1px solid transparent", borderRadius: "6px", padding: "5px 12px", fontSize: "11px", cursor: "pointer", fontWeight: subTab === st.id ? 600 : 400, color: subTab === st.id ? "#2B6CB0" : "inherit", opacity: subTab === st.id ? 1 : 0.6 }}>{st.label}</button>)}
-      </div>
+    {/* Description line + Rescan button */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+      <div style={{ fontSize: "11px", opacity: 0.5 }}>{sigDescriptions[subTab]}</div>
       <button onClick={handleRescan} disabled={isRescanBusy} style={{ background: "rgba(74,144,217,0.1)", border: "none", borderRadius: "6px", padding: "5px 14px", fontSize: "12px", cursor: isRescanBusy ? "wait" : "pointer", color: "#2B6CB0", opacity: isRescanBusy ? 0.5 : 1, whiteSpace: "nowrap" }}>{rescanLabel}</button>
     </div>
-    <div style={{ fontSize: "11px", opacity: 0.5, marginBottom: "10px" }}>{sigDescriptions[subTab]}</div>
     {subTab === "walls" ? renderWalls() :
      subTab === "rr" ? renderRR() :
      subTab === "zdte" ? renderZdte() :
@@ -1787,14 +1514,14 @@ function App() {
   const [loadingTicker, setLoadingTicker] = useState(false);
   const [recentLookups, setRecentLookups] = useState([]);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [volDivs, setVolDivs] = useState([]);
-  const [volDivLoading, setVolDivLoading] = useState(false);
   const [snapshotDate, setSnapshotDate] = useState(null);
   const [historyCache, setHistoryCache] = useState({});
   const [wallScanKey, setWallScanKey] = useState(0);
   const pollRef = useRef(null);
 
-  const loadSnapshot = useCallback(async () => {
+  const loadSnapshot = useCallback(async (isPoll) => {
+    if (isPoll && !getMarketState().shouldPoll && data.length > 0) return;
+    if (!isPoll) setLoading(true);
     try {
       const r = await fetch("/.netlify/functions/snapshot");
       if (!r.ok) throw new Error("snapshot " + r.status);
@@ -1803,37 +1530,19 @@ function App() {
         const arr = Object.values(snap.tickers).map(t => ({ ...emptyTicker(t.ticker), ...t }));
         setData(arr);
         setSnapshotDate(snap.date || null);
+        if (isPoll) setLastUpdate(new Date());
       }
     } catch (e) { console.warn("Snapshot:", e.message); }
-    setLoading(false);
-  }, []);
-
-  const loadLive = useCallback(async () => {
-    const ms = getMarketState();
-    if (!ms.shouldPoll && data.length > 0) return;
-    setLoading(true);
-    try {
-      const r = await fetch("/.netlify/functions/snapshot");
-      if (r.ok) {
-        const snap = await r.json();
-        if (snap.tickers && Object.keys(snap.tickers).length > 0) {
-          const arr = Object.values(snap.tickers).map(t => ({ ...emptyTicker(t.ticker), ...t }));
-          setData(arr);
-          setSnapshotDate(snap.date || null);
-          setLastUpdate(new Date());
-        }
-      }
-    } catch (e) { console.warn("Live:", e.message); }
     setLoading(false);
   }, [data.length]);
 
   useEffect(() => { loadSnapshot(); }, [loadSnapshot]);
 
   useEffect(() => {
-    const poll = () => { const ms = getMarketState(); if (ms.shouldPoll) loadLive(); };
+    const poll = () => { if (getMarketState().shouldPoll) loadSnapshot(true); };
     pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
     return () => clearInterval(pollRef.current);
-  }, [loadLive]);
+  }, [loadSnapshot]);
 
   const lookupTicker = useCallback(async (ticker) => {
     setLoadingTicker(true); setSelected(ticker); setSelectedData(null);
@@ -1859,17 +1568,17 @@ function App() {
     }
   }, []);
 
-  const scanVolDivs = useCallback(async () => {
-    setVolDivLoading(true);
-    try { const divs = await fetchVolDivergencesLive(DEFAULT_WATCHLIST.slice(0, 15)); setVolDivs(divs); } catch (e) { console.warn("VolDiv:", e.message); }
-    setVolDivLoading(false);
-  }, []);
-
   const ms = getMarketState();
+  const SIGNAL_TABS = ["walls", "rr", "zdte", "skewspread", "spotupvolup", "volsurge"];
   const tabs = [
     { id: "scanner", label: "Scanner" },
     { id: "volume", label: "Opts Volume" },
-    { id: "signals", label: "Signals" },
+    { id: "walls", label: "Walls" },
+    { id: "rr", label: "25\u0394 RR" },
+    { id: "zdte", label: "0DTE Flow" },
+    { id: "skewspread", label: "Skew Spread" },
+    { id: "spotupvolup", label: "Spot\u2191Vol\u2191" },
+    { id: "volsurge", label: "Vol Surge" },
     { id: "cross", label: "Cross-Asset" },
     { id: "rebalance", label: "Rebalance" },
   ];
@@ -1902,15 +1611,15 @@ function App() {
     {selectedData && <VerdictCard d={selectedData} onClose={() => { setSelected(null); setSelectedData(null); }} />}
 
     {/* Tabs */}
-    <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid rgba(74,144,217,0.1)", paddingBottom: "0" }}>
-      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "signals") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 16px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
+    <div style={{ display: "flex", gap: "2px", flexWrap: "wrap", marginBottom: "16px", borderBottom: "1px solid rgba(74,144,217,0.1)", paddingBottom: "0" }}>
+      {tabs.map(t => <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "walls") setWallScanKey(k => k + 1); }} style={{ background: tab === t.id ? "rgba(74,144,217,0.1)" : "transparent", border: "none", borderBottom: tab === t.id ? "2px solid #4A90D9" : "2px solid transparent", padding: "8px 11px", fontSize: "12px", cursor: "pointer", fontWeight: tab === t.id ? 500 : 400, color: tab === t.id ? "#2B6CB0" : "inherit", opacity: tab === t.id ? 1 : 0.6, borderRadius: "6px 6px 0 0" }}>{t.label}</button>)}
     </div>
 
     {/* Tab content */}
     {loading && data.length === 0 ? <div style={{ padding: "40px", textAlign: "center", opacity: 0.5 }}>Loading snapshot data...</div> :
       tab === "scanner" ? <Scanner data={data} onSelect={lookupTicker} /> :
       tab === "volume" ? <OptionsVolume data={data} onSelect={lookupTicker} /> :
-      tab === "signals" ? <SignalScanner data={data} historyCache={historyCache} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} /> :
+      SIGNAL_TABS.includes(tab) ? <SignalScanner data={data} historyCache={historyCache} onSelect={lookupTicker} onFetchWalls={fetchWalls} wallScanKey={wallScanKey} subTab={tab} /> :
       tab === "cross" ? <CrossAsset data={data} /> :
       tab === "rebalance" ? <Rebalance data={data} /> : null
     }
