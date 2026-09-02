@@ -1,0 +1,120 @@
+/* JonesTrading house palette, sampled from the research template. */
+:root {
+  --jblue:  #0079C1;
+  --band:   #0159A6;
+  --navy:   #001F5F;
+  --jgray:  #6A737B;
+  --green:  #00703C;
+  --red:    #C00000;
+  --amber:  #B26A00;
+  --ink:    #14181F;
+  --muted:  #5A6472;
+  --line:   #E2E6EC;
+  --tint:   #EAF2FA;
+  --bg:     #F7F9FC;
+  --card:   #FFFFFF;
+  --radius: 8px;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, Helvetica, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--sans); font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── shell ─────────────────────────────────────────────────────── */
+.app { min-height: 100%; display: flex; flex-direction: column; }
+
+.topbar {
+  background: #fff; border-bottom: 1px solid var(--line);
+  padding: 10px 22px; display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 20;
+}
+.wordmark { font-family: Georgia, "Times New Roman", serif; font-size: 21px; letter-spacing: -.2px; }
+.wordmark .a { color: var(--jgray); }
+.wordmark .b { color: var(--jblue); }
+.wordmark .mark {
+  display: inline-block; width: 9px; height: 9px; margin-left: 3px;
+  border: 2px solid var(--jblue); border-bottom-color: transparent; border-left-color: transparent;
+  vertical-align: 9px;
+}
+.topbar .title { font-size: 13px; color: var(--muted); border-left: 1px solid var(--line); padding-left: 16px; }
+.topbar .spacer { flex: 1; }
+
+.steps { display: flex; gap: 4px; padding: 0 22px; background: #fff; border-bottom: 1px solid var(--line); }
+.step-tab {
+  padding: 9px 14px; font-size: 12.5px; color: var(--muted); cursor: pointer;
+  border: none; background: none; border-bottom: 2px solid transparent; display: flex; gap: 7px; align-items: center;
+}
+.step-tab .n {
+  width: 17px; height: 17px; border-radius: 50%; background: var(--line); color: var(--muted);
+  font-size: 10px; display: grid; place-items: center; font-weight: 600;
+}
+.step-tab.active { color: var(--jblue); border-bottom-color: var(--jblue); font-weight: 600; }
+.step-tab.active .n { background: var(--jblue); color: #fff; }
+.step-tab.done .n { background: var(--green); color: #fff; }
+.step-tab:disabled { opacity: .38; cursor: not-allowed; }
+
+.main { flex: 1; padding: 22px; max-width: 1180px; width: 100%; margin: 0 auto; }
+
+/* ── cards & type ──────────────────────────────────────────────── */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 3px; font-size: 15px; color: var(--navy); }
+.card .hint { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); }
+.sec-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--jblue); font-weight: 700; margin-bottom: 8px; }
+
+textarea, input[type=text], input[type=date], select {
+  width: 100%; font-family: var(--sans); font-size: 13.5px; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #fff;
+}
+textarea { min-height: 148px; resize: vertical; line-height: 1.55; }
+textarea:focus, input:focus, select:focus { outline: none; border-color: var(--jblue); box-shadow: 0 0 0 3px rgba(0,121,193,.1); }
+
+button.primary {
+  background: var(--jblue); color: #fff; border: none; border-radius: 6px;
+  padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+button.primary:disabled { background: #A9C4D8; cursor: not-allowed; }
+button.ghost {
+  background: #fff; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 14px; font-size: 12.5px; cursor: pointer;
+}
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* ── vehicle cards ─────────────────────────────────────────────── */
+.veh { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; background: #fff; display: flex; gap: 13px; align-items: flex-start; }
+.veh.sel { border-color: var(--jblue); background: var(--tint); }
+.veh.blocked { opacity: .62; }
+.veh input[type=checkbox] { margin-top: 3px; width: 15px; height: 15px; accent-color: var(--jblue); }
+.veh .tk { font-weight: 700; font-size: 15px; }
+.veh .nm { color: var(--muted); font-size: 12.5px; }
+.veh .stats { display: flex; gap: 18px; margin-top: 7px; font-size: 11.5px; font-family: var(--mono); flex-wrap: wrap; }
+.veh .stats b { font-weight: 600; }
+.veh .why { font-size: 12px; color: var(--muted); margin-top: 5px; font-style: italic; }
+
+.pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; }
+.pill.a { background: rgba(0,112,60,.12);  color: var(--green); }
+.pill.b { background: rgba(0,121,193,.12); color: var(--jblue); }
+.pill.c { background: rgba(178,106,0,.12); color: var(--amber); }
+.pill.x { background: rgba(192,0,0,.10);   color: var(--red); }
+.tag { display: inline-block; background: var(--tint); color: var(--jblue); font-size: 10.5px; padding: 2px 7px; border-radius: 4px; margin: 2px 3px 0 0; font-family: var(--mono); }
+
+/* ── run log ───────────────────────────────────────────────────── */
+.logbar {
+  position: fixed; right: 14px; bottom: 14px; display: flex; gap: 7px; align-items: center;
+  background: #fff; border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 8px 6px 13px; box-shadow: 0 3px 14px rgba(20,24,31,.10); z-index: 50; font-size: 11.5px;
+}
+.logbar .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.logbar .dot.warn { background: var(--amber); }
+.logbar .dot.err  { background: var(--red); }
+.logbar code { font-family: var(--mono); color: var(--muted); }
+
+.err-banner { background: rgba(192,0,0,.06); border: 1px solid rgba(192,0,0,.25); color: var(--red); padding: 10px 13px; border-radius: 6px; font-size: 12.5px; margin-bottom: 14px; }
+.note { background: rgba(178,106,0,.07); border: 1px solid rgba(178,106,0,.22); color: #7A4A00; padding: 10px 13px; border-radius: 6px; font-size: 12.5px; }
+.spin { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(0,121,193,.25); border-top-color: var(--jblue); border-radius: 50%; animation: sp .7s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }

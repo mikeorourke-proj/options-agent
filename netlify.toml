@@ -1,7 +1,22 @@
-[build]
-  functions = "netlify/functions"
-  publish = "."
+# Tactical Note builder (Vite SPA) + the existing options-agent functions.
+# The v4 dashboard is preserved verbatim at /legacy.html.
 
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Preserved from the original config — capture/snapshot rely on both.
 [functions]
-  node_bundler = "esbuild"
+  node_bundler   = "esbuild"
   included_files = ["package.json"]
+
+# SPA fallback. Real files (legacy.html, assets) are served first;
+# this only catches unmatched routes.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

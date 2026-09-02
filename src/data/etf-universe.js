@@ -1,0 +1,160 @@
+/* ═══════════════════════════════════════════════════════════════════
+   etf-universe.js — the curated vehicle table
+
+   Why this file exists: ETF Global /taxonomies returns 403 on the
+   current plan, and /v1/related-companies returns nothing for funds.
+   So classification is retrieval from this table, never LLM recall.
+   Claude selects FROM this list; it never invents a ticker.
+
+   `liq` is a qualitative options-liquidity grade, verified against the
+   chain probe:
+     A  deep chain, tight markets, weeklies       → any structure
+     B  usable chain, wider markets               → verticals, outrights
+     C  thin chain                                → outrights only, size down
+     X  no usable options (empty greeks / zero OI) → shares only
+
+   Keep `lev` honest: decay makes 2x/3x unsuitable beyond a few days.
+   ═══════════════════════════════════════════════════════════════════ */
+
+export const ETF_UNIVERSE = [
+  // ── Broad US equity ──────────────────────────────────────────────
+  { t:"SPY",  n:"SPDR S&P 500",                    cls:"Equity", grp:"US Large Cap",   liq:"A", tags:["sp500","beta","core","hedge"] },
+  { t:"VOO",  n:"Vanguard S&P 500",                cls:"Equity", grp:"US Large Cap",   liq:"C", tags:["sp500","beta","core"] },
+  { t:"IVV",  n:"iShares Core S&P 500",            cls:"Equity", grp:"US Large Cap",   liq:"C", tags:["sp500","beta","core"] },
+  { t:"QQQ",  n:"Invesco QQQ (Nasdaq 100)",        cls:"Equity", grp:"US Large Cap",   liq:"A", tags:["nasdaq","tech","growth","momentum"] },
+  { t:"IWM",  n:"iShares Russell 2000",            cls:"Equity", grp:"US Small Cap",   liq:"A", tags:["smallcap","domestic","highbeta","credit-sensitive"] },
+  { t:"DIA",  n:"SPDR Dow Jones Industrial",       cls:"Equity", grp:"US Large Cap",   liq:"B", tags:["dow","value","industrials"] },
+  { t:"RSP",  n:"Invesco S&P 500 Equal Weight",    cls:"Equity", grp:"US Large Cap",   liq:"X", tags:["equalweight","breadth","anti-concentration"] },
+  { t:"MDY",  n:"SPDR S&P MidCap 400",             cls:"Equity", grp:"US Mid Cap",     liq:"C", tags:["midcap","domestic"] },
+  { t:"VTV",  n:"Vanguard Value",                  cls:"Equity", grp:"Style",          liq:"C", tags:["value","factor"] },
+  { t:"VUG",  n:"Vanguard Growth",                 cls:"Equity", grp:"Style",          liq:"C", tags:["growth","factor"] },
+  { t:"MTUM", n:"iShares MSCI USA Momentum",       cls:"Equity", grp:"Style",          liq:"C", tags:["momentum","factor"] },
+  { t:"USMV", n:"iShares MSCI USA Min Vol",        cls:"Equity", grp:"Style",          liq:"C", tags:["lowvol","defensive","factor"] },
+
+  // ── US sectors ───────────────────────────────────────────────────
+  { t:"XLF",  n:"Financial Select Sector",         cls:"Equity", grp:"Sector",  liq:"A", tags:["financials","banks","rates","steepener"] },
+  { t:"KBWB", n:"Invesco KBW Bank",                cls:"Equity", grp:"Sector",  liq:"C", tags:["banks","regional","rates"] },
+  { t:"KRE",  n:"SPDR S&P Regional Banking",       cls:"Equity", grp:"Sector",  liq:"B", tags:["banks","regional","credit","rates"] },
+  { t:"XLK",  n:"Technology Select Sector",        cls:"Equity", grp:"Sector",  liq:"A", tags:["tech","software","semis","growth"] },
+  { t:"SMH",  n:"VanEck Semiconductor",            cls:"Equity", grp:"Sector",  liq:"A", tags:["semis","ai","cyclical","taiwan"] },
+  { t:"SOXX", n:"iShares Semiconductor",           cls:"Equity", grp:"Sector",  liq:"B", tags:["semis","ai","cyclical"] },
+  { t:"XLE",  n:"Energy Select Sector",            cls:"Equity", grp:"Sector",  liq:"A", tags:["energy","oil","inflation","commodity"] },
+  { t:"OIH",  n:"VanEck Oil Services",             cls:"Equity", grp:"Sector",  liq:"B", tags:["oil","services","highbeta"] },
+  { t:"XOP",  n:"SPDR Oil & Gas E&P",              cls:"Equity", grp:"Sector",  liq:"B", tags:["oil","shale","highbeta"] },
+  { t:"XLV",  n:"Health Care Select Sector",       cls:"Equity", grp:"Sector",  liq:"B", tags:["healthcare","defensive"] },
+  { t:"XBI",  n:"SPDR S&P Biotech",                cls:"Equity", grp:"Sector",  liq:"B", tags:["biotech","highbeta","rates-sensitive"] },
+  { t:"IBB",  n:"iShares Biotechnology",           cls:"Equity", grp:"Sector",  liq:"C", tags:["biotech","largecap"] },
+  { t:"XLI",  n:"Industrial Select Sector",        cls:"Equity", grp:"Sector",  liq:"B", tags:["industrials","cyclical","capex"] },
+  { t:"ITA",  n:"iShares US Aerospace & Defense",  cls:"Equity", grp:"Sector",  liq:"C", tags:["defense","aerospace","geopolitics"] },
+  { t:"XLP",  n:"Consumer Staples Select",         cls:"Equity", grp:"Sector",  liq:"B", tags:["staples","defensive"] },
+  { t:"XLY",  n:"Consumer Discretionary Select",   cls:"Equity", grp:"Sector",  liq:"B", tags:["discretionary","consumer","cyclical"] },
+  { t:"XRT",  n:"SPDR S&P Retail",                 cls:"Equity", grp:"Sector",  liq:"B", tags:["retail","consumer","shortinterest"] },
+  { t:"XLU",  n:"Utilities Select Sector",         cls:"Equity", grp:"Sector",  liq:"B", tags:["utilities","defensive","rates","power","ai-power"] },
+  { t:"XLB",  n:"Materials Select Sector",         cls:"Equity", grp:"Sector",  liq:"B", tags:["materials","commodity","cyclical"] },
+  { t:"XLRE", n:"Real Estate Select Sector",       cls:"Equity", grp:"Sector",  liq:"B", tags:["reits","rates","duration"] },
+  { t:"XLC",  n:"Communication Services Select",   cls:"Equity", grp:"Sector",  liq:"B", tags:["media","internet","telecom"] },
+  { t:"XME",  n:"SPDR S&P Metals & Mining",        cls:"Equity", grp:"Sector",  liq:"B", tags:["mining","steel","commodity","china"] },
+  { t:"JETS", n:"US Global Jets",                  cls:"Equity", grp:"Sector",  liq:"C", tags:["airlines","travel","oil-sensitive"] },
+  { t:"IYR",  n:"iShares US Real Estate",          cls:"Equity", grp:"Sector",  liq:"B", tags:["reits","rates","duration"] },
+
+  // ── Rates & credit ───────────────────────────────────────────────
+  { t:"TLT",  n:"iShares 20+ Year Treasury",       cls:"Fixed Income", grp:"Rates",  liq:"A", dur:17.4, tags:["duration","longbond","rates","deflation","flight-to-quality"] },
+  { t:"IEF",  n:"iShares 7-10 Year Treasury",      cls:"Fixed Income", grp:"Rates",  liq:"B", dur:7.3,  tags:["duration","belly","rates"] },
+  { t:"SHY",  n:"iShares 1-3 Year Treasury",       cls:"Fixed Income", grp:"Rates",  liq:"C", dur:1.9,  tags:["frontend","cash","fed"] },
+  { t:"VGLT", n:"Vanguard Long-Term Treasury",     cls:"Fixed Income", grp:"Rates",  liq:"C", dur:15.2, tags:["duration","longbond","cheap"] },
+  { t:"EDV",  n:"Vanguard Extended Duration",      cls:"Fixed Income", grp:"Rates",  liq:"C", dur:24.1, tags:["duration","zerocoupon","highbeta-rates"] },
+  { t:"ZROZ", n:"PIMCO 25+ Yr Zero Coupon",        cls:"Fixed Income", grp:"Rates",  liq:"C", dur:26.0, tags:["duration","zerocoupon","convexity"] },
+  { t:"GOVT", n:"iShares US Treasury Bond",        cls:"Fixed Income", grp:"Rates",  liq:"C", dur:6.0,  tags:["broad-treasury"] },
+  { t:"TIP",  n:"iShares TIPS Bond",               cls:"Fixed Income", grp:"Rates",  liq:"C", dur:6.8,  tags:["inflation","breakevens","real-rates"] },
+  { t:"STIP", n:"iShares 0-5 Year TIPS",           cls:"Fixed Income", grp:"Rates",  liq:"C", dur:2.5,  tags:["inflation","frontend"] },
+  { t:"LQD",  n:"iShares iBoxx Inv Grade Corp",    cls:"Fixed Income", grp:"Credit", liq:"B", dur:8.4,  tags:["credit","IG","spread","duration"] },
+  { t:"HYG",  n:"iShares iBoxx High Yield Corp",   cls:"Fixed Income", grp:"Credit", liq:"A", dur:3.2,  tags:["credit","HY","spread","risk-appetite"] },
+  { t:"JNK",  n:"SPDR Bloomberg High Yield",       cls:"Fixed Income", grp:"Credit", liq:"B", dur:3.3,  tags:["credit","HY","spread"] },
+  { t:"EMB",  n:"iShares JPM USD EM Bond",         cls:"Fixed Income", grp:"Credit", liq:"C", dur:6.5,  tags:["EM","sovereign","credit","dollar"] },
+  { t:"BKLN", n:"Invesco Senior Loan",             cls:"Fixed Income", grp:"Credit", liq:"C", dur:0.3,  tags:["loans","floating","credit"] },
+  { t:"MUB",  n:"iShares National Muni",           cls:"Fixed Income", grp:"Credit", liq:"C", dur:6.2,  tags:["muni","tax"] },
+  { t:"AGG",  n:"iShares Core US Aggregate",       cls:"Fixed Income", grp:"Broad",  liq:"C", dur:6.1,  tags:["core-bond","aggregate"] },
+  { t:"BND",  n:"Vanguard Total Bond Market",      cls:"Fixed Income", grp:"Broad",  liq:"C", dur:6.0,  tags:["core-bond","aggregate"] },
+
+  // ── Commodities & metals ─────────────────────────────────────────
+  { t:"GLD",  n:"SPDR Gold Shares",                cls:"Commodity", grp:"Metals",  liq:"A", tags:["gold","dollar","real-rates","debasement","haven"] },
+  { t:"IAU",  n:"iShares Gold Trust",              cls:"Commodity", grp:"Metals",  liq:"C", tags:["gold","cheap"] },
+  { t:"SLV",  n:"iShares Silver Trust",            cls:"Commodity", grp:"Metals",  liq:"A", tags:["silver","industrial","highbeta-gold"] },
+  { t:"GDX",  n:"VanEck Gold Miners",              cls:"Equity",    grp:"Metals",  liq:"A", tags:["gold","miners","equity-beta","operating-leverage"] },
+  { t:"GDXJ", n:"VanEck Junior Gold Miners",       cls:"Equity",    grp:"Metals",  liq:"B", tags:["gold","miners","highbeta"] },
+  { t:"COPX", n:"Global X Copper Miners",          cls:"Equity",    grp:"Metals",  liq:"C", tags:["copper","electrification","china"] },
+  { t:"USO",  n:"United States Oil Fund",          cls:"Commodity", grp:"Energy",  liq:"B", tags:["oil","wti","contango","roll-decay"] },
+  { t:"UNG",  n:"United States Natural Gas",       cls:"Commodity", grp:"Energy",  liq:"B", tags:["natgas","weather","roll-decay"] },
+  { t:"DBC",  n:"Invesco DB Commodity Index",      cls:"Commodity", grp:"Broad",   liq:"C", tags:["commodity","inflation","broad"] },
+  { t:"URA",  n:"Global X Uranium",                cls:"Equity",    grp:"Energy",  liq:"C", tags:["uranium","nuclear","power"] },
+
+  // ── International & FX ───────────────────────────────────────────
+  { t:"EFA",  n:"iShares MSCI EAFE",               cls:"Equity", grp:"Intl", liq:"B", tags:["developed","intl","dollar"] },
+  { t:"EEM",  n:"iShares MSCI Emerging Markets",   cls:"Equity", grp:"Intl", liq:"A", tags:["EM","dollar","china","risk-appetite"] },
+  { t:"VWO",  n:"Vanguard FTSE Emerging Markets",  cls:"Equity", grp:"Intl", liq:"C", tags:["EM","cheap"] },
+  { t:"FXI",  n:"iShares China Large-Cap",         cls:"Equity", grp:"Intl", liq:"A", tags:["china","policy","stimulus"] },
+  { t:"KWEB", n:"KraneShares CSI China Internet",  cls:"Equity", grp:"Intl", liq:"B", tags:["china","internet","regulation"] },
+  { t:"EWJ",  n:"iShares MSCI Japan",              cls:"Equity", grp:"Intl", liq:"B", tags:["japan","boj","yen"] },
+  { t:"EWZ",  n:"iShares MSCI Brazil",             cls:"Equity", grp:"Intl", liq:"B", tags:["brazil","commodity","EM"] },
+  { t:"INDA", n:"iShares MSCI India",              cls:"Equity", grp:"Intl", liq:"C", tags:["india","EM","growth"] },
+  { t:"UUP",  n:"Invesco DB US Dollar Bullish",    cls:"Currency", grp:"FX", liq:"C", tags:["dollar","dxy","macro"] },
+  { t:"FXE",  n:"Invesco CurrencyShares Euro",     cls:"Currency", grp:"FX", liq:"C", tags:["euro","ecb","dollar"] },
+  { t:"FXY",  n:"Invesco CurrencyShares Yen",      cls:"Currency", grp:"FX", liq:"C", tags:["yen","boj","carry"] },
+
+  // ── Volatility & crypto ──────────────────────────────────────────
+  { t:"VXX",  n:"iPath Series B VIX Short-Term",   cls:"Volatility", grp:"Vol", liq:"A", tags:["vix","hedge","roll-decay","contango"] },
+  { t:"UVXY", n:"ProShares Ultra VIX Short-Term",  cls:"Volatility", grp:"Vol", liq:"A", lev:1.5, tags:["vix","levered","decay"] },
+  { t:"SVXY", n:"ProShares Short VIX Short-Term",  cls:"Volatility", grp:"Vol", liq:"B", lev:-0.5, tags:["vix","short-vol","carry"] },
+  { t:"IBIT", n:"iShares Bitcoin Trust",           cls:"Crypto", grp:"Crypto", liq:"A", tags:["bitcoin","liquidity","risk-appetite"] },
+  { t:"ETHA", n:"iShares Ethereum Trust",          cls:"Crypto", grp:"Crypto", liq:"B", tags:["ethereum","crypto"] },
+
+  // ── Levered (short-horizon only; feeds the rebalance engine) ──────
+  { t:"TQQQ", n:"ProShares UltraPro QQQ",          cls:"Equity", grp:"Levered", liq:"A", lev:3,  ul:"QQQ", tags:["levered","nasdaq","decay","rebalance"] },
+  { t:"SQQQ", n:"ProShares UltraPro Short QQQ",    cls:"Equity", grp:"Levered", liq:"A", lev:-3, ul:"QQQ", tags:["levered","inverse","nasdaq","rebalance"] },
+  { t:"QLD",  n:"ProShares Ultra QQQ",             cls:"Equity", grp:"Levered", liq:"C", lev:2,  ul:"QQQ", tags:["levered","nasdaq","rebalance"] },
+  { t:"UPRO", n:"ProShares UltraPro S&P 500",      cls:"Equity", grp:"Levered", liq:"B", lev:3,  ul:"SPY", tags:["levered","sp500","rebalance"] },
+  { t:"SPXL", n:"Direxion Daily S&P 500 Bull 3X",  cls:"Equity", grp:"Levered", liq:"B", lev:3,  ul:"SPY", tags:["levered","sp500","rebalance"] },
+  { t:"SPXS", n:"Direxion Daily S&P 500 Bear 3X",  cls:"Equity", grp:"Levered", liq:"B", lev:-3, ul:"SPY", tags:["levered","inverse","rebalance"] },
+  { t:"SSO",  n:"ProShares Ultra S&P 500",         cls:"Equity", grp:"Levered", liq:"C", lev:2,  ul:"SPY", tags:["levered","sp500","rebalance"] },
+  { t:"SDS",  n:"ProShares UltraShort S&P 500",    cls:"Equity", grp:"Levered", liq:"C", lev:-2, ul:"SPY", tags:["levered","inverse","rebalance"] },
+  { t:"SH",   n:"ProShares Short S&P 500",         cls:"Equity", grp:"Levered", liq:"C", lev:-1, ul:"SPY", tags:["inverse","hedge","rebalance"] },
+  { t:"SOXL", n:"Direxion Daily Semis Bull 3X",    cls:"Equity", grp:"Levered", liq:"A", lev:3,  ul:"SMH", tags:["levered","semis","rebalance"] },
+  { t:"SOXS", n:"Direxion Daily Semis Bear 3X",    cls:"Equity", grp:"Levered", liq:"A", lev:-3, ul:"SMH", tags:["levered","inverse","semis","rebalance"] },
+  { t:"TNA",  n:"Direxion Daily Small Cap Bull 3X",cls:"Equity", grp:"Levered", liq:"B", lev:3,  ul:"IWM", tags:["levered","smallcap","rebalance"] },
+  { t:"TZA",  n:"Direxion Daily Small Cap Bear 3X",cls:"Equity", grp:"Levered", liq:"B", lev:-3, ul:"IWM", tags:["levered","inverse","rebalance"] },
+  { t:"TECL", n:"Direxion Daily Technology Bull 3X",cls:"Equity",grp:"Levered", liq:"C", lev:3,  ul:"XLK", tags:["levered","tech","rebalance"] },
+  { t:"TMF",  n:"Direxion Daily 20+ Yr Trsy Bull 3X",cls:"Fixed Income",grp:"Levered",liq:"B",lev:3, ul:"TLT", tags:["levered","duration","rebalance"] },
+  { t:"TMV",  n:"Direxion Daily 20+ Yr Trsy Bear 3X",cls:"Fixed Income",grp:"Levered",liq:"C",lev:-3,ul:"TLT", tags:["levered","inverse","duration","rebalance"] },
+  { t:"UGL",  n:"ProShares Ultra Gold",            cls:"Commodity", grp:"Levered", liq:"C", lev:2,  ul:"GLD", tags:["levered","gold","rebalance"] },
+  { t:"NUGT", n:"Direxion Daily Gold Miners 2X",   cls:"Equity",    grp:"Levered", liq:"B", lev:2,  ul:"GDX", tags:["levered","miners","rebalance"] },
+];
+
+export const BY_TICKER = Object.fromEntries(ETF_UNIVERSE.map(e => [e.t, e]));
+
+/* Tag vocabulary handed to Claude so it maps a thesis onto terms that
+   actually exist in the table rather than inventing its own. */
+export const TAG_VOCAB = [...new Set(ETF_UNIVERSE.flatMap(e => e.tags))].sort();
+
+/* Retrieval: score every fund against a set of tags. Pure lookup — no
+   model involvement, so a ticker that is not in the table cannot be
+   returned. */
+export function searchUniverse(tags = [], { cls, excludeLevered = true, limit = 12 } = {}) {
+  const want = new Set(tags.map(s => s.toLowerCase()));
+  return ETF_UNIVERSE
+    .filter(e => (!cls || e.cls === cls))
+    .filter(e => (!excludeLevered || e.grp !== "Levered"))
+    .map(e => {
+      const hits = e.tags.filter(t => want.has(t));
+      const liqBonus = { A: 0.9, B: 0.5, C: 0.15, X: 0 }[e.liq] ?? 0;
+      return { ...e, hits, score: hits.length + liqBonus };
+    })
+    .filter(e => e.hits.length > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+/* Levered funds tracking a given underlying — feeds the rebalance
+   estimator (gamma = X(X-1)). */
+export function leveredFor(underlying) {
+  return ETF_UNIVERSE.filter(e => e.ul === underlying);
+}
