@@ -37,10 +37,19 @@ body {
 .wordmark { font-family: Georgia, "Times New Roman", serif; font-size: 21px; letter-spacing: -.2px; }
 .wordmark .a { color: var(--jgray); }
 .wordmark .b { color: var(--jblue); }
+.wordmark .dot-i { position: relative; display: inline-block; }
+/* Open-corner square sitting on the cap line above the dotless i. Drawn as
+   a ring with the bottom-left corner knocked out, matching the house mark. */
 .wordmark .mark {
-  display: inline-block; width: 9px; height: 9px; margin-left: 3px;
-  border: 2px solid var(--jblue); border-bottom-color: transparent; border-left-color: transparent;
-  vertical-align: 9px;
+  position: absolute; box-sizing: border-box;
+  width: .55em; height: .55em;      /* ~0.87x cap height, per the house mark */
+  left: -.02em; bottom: .86em;      /* base flush with the cap line */
+  border: .075em solid var(--jblue);
+}
+/* knock out the bottom-left corner */
+.wordmark .mark::after {
+  content: ""; position: absolute; left: -.075em; bottom: -.075em;
+  width: .24em; height: .24em; background: #fff;
 }
 .topbar .title { font-size: 13px; color: var(--muted); border-left: 1px solid var(--line); padding-left: 16px; }
 .topbar .spacer { flex: 1; }

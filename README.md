@@ -72,6 +72,13 @@ scrubbed from URLs, payloads, messages and upstream error text.
 ## Known state
 
 - Steps 3-5 (structure, scenarios, note) are placeholders.
+- Theme extraction runs as a BACKGROUND function: Opus takes 25-40s on a
+  full Closing Print and Netlify kills synchronous functions at 26s.
+  think-background.mjs writes to the "think-jobs" blob store; the client
+  polls think-status.mjs. Prompts live in _prompts.mjs so the sync and
+  background paths cannot drift.
+- PDF export: use points/mm, never px. Print CSS must not carry pixel
+  dimensions or the output will not scale correctly at A4.
 - Model: claude-opus-5 for every task, set in MODELS at the top of
   think.mjs, and stamped on each note via the run log.
 - Calendar structures display the front expiry only; the back leg is

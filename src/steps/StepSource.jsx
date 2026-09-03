@@ -26,6 +26,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState(null);
   const [err, setErr] = useState(null);
   const [fileName, setFileName] = useState(null);
 
@@ -44,7 +45,11 @@ export default function StepSource({ parsed, setParsed, onNext }) {
     setBusy(true); setErr(null);
     const t = RunLog.timer("ui", "themes.extract", { chars: text.length, hasNote: Boolean(note.trim()) });
     try {
-      const res = await api.think("themes", text, { vocab: TAG_VOCAB, note: note.trim() || undefined });
+      const res = await api.thinkLong(
+        "themes", text,
+        { vocab: TAG_VOCAB, note: note.trim() || undefined },
+        (status, polls, secs) => setPhase(`${status === "running" ? "reading" : "queued"} · ${secs}s`)
+      );
       if (res.truncated && !res.parsed)
         throw new Error(`${res.parseError} (${res.usage?.out} tokens returned)`);
       if (!res.parsed?.themes?.length) throw new Error(res.parseError || res.error || "no themes returned");
@@ -58,7 +63,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
       t.end({ themes: res.parsed.themes.length, model: res.model, tokens: res.usage });
       onNext();
     } catch (e) { t.fail(e); setErr(e.message); }
-    setBusy(false);
+    setBusy(false); setPhase(null);
   }
 
   return (
@@ -100,8 +105,9 @@ export default function StepSource({ parsed, setParsed, onNext }) {
 
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={busy || text.trim().length < 120} onClick={extract}>
-            {busy ? <><span className="spin" />&nbsp; Reading…</> : "Extract themes →"}
+            {busy ? <><span className="spin" />&nbsp; {phase || "Sending…"}</> : "Extract themes →"}
           </button>
+          {busy && <span style={{ fontSize: 12, color: "var(--muted)" }}>Opus takes 25-40s on a full note.</span>}
           {text.trim().length > 0 && text.trim().length < 120 &&
             <span style={{ fontSize: 12, color: "var(--muted)" }}>{120 - text.trim().length} more characters</span>}
         </div>

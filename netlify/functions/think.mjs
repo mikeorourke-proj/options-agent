@@ -15,83 +15,9 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 import { srvLog } from "./_runlog.mjs";
+import { SYSTEM_PROMPTS, MODELS, MAX_TOKENS, enforce } from "./_prompts.mjs";
 
-const MODELS = {
-  themes: "claude-opus-5",
-  edit:   "claude-opus-5",
-  draft:  "claude-opus-5",
-};
-const FALLBACK_MODEL = "claude-opus-5";
-// Theme extraction returns several objects each carrying a verbatim
-// sentence. 1500 truncated mid-string on a 5k-char Closing Print.
-const MAX_TOKENS = { themes: 8000, thesis: 8000, edit: 6000, draft: 6000 };
 const API = "https://api.anthropic.com/v1/messages";
-
-const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
-
-The author is the desk. Everything you output represents THEIR view.
-
-Return ONLY a JSON object, no preamble, no markdown fences:
-{
-  "sourceTitle": "<the piece's own headline, or a 5-word summary>",
-  "themes": [
-    {
-      "id": "<kebab-case, e.g. bearish-gold>",
-      "direction": "bullish" | "bearish" | "neutral",
-      "subject": "<2-4 words naming what the view is on, e.g. Gold, Semiconductors, US Treasuries>",
-      "tags": ["<2-5 terms from the supplied vocabulary ONLY>"],
-      "basis": "stated" | "extended",
-      "evidence": "<one verbatim sentence from the AUTHOR'S OWN PROSE supporting this direction; empty string if basis is extended>",
-      "rationale": "<one sentence in the author's voice, why this view follows>",
-      "catalyst": { "description": "<short phrase or empty>", "date": "YYYY-MM-DD or null" }
-    }
-  ],
-  "primaryThemeId": "<id of the theme carrying the piece's main argument>",
-  "risks": ["<2-4 short phrases naming what would invalidate the primary theme>"]
-}
-
-CRITICAL RULES
-
-1. DIRECTION. Determine what the AUTHOR concludes, not what the piece describes. Commentary
-   frequently sets out a popular view at length in order to reject it. The author's conclusion
-   often arrives late in the piece and the title often signals it. If the author argues a trade
-   is late, crowded, exhausted, or mistaken, the direction is AGAINST that trade.
-
-2. QUOTED MATERIAL IS NOT EVIDENCE. Any sentence inside quotation marks belongs to a third
-   party. It is context only. Never use it as "evidence", and never let it decide direction —
-   quoted views are usually the ones being rebutted.
-
-3. NEVER NAME ANYONE. No people, firms, banks, publications, or research houses in ANY field.
-   Not in evidence, not in rationale, not in catalyst. Refer to positioning or consensus in the
-   abstract. Company names are permitted ONLY where the company is the subject of the trade.
-
-4. EVIDENCE MUST BE VERBATIM from the author's own unquoted prose. Copy it exactly. If no such
-   sentence exists, set basis to "extended" and evidence to "".
-
-5. BASIS. "stated" = the author asserts this view. "extended" = a defensible consequence of
-   their argument that they did not write. Prefer stated. Mark honestly.
-
-6. TAGS must appear verbatim in the supplied vocabulary. Never invent one.
-
-7. THE ANALYST NOTE, when supplied, is the author speaking directly and is AUTHORITATIVE. It
-   overrides the document. It may introduce themes the document never mentions, and those
-   themes are basis "stated".
-
-8. LENGTH. Return at most 6 themes, the most tradeable first. "evidence" is ONE sentence.
-   "rationale" is ONE sentence. Do not pad.
-
-9. Separate themes by SUBJECT, not by instrument. "Bearish gold" and "bearish silver" are two
-   themes. Group instruments of the same underlying asset into one theme.`;
-
-const EDIT_SYSTEM = `You are a copy editor for institutional research at a broker-dealer.
-Fix spelling, grammar and punctuation. Tighten wordy phrasing.
-
-Preserve absolutely: the author's voice, all numbers, all tickers, all dates,
-every directional claim, and the order of the argument. Do not add facts, do not
-add hedging language, do not soften a view, do not introduce new claims.
-
-Return ONLY a JSON object:
-{ "edited": "<the corrected text>", "changes": ["<short description of each substantive change>"] }`;
 
 export default async (request) => {
   const apiKey = Netlify.env.get("ANTHROPIC_API_KEY");
@@ -103,13 +29,13 @@ export default async (request) => {
   try { payload = await request.json(); } catch { return L.fail(new Error("bad JSON body"), 400); }
 
   const { task, text, vocab = [], today } = payload;
-  const MODEL = MODELS[task] || FALLBACK_MODEL;
+  const MODEL = MODELS[task] || MODELS.themes;
   if (!text || typeof text !== "string") return L.fail(new Error("missing text"), 400);
   if (text.length > 120000) return L.fail(new Error("text too long"), 400);
 
   let system, user;
   if (task === "themes" || task === "thesis") {
-    system = THEMES_SYSTEM;
+    system = SYSTEM_PROMPTS.themes;
     user = `Today is ${today || new Date().toISOString().slice(0, 10)}.
 
 ALLOWED TAG VOCABULARY (use only these):
@@ -118,7 +44,7 @@ ${vocab.join(", ")}
 ${payload.note ? `ANALYST NOTE (authoritative — the author speaking directly):\n${payload.note}\n\n` : ""}SOURCE DOCUMENT:
 ${text}`;
   } else if (task === "edit") {
-    system = EDIT_SYSTEM;
+    system = SYSTEM_PROMPTS.edit;
     user = text;
   } else {
     return L.fail(new Error(`unknown task: ${task}`), 400);

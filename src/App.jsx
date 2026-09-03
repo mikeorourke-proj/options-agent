@@ -5,7 +5,7 @@ import StepIdeas from "./steps/StepIdeas.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.4.1";
+export const VERSION = "0.5.0";
 
 const STEPS = [
   { id: "source",    label: "Source" },
@@ -18,7 +18,11 @@ const STEPS = [
 function Wordmark() {
   return (
     <span className="wordmark">
-      <span className="a">Jones</span><span className="b">{"Trad\u0131"}</span><span className="mark" /><span className="b">ng</span>
+      <span className="a">Jones</span><span className="b">Trad</span>
+      {/* dotless i, with the square mark absolutely placed above it so it
+          takes no horizontal space and cannot push "ng" sideways */}
+      <span className="dot-i"><span className="b">{"\u0131"}</span><i className="mark" /></span>
+      <span className="b">ng</span>
     </span>
   );
 }

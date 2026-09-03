@@ -28,12 +28,53 @@ export const api = {
   news:          (ticker)        => mkt("news", { ticker }),
   treasury:      (limit = 5)     => mkt("treasury", { limit }),
 
+  /* Short tasks run synchronously. */
   think: (task, text, extra = {}) =>
     call("/.netlify/functions/think", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ task, text, today: new Date().toISOString().slice(0, 10), ...extra }),
     }),
+
+  /* Theme extraction runs in the background: Opus takes 25-35s on a full
+     note and Netlify kills synchronous functions at 26s. Fire, then poll. */
+  async thinkLong(task, text, extra = {}, onTick) {
+    const jobId = (crypto.randomUUID?.() || String(Math.random()).slice(2)) + "-" + Date.now();
+    const t = RunLog.timer("llm", `${task}.job`, { jobId, chars: text.length });
+
+    await fetch("/.netlify/functions/think-background", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId, task, text, today: new Date().toISOString().slice(0, 10), ...extra }),
+    });
+    RunLog.info("llm", "job.queued", { jobId });
+
+    const deadline = Date.now() + 180000;   // 3 minutes
+    let wait = 1200, polls = 0;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, wait));
+      wait = Math.min(wait * 1.15, 4000);
+      polls++;
+      let doc;
+      try { doc = await (await fetch(`/.netlify/functions/think-status?id=${jobId}`)).json(); }
+      catch { continue; }
+
+      onTick?.(doc.status, polls, Math.round((Date.now() - (deadline - 180000)) / 1000));
+
+      if (doc.status === "done") {
+        if (doc.log) RunLog.absorb(doc.log);
+        t.end({ polls, model: doc.result?.model, outTok: doc.result?.usage?.out });
+        return doc.result;
+      }
+      if (doc.status === "failed") {
+        if (doc.log) RunLog.absorb(doc.log);
+        t.fail(new Error(doc.error || "extraction failed"));
+        throw new Error(doc.error || "extraction failed");
+      }
+    }
+    t.fail(new Error("timed out after 3 minutes"));
+    throw new Error("Extraction timed out after 3 minutes.");
+  },
 };
 
 /* Bounded concurrency — screening a dozen candidates at once would
