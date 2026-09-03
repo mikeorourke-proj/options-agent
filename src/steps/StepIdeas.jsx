@@ -327,9 +327,30 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                             <span className="spacer" />
                             <span className="scorepill" title="view-conditional economics score">{e.score.toFixed(2)}</span>
                           </div>
-                          <div className="legs">{s.legText}</div>
+                          <table className="legtbl">
+                            <tbody>
+                              {p.legDetail.map((L, j) => (
+                                <tr key={j}>
+                                  <td className={L.action === "Buy" ? "buy" : "sell"}>{L.action}</td>
+                                  <td>{L.qty}\u00D7</td>
+                                  <td className="strike">{s.expiry.slice(5)} <b>{L.strike}</b> {L.type}</td>
+                                  <td className="mono">${L.px.toFixed(2)}</td>
+                                  <td className="dim">{L.moneyness >= 0 ? "+" : ""}{L.moneyness}%</td>
+                                  <td className="dim">Δ{L.delta}</td>
+                                  <td className="dim">{L.iv != null ? `${L.iv}% iv` : ""}</td>
+                                  <td className="dim">OI {L.oi.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                              <tr className="nettr">
+                                <td colSpan={3}>Net {net >= 0 ? "debit" : "credit"}</td>
+                                <td className="mono"><b>${Math.abs(net).toFixed(2)}</b></td>
+                                <td colSpan={4} className="dim">
+                                  per 1-lot ${(Math.abs(p.net)).toFixed(0)} · marks from {p.priceSource}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
                           <div className="stats">
-                            <span>{net >= 0 ? "debit" : "credit"} <b>${Math.abs(net).toFixed(2)}</b></span>
                             <span>max gain <b>{p.uncapped ? "uncapped" : "$" + (p.maxGain / 100).toFixed(2)}</b></span>
                             <span>R:R <b>{p.rr ?? "n/a"}</b></span>
                             <span>POP <b>{e.pop}%</b></span>

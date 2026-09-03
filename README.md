@@ -147,6 +147,9 @@ scrubbed from URLs, payloads, messages and upstream error text.
   think-background.mjs writes to the "think-jobs" blob store; the client
   polls think-status.mjs. Prompts live in _prompts.mjs so the sync and
   background paths cannot drift.
+- CSS avoids flex `gap` for anything destined for print: PDF engines and
+  older WebKit ignore it and the row collapses into one run-on string.
+  Use margins instead.
 - PDF export: use points/mm, never px. Print CSS must not carry pixel
   dimensions or the output will not scale correctly at A4.
 - Model: claude-opus-5 for every task, set in MODELS at the top of

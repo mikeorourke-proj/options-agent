@@ -123,6 +123,7 @@ const payoff = (legs, S) => legs.reduce((s, l) =>
 export function priceStructure(legs, spot, expiry) {
   const T = yrs(expiry);
   let net = 0, spreadCost = 0, minOI = Infinity, srcs = new Set(), theta = 0;
+  const legDetail = [];
   for (const l of legs) {
     const m = mark(l.c, spot, T);
     if (!m) return null;
@@ -131,6 +132,14 @@ export function priceStructure(legs, spot, expiry) {
     theta += l.qty * (l.c.greeks?.theta || 0) * 100;
     minOI = Math.min(minOI, l.c.open_interest || 0);
     srcs.add(m.src);
+    legDetail.push({
+      action: l.qty > 0 ? "Buy" : "Sell", qty: Math.abs(l.qty),
+      strike: l.k, type: l.type === "call" ? "call" : "put",
+      px: +m.px.toFixed(2), delta: +(l.c.greeks?.delta ?? 0).toFixed(3),
+      iv: l.c.implied_volatility ? +(l.c.implied_volatility * 100).toFixed(1) : null,
+      oi: l.c.open_interest || 0, src: m.src,
+      moneyness: +(((l.k - spot) / spot) * 100).toFixed(1),
+    });
   }
 
   // Scan the payoff to get max gain, max loss and breakevens without
@@ -158,7 +167,7 @@ export function priceStructure(legs, spot, expiry) {
     uncapped: maxAtEdge,
     rr: maxAtEdge ? null : +(maxG / risk).toFixed(2),
     maxGainDisplay: maxAtEdge ? Infinity : maxG,
-    theta, minOI, spreadCost, T,
+    theta, minOI, spreadCost, T, legDetail,
     priceSource: srcs.has("quote") ? "quote" : srcs.has("last") ? "last trade" : "model",
     payoffAt: S => payoff(legs, S) - net,
   };
