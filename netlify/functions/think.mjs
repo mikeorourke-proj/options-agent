@@ -16,31 +16,66 @@
 
 import { srvLog } from "./_runlog.mjs";
 
-const MODEL = "claude-sonnet-4-6";
+const MODELS = {
+  themes: "claude-opus-5",
+  edit:   "claude-opus-5",
+  draft:  "claude-opus-5",
+};
+const FALLBACK_MODEL = "claude-opus-5";
 const API = "https://api.anthropic.com/v1/messages";
 
-const THESIS_SYSTEM = `You are a research assistant on an institutional ETF and options trading desk.
-Convert the analyst's written idea into structured trade intent.
+const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
+
+The author is the desk. Everything you output represents THEIR view.
 
 Return ONLY a JSON object, no preamble, no markdown fences:
 {
-  "headline": "<= 9 words, declarative, no ticker symbols>",
-  "direction": "long" | "short" | "neutral" | "pair",
-  "assetClass": "Equity" | "Fixed Income" | "Commodity" | "Currency" | "Volatility" | "Crypto",
-  "tags": ["<3-7 terms drawn ONLY from the supplied vocabulary>"],
-  "pairShort": ["<tags describing the short leg, ONLY if direction is pair, else []>"],
-  "catalyst": { "description": "<short phrase>", "date": "YYYY-MM-DD or null" },
-  "horizon": "days" | "weeks" | "months",
-  "conviction": "high" | "medium" | "low",
-  "rationale": "<one sentence, why this exposure expresses the idea>",
-  "risks": ["<2-4 short phrases naming what invalidates the thesis>"]
+  "sourceTitle": "<the piece's own headline, or a 5-word summary>",
+  "themes": [
+    {
+      "id": "<kebab-case, e.g. bearish-gold>",
+      "direction": "bullish" | "bearish" | "neutral",
+      "subject": "<2-4 words naming what the view is on, e.g. Gold, Semiconductors, US Treasuries>",
+      "tags": ["<2-5 terms from the supplied vocabulary ONLY>"],
+      "basis": "stated" | "extended",
+      "evidence": "<one verbatim sentence from the AUTHOR'S OWN PROSE supporting this direction; empty string if basis is extended>",
+      "rationale": "<one sentence in the author's voice, why this view follows>",
+      "catalyst": { "description": "<short phrase or empty>", "date": "YYYY-MM-DD or null" }
+    }
+  ],
+  "primaryThemeId": "<id of the theme carrying the piece's main argument>",
+  "risks": ["<2-4 short phrases naming what would invalidate the primary theme>"]
 }
 
-Rules:
-- Every entry in "tags" and "pairShort" MUST appear verbatim in the supplied vocabulary. Never invent a tag.
-- NEVER output ticker symbols in any field. Vehicle selection happens downstream.
-- If no date is stated or clearly implied, set catalyst.date to null. Do not guess a date.
-- "risks" must name things that would make the trade lose, not generic market risk.`;
+CRITICAL RULES
+
+1. DIRECTION. Determine what the AUTHOR concludes, not what the piece describes. Commentary
+   frequently sets out a popular view at length in order to reject it. The author's conclusion
+   often arrives late in the piece and the title often signals it. If the author argues a trade
+   is late, crowded, exhausted, or mistaken, the direction is AGAINST that trade.
+
+2. QUOTED MATERIAL IS NOT EVIDENCE. Any sentence inside quotation marks belongs to a third
+   party. It is context only. Never use it as "evidence", and never let it decide direction —
+   quoted views are usually the ones being rebutted.
+
+3. NEVER NAME ANYONE. No people, firms, banks, publications, or research houses in ANY field.
+   Not in evidence, not in rationale, not in catalyst. Refer to positioning or consensus in the
+   abstract. Company names are permitted ONLY where the company is the subject of the trade.
+
+4. EVIDENCE MUST BE VERBATIM from the author's own unquoted prose. Copy it exactly. If no such
+   sentence exists, set basis to "extended" and evidence to "".
+
+5. BASIS. "stated" = the author asserts this view. "extended" = a defensible consequence of
+   their argument that they did not write. Prefer stated. Mark honestly.
+
+6. TAGS must appear verbatim in the supplied vocabulary. Never invent one.
+
+7. THE ANALYST NOTE, when supplied, is the author speaking directly and is AUTHORITATIVE. It
+   overrides the document. It may introduce themes the document never mentions, and those
+   themes are basis "stated".
+
+8. Separate themes by SUBJECT, not by instrument. "Bearish gold" and "bearish silver" are two
+   themes. Group instruments of the same underlying asset into one theme.`;
 
 const EDIT_SYSTEM = `You are a copy editor for institutional research at a broker-dealer.
 Fix spelling, grammar and punctuation. Tighten wordy phrasing.
@@ -62,18 +97,19 @@ export default async (request) => {
   try { payload = await request.json(); } catch { return L.fail(new Error("bad JSON body"), 400); }
 
   const { task, text, vocab = [], today } = payload;
+  const MODEL = MODELS[task] || FALLBACK_MODEL;
   if (!text || typeof text !== "string") return L.fail(new Error("missing text"), 400);
-  if (text.length > 12000) return L.fail(new Error("text too long"), 400);
+  if (text.length > 120000) return L.fail(new Error("text too long"), 400);
 
   let system, user;
-  if (task === "thesis") {
-    system = THESIS_SYSTEM;
+  if (task === "themes" || task === "thesis") {
+    system = THEMES_SYSTEM;
     user = `Today is ${today || new Date().toISOString().slice(0, 10)}.
 
 ALLOWED TAG VOCABULARY (use only these):
 ${vocab.join(", ")}
 
-ANALYST IDEA:
+${payload.note ? `ANALYST NOTE (authoritative — the author speaking directly):\n${payload.note}\n\n` : ""}SOURCE DOCUMENT:
 ${text}`;
   } else if (task === "edit") {
     system = EDIT_SYSTEM;
@@ -117,17 +153,30 @@ ${text}`;
 
     /* Enforce the vocabulary server-side. The model is instructed not to
        invent tags; this is the check that it did not. */
-    let dropped = [];
-    if (parsed && task === "thesis" && vocab.length) {
+    const dropped = [], attrib = [], quoteHits = [];
+    if (parsed && Array.isArray(parsed.themes)) {
       const ok = new Set(vocab);
-      for (const field of ["tags", "pairShort"]) {
-        if (Array.isArray(parsed[field])) {
-          const before = parsed[field];
-          parsed[field] = before.filter(t => ok.has(t));
+
+      // Quoted spans in the source. Evidence overlapping one of these is
+      // third-party material and is rejected — in this author's commentary
+      // the quoted view is usually the one being rebutted.
+      const quoted = [...String(text).matchAll(/[\u201C"']([^\u201D"']{25,})[\u201D"']/g)].map(m => m[1]);
+      const inQuote = (ev) => quoted.some(q => q.includes(ev.slice(0, 60)) || ev.includes(q.slice(0, 60)));
+      const ATTRIB = /\b(said|stated|wrote|according to|noted|argues|reports|per\s+[A-Z])\b/i;
+
+      for (const th of parsed.themes) {
+        if (Array.isArray(th.tags)) {
+          const before = th.tags;
+          th.tags = before.filter(t => ok.has(t));
           dropped.push(...before.filter(t => !ok.has(t)));
         }
+        if (th.evidence && inQuote(th.evidence)) {
+          quoteHits.push(th.id); th.evidence = ""; th.basis = "extended";
+        }
+        for (const f of ["rationale", "evidence"]) {
+          if (th[f] && ATTRIB.test(th[f])) attrib.push(`${th.id}.${f}`);
+        }
       }
-      parsed.tickersScrubbed = false;
     }
 
     L.info("model", {
@@ -135,13 +184,17 @@ ${text}`;
       inTok: body.usage?.input_tokens, outTok: body.usage?.output_tokens,
       parsedOk: Boolean(parsed), parseError,
       droppedTags: dropped.length ? dropped : undefined,
+      quotedEvidenceRejected: quoteHits.length ? quoteHits : undefined,
+      attributionFlags: attrib.length ? attrib : undefined,
       preview: cleaned.slice(0, 180),
     });
     if (dropped.length) L.warn("vocab.violation", { dropped });
+    if (quoteHits.length) L.warn("evidence.quoted", { themes: quoteHits, note: "evidence fell inside quoted material and was rejected" });
+    if (attrib.length) L.warn("attribution.suspected", { fields: attrib });
 
     return L.respond({
-      task, parsed, raw: parsed ? undefined : cleaned, parseError,
-      droppedTags: dropped,
+      task, model: MODEL, parsed, raw: parsed ? undefined : cleaned, parseError,
+      droppedTags: dropped, quotedEvidenceRejected: quoteHits, attributionFlags: attrib,
       usage: { in: body.usage?.input_tokens, out: body.usage?.output_tokens, ms },
     });
   } catch (e) {

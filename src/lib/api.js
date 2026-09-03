@@ -9,8 +9,14 @@ async function call(url, opts) {
   return body;
 }
 
-const mkt = (route, params = {}) =>
-  call("/.netlify/functions/mkt?" + new URLSearchParams({ route, ...params }));
+const mkt = (route, params = {}) => {
+  // Drop undefined/null so they don't serialise as the string "undefined",
+  // which would defeat server-side defaults.
+  const clean = Object.fromEntries(
+    Object.entries({ route, ...params }).filter(([, v]) => v !== undefined && v !== null && v !== "")
+  );
+  return call("/.netlify/functions/mkt?" + new URLSearchParams(clean));
+};
 
 export const api = {
   quote:         (ticker)        => mkt("quote", { ticker }),

@@ -127,6 +127,20 @@ export const ETF_UNIVERSE = [
   { t:"TMV",  n:"Direxion Daily 20+ Yr Trsy Bear 3X",cls:"Fixed Income",grp:"Levered",liq:"C",lev:-3,ul:"TLT", tags:["levered","inverse","duration","rebalance"] },
   { t:"UGL",  n:"ProShares Ultra Gold",            cls:"Commodity", grp:"Levered", liq:"C", lev:2,  ul:"GLD", tags:["levered","gold","rebalance"] },
   { t:"NUGT", n:"Direxion Daily Gold Miners 2X",   cls:"Equity",    grp:"Levered", liq:"B", lev:2,  ul:"GDX", tags:["levered","miners","rebalance"] },
+  { t:"GLL",  n:"ProShares UltraShort Gold",       cls:"Commodity", grp:"Levered", liq:"C", lev:-2, ul:"GLD", tags:["levered","inverse","gold","rebalance"] },
+  { t:"ZSL",  n:"ProShares UltraShort Silver",     cls:"Commodity", grp:"Levered", liq:"C", lev:-2, ul:"SLV", tags:["levered","inverse","silver","rebalance"] },
+  { t:"DUST", n:"Direxion Gold Miners Bear 2X",    cls:"Equity",    grp:"Levered", liq:"B", lev:-2, ul:"GDX", tags:["levered","inverse","gold","miners","rebalance"] },
+  { t:"BITI", n:"ProShares Short Bitcoin Strategy",cls:"Crypto",    grp:"Levered", liq:"C", lev:-1, ul:"IBIT", tags:["inverse","bitcoin","hedge"] },
+  { t:"BITX", n:"Volatility Shares 2x Bitcoin",    cls:"Crypto",    grp:"Levered", liq:"B", lev:2,  ul:"IBIT", tags:["levered","bitcoin","rebalance"] },
+  { t:"SOXQ", n:"Invesco PHLX Semiconductor",      cls:"Equity",    grp:"Sector",  liq:"C", tags:["semis","ai","cyclical"] },
+  { t:"PSI",  n:"Invesco Semiconductors",          cls:"Equity",    grp:"Sector",  liq:"C", tags:["semis","ai"] },
+  { t:"IGV",  n:"iShares Expanded Tech-Software",  cls:"Equity",    grp:"Sector",  liq:"B", tags:["software","tech","growth"] },
+  { t:"CIBR", n:"First Trust Nasdaq Cybersecurity",cls:"Equity",    grp:"Sector",  liq:"C", tags:["cyber","software","tech"] },
+  { t:"BUG",  n:"Global X Cybersecurity",          cls:"Equity",    grp:"Sector",  liq:"C", tags:["cyber","software"] },
+  { t:"AIQ",  n:"Global X Artificial Intelligence",cls:"Equity",    grp:"Sector",  liq:"C", tags:["ai","tech","datacenter"] },
+  { t:"IGF",  n:"iShares Global Infrastructure",   cls:"Equity",    grp:"Sector",  liq:"C", tags:["infrastructure","power"] },
+  { t:"GRID", n:"First Trust Clean Edge Grid",     cls:"Equity",    grp:"Sector",  liq:"C", tags:["power","grid","datacenter","ai-power"] },
+  { t:"SARK", n:"AXS Short Innovation Daily",      cls:"Equity",    grp:"Levered", liq:"C", lev:-1, ul:"ARKK", tags:["inverse","growth","hedge"] },
 ];
 
 export const BY_TICKER = Object.fromEntries(ETF_UNIVERSE.map(e => [e.t, e]));
@@ -137,24 +151,35 @@ export const TAG_VOCAB = [...new Set(ETF_UNIVERSE.flatMap(e => e.tags))].sort();
 
 /* Retrieval: score every fund against a set of tags. Pure lookup — no
    model involvement, so a ticker that is not in the table cannot be
-   returned. */
-export function searchUniverse(tags = [], { cls, excludeLevered = true, limit = 12 } = {}) {
-  const want = new Set(tags.map(s => s.toLowerCase()));
+   returned.
+
+   Asset class is a RANKING BOOST, never a filter. A debasement thesis
+   tags gold, silver, bitcoin and longbond at once; filtering to a
+   single class would silently drop the crypto and rates expressions of
+   the same idea. Tag fit decides membership; class only breaks ties. */
+export function searchUniverse(tags = [], { boostCls, excludeLevered = true, limit = 12, minHits = 1 } = {}) {
+  const want = new Set(tags.map(s => String(s).toLowerCase()));
+  const LIQ = { A: 0.9, B: 0.5, C: 0.15, X: 0 };
   return ETF_UNIVERSE
-    .filter(e => (!cls || e.cls === cls))
-    .filter(e => (!excludeLevered || e.grp !== "Levered"))
+    .filter(e => !excludeLevered || e.grp !== "Levered")
     .map(e => {
       const hits = e.tags.filter(t => want.has(t));
-      const liqBonus = { A: 0.9, B: 0.5, C: 0.15, X: 0 }[e.liq] ?? 0;
-      return { ...e, hits, score: hits.length + liqBonus };
+      const score = hits.length
+                  + (LIQ[e.liq] ?? 0)
+                  + (boostCls && e.cls === boostCls ? 0.6 : 0);
+      return { ...e, hits, score };
     })
-    .filter(e => e.hits.length > 0)
-    .sort((a, b) => b.score - a.score)
+    .filter(e => e.hits.length >= minHits)
+    .sort((a, b) => b.score - a.score || a.t.localeCompare(b.t))
     .slice(0, limit);
 }
 
 /* Levered funds tracking a given underlying — feeds the rebalance
    estimator (gamma = X(X-1)). */
-export function leveredFor(underlying) {
-  return ETF_UNIVERSE.filter(e => e.ul === underlying);
+export function leveredFor(underlying, { direction } = {}) {
+  let out = ETF_UNIVERSE.filter(e => e.ul === underlying);
+  if (direction === "bearish") out = out.filter(e => (e.lev || 0) < 0);
+  if (direction === "bullish") out = out.filter(e => (e.lev || 0) > 0);
+  // gamma = X(X-1): the rebalance multiplier from the handbook
+  return out.map(e => ({ ...e, gamma: e.lev ? e.lev * (e.lev - 1) : 0 }));
 }

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import RunLog from "./lib/runlog.js";
-import StepThesis from "./steps/StepThesis.jsx";
-import StepVehicles from "./steps/StepVehicles.jsx";
+import StepSource from "./steps/StepSource.jsx";
+import StepIdeas from "./steps/StepIdeas.jsx";
+import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
 const STEPS = [
-  { id: "thesis",    label: "Idea" },
-  { id: "vehicles",  label: "Vehicles" },
+  { id: "source",    label: "Source" },
+  { id: "ideas",     label: "Themes" },
   { id: "structure", label: "Structure" },
   { id: "scenarios", label: "Scenarios" },
   { id: "note",      label: "Note" },
@@ -15,43 +16,44 @@ const STEPS = [
 function Wordmark() {
   return (
     <span className="wordmark">
-      <span className="a">Jones</span><span className="b">Trad</span>
-      <span className="b">i</span><span className="mark" /><span className="b">ng</span>
+      <span className="a">Jones</span><span className="b">{"Trad\u0131"}</span><span className="mark" /><span className="b">ng</span>
     </span>
   );
 }
 
-/* Floating diagnostic bar. Present from build one so any bug report
-   arrives with the full trace attached. */
 function LogBar() {
   const [tick, setTick] = useState(0);
   useEffect(() => { const i = setInterval(() => setTick(t => t + 1), 1200); return () => clearInterval(i); }, []);
   const es = RunLog.entries;
   const errs = es.filter(e => e.lvl === "error").length;
   const warns = es.filter(e => e.lvl === "warn").length;
-  const cls = errs ? "err" : warns ? "warn" : "";
   return (
     <div className="logbar" data-tick={tick}>
-      <span className={`dot ${cls}`} />
+      <span className={`dot ${errs ? "err" : warns ? "warn" : ""}`} />
       <code>{es.length} events{errs ? ` · ${errs} err` : ""}{warns ? ` · ${warns} warn` : ""}</code>
       <button className="ghost" style={{ padding: "3px 9px" }} onClick={() => RunLog.download()}>Download log</button>
-      <button className="ghost" style={{ padding: "3px 9px" }}
-              onClick={async () => alert(await RunLog.copy())}>Copy</button>
+      <button className="ghost" style={{ padding: "3px 9px" }} onClick={async () => alert(await RunLog.copy())}>Copy</button>
     </div>
   );
 }
 
 export default function App() {
   const [step, setStep] = useState(0);
-  const [intent, setIntent] = useState(null);
-  const [vehicles, setVehicles] = useState([]);
+  const [parsed, setParsed] = useState(null);
+  const [picks, setPicks] = useState({ sel: {}, primaryThemeId: null, split: [] });
+  const [menuCache, setMenuCache] = useState(null);
 
-  useEffect(() => { RunLog.start("session", { app: "tactical-note", v: "0.1.0" }); }, []);
+  useEffect(() => { RunLog.start("session", { app: "tactical-note", v: "0.4.0" }); }, []);
 
-  const reach = i =>
-    i === 0 ? true :
-    i === 1 ? Boolean(intent) :
-    i === 2 ? vehicles.length > 0 : false;
+  function applyParsed(next) {
+    setParsed(next);
+    setPicks({ sel: {}, primaryThemeId: next?.primaryThemeId || null, split: [] });
+    setMenuCache(null);
+  }
+
+  const reach = i => i === 0 ? true
+                   : i === 1 ? Boolean(parsed)
+                   : i === 2 ? Object.keys(picks.sel).length > 0 : false;
 
   return (
     <div className="app">
@@ -59,32 +61,31 @@ export default function App() {
         <Wordmark />
         <span className="title">Tactical Note — Desk Commentary</span>
         <span className="spacer" />
-        <a className="ghost" href="/legacy.html" style={{ textDecoration: "none", padding: "6px 12px" }}>
-          Options dashboard
-        </a>
+        <a className="ghost" href="/legacy.html" style={{ textDecoration: "none", padding: "6px 12px" }}>Options dashboard</a>
       </div>
 
       <div className="steps">
         {STEPS.map((s, i) => (
-          <button key={s.id}
-                  className={`step-tab ${i === step ? "active" : ""} ${i < step && reach(i) ? "done" : ""}`}
-                  disabled={!reach(i)}
-                  onClick={() => reach(i) && setStep(i)}>
+          <button key={s.id} className={`step-tab ${i === step ? "active" : ""} ${i < step && reach(i) ? "done" : ""}`}
+                  disabled={!reach(i)} onClick={() => reach(i) && setStep(i)}>
             <span className="n">{i + 1}</span>{s.label}
           </button>
         ))}
       </div>
 
+      {step > 0 && parsed && <SourceBar parsed={parsed} picks={picks} onEdit={() => setStep(0)} />}
+
       <div className="main">
-        {step === 0 && <StepThesis intent={intent} setIntent={setIntent} onNext={() => setStep(1)} />}
-        {step === 1 && intent &&
-          <StepVehicles intent={intent} vehicles={vehicles} setVehicles={setVehicles} onNext={() => setStep(2)} />}
+        {step === 0 && <StepSource parsed={parsed} setParsed={applyParsed} onNext={() => setStep(1)} />}
+        {step === 1 && parsed &&
+          <StepIdeas parsed={parsed} setParsed={setParsed} picks={picks} setPicks={setPicks}
+                     menuCache={menuCache} setMenuCache={setMenuCache} onNext={() => setStep(2)} />}
         {step >= 2 && (
           <div className="card">
             <h2>{STEPS[step].label}</h2>
-            <p className="hint">Next build. Selection so far is carried in state and in the run log.</p>
-            <pre style={{ fontSize: 11.5, background: "var(--bg)", padding: 12, borderRadius: 6, overflow: "auto" }}>
-{JSON.stringify({ intent: intent && { headline: intent.headline, direction: intent.direction, tags: intent.tags, catalyst: intent.catalyst }, vehicles }, null, 2)}
+            <p className="hint">Next build. Selections are carried in state and in the run log.</p>
+            <pre style={{ fontSize: 11.5, background: "var(--bg)", padding: 12, borderRadius: 6, overflow: "auto", maxHeight: 420 }}>
+{JSON.stringify({ primaryThemeId: picks.primaryThemeId, split: picks.split, selections: Object.values(picks.sel) }, null, 2)}
             </pre>
             <button className="ghost" onClick={() => setStep(1)}>← Back</button>
           </div>

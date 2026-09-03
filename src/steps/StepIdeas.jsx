@@ -1,0 +1,246 @@
+import { useEffect, useRef, useState } from "react";
+import RunLog from "../lib/runlog.js";
+import { api, mapLimit } from "../lib/api.js";
+import { searchUniverse, leveredFor } from "../data/etf-universe.js";
+import { analyzeChain, realisedVol } from "../lib/vol.js";
+import { suggestStructures } from "../lib/strategy.js";
+
+const fmtB  = n => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(0)}M` : n ? `$${n.toFixed(0)}` : "—";
+const fmtV  = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${((n || 0) / 1e3).toFixed(0)}K`;
+const grade = q => {
+  if (!q) return "X";
+  const { withGreeks = 0, withOI = 0 } = q;
+  if (withGreeks < 20 || withOI < 20) return "X";
+  if (withGreeks < 120) return "C";
+  if (withGreeks < 400) return "B";
+  return "A";
+};
+
+/* One theme's expression menu. Ranking is by dollar ADV — the only
+   liquidity measure comparable across a $402 GLD and an $82 IAU. */
+async function buildMenu(theme, catalystDate, horizon) {
+  const t = RunLog.timer("ui", `menu.${theme.id}`);
+
+  const pool = searchUniverse(theme.tags, { boostCls: theme.assetClass, excludeLevered: true, limit: 8 });
+  if (!pool.length) { t.end({ candidates: 0 }); return { ...theme, none: true, primary: null, secondary: [], levered: [], structures: [] }; }
+
+  // cheap pass: quote only, to rank on dollar ADV
+  const priced = await mapLimit(pool, 4, async e => {
+    try {
+      const q = await api.quote(e.t);
+      const px = q?.price || 0;
+      return { ...e, price: px, volume: q?.volume || 0, dollarADV: px * (q?.volume || 0) };
+    } catch { return { ...e, price: 0, dollarADV: 0, dead: true }; }
+  });
+
+  const ranked = priced.filter(e => !e.dead && e.price > 0).sort((a, b) => b.dollarADV - a.dollarADV);
+  if (!ranked.length) { t.end({ candidates: 0 }); return { ...theme, none: true, primary: null, secondary: [], levered: [], structures: [] }; }
+
+  const primary = ranked[0];
+  const secondary = ranked.slice(1, 3);
+
+  // levered products on the primary, direction-matched
+  const levCands = leveredFor(primary.t, { direction: theme.direction });
+  const levered = (await mapLimit(levCands, 3, async e => {
+    try {
+      const q = await api.quote(e.t);
+      const px = q?.price || 0;
+      return { ...e, price: px, volume: q?.volume || 0, dollarADV: px * (q?.volume || 0) };
+    } catch { return null; }
+  })).filter(e => e && e.price > 0).sort((a, b) => b.dollarADV - a.dollarADV).slice(0, 2);
+
+  // chain analytics on the primary only — one heavy call per theme
+  let vol = null, structures = [], liq = "X";
+  try {
+    const [chain, bars] = await Promise.all([
+      api.chain(primary.t, primary.price),
+      api.bars(primary.t, new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10)),
+    ]);
+    liq = grade(chain?.quality);
+    RunLog.gate(`liquidity:${primary.t}`, liq !== "X", { grade: liq, ...chain?.quality });
+    if (liq !== "X") {
+      vol = analyzeChain(primary.t, chain.contracts, primary.price);
+      const rv = realisedVol(bars?.bars || [], 30);
+      vol.rv30 = rv;
+      structures = suggestStructures(theme.direction, vol, rv, {
+        catalystDate: theme.catalyst?.date || catalystDate, horizon,
+        conviction: theme.conviction || "medium", liq, max: 2,
+      });
+      if (structures[0]?.gatedOut?.length)
+        RunLog.info("ui", `structures.gated:${primary.t}`, structures[0].gatedOut);
+    }
+  } catch (e) { RunLog.error("ui", `chain ${primary.t}`, e); }
+
+  t.end({ primary: primary.t, secondary: secondary.map(s => s.t), levered: levered.map(l => l.t), structures: structures.length });
+  return { ...theme, primary: { ...primary, liq }, secondary, levered, vol, structures };
+}
+
+export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCache, setMenuCache, onNext }) {
+  const [menus, setMenus] = useState(menuCache || []);
+  const [busy, setBusy] = useState(!menuCache);
+  const ran = useRef(Boolean(menuCache));
+
+  useEffect(() => {
+    if (ran.current) return; ran.current = true;
+    (async () => {
+      const out = [];
+      for (const th of parsed.themes) out.push(await buildMenu(th, null, "weeks"));
+      setMenus(out); setMenuCache(out); setBusy(false);
+    })();
+    /* eslint-disable-next-line */
+  }, []);
+
+  const on = (k) => Boolean(picks.sel[k]);
+  function toggle(themeId, kind, ticker, extra = {}) {
+    const k = `${themeId}|${kind}|${ticker}`;
+    const next = { ...picks.sel };
+    if (next[k]) delete next[k]; else next[k] = { themeId, kind, ticker, ...extra };
+    setPicks({ ...picks, sel: next });
+    RunLog.info("ui", "pick.toggle", { key: k, on: Boolean(next[k]) });
+  }
+  function setPrimaryTheme(id) {
+    setPicks({ ...picks, primaryThemeId: id });
+    RunLog.info("ui", "theme.primary", { id });
+  }
+  function toggleSplit(id) {
+    const s = new Set(picks.split);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setPicks({ ...picks, split: [...s] });
+    RunLog.info("ui", "theme.split", { id, ownNote: s.has(id) });
+  }
+
+  const chosen = Object.values(picks.sel);
+  const themesChosen = [...new Set(chosen.map(c => c.themeId))];
+  const notes = 1 + picks.split.filter(id => themesChosen.includes(id)).length;
+
+  return (
+    <>
+      <div className="card">
+        <h2>Themes</h2>
+        <p className="hint">
+          Each theme carries the sentence it came from. <b>Stated</b> means you wrote it;
+          <b> extended</b> means the parser drew it out of your logic — check those before they ship.
+          Tick any combination of expressions across themes.
+        </p>
+        {busy && <div className="row" style={{ padding: 14 }}>
+          <span className="spin" /><span style={{ color: "var(--muted)", fontSize: 13 }}>Building expression menus…</span>
+        </div>}
+      </div>
+
+      {menus.map(m => (
+        <div key={m.id} className={`card theme ${picks.primaryThemeId === m.id ? "prim" : ""}`}>
+          <div className="row" style={{ gap: 9, marginBottom: 3 }}>
+            <span className={`dirbadge ${m.direction}`}>{m.direction}</span>
+            <span style={{ fontSize: 16, fontWeight: 600 }}>{m.subject}</span>
+            <span className={`pill ${m.basis === "stated" ? "a" : "c"}`}>{m.basis}</span>
+            <span className="spacer" />
+            <label className="mini"><input type="radio" name="primary" checked={picks.primaryThemeId === m.id}
+                   onChange={() => setPrimaryTheme(m.id)} /> primary</label>
+            <label className="mini"><input type="checkbox" checked={picks.split.includes(m.id)}
+                   onChange={() => toggleSplit(m.id)} /> own note</label>
+          </div>
+
+          {m.evidence
+            ? <blockquote className="evid">{m.evidence}</blockquote>
+            : <div className="evid ext">Extended from your argument — no direct sentence supports this.</div>}
+          <div className="why" style={{ marginBottom: 10 }}>{m.rationale}</div>
+
+          {m.none && <div className="note">No ETF in the universe cleanly expresses this theme. Consider single names, or add a fund to the table.</div>}
+
+          {m.primary && (
+            <>
+              <div className="tier">
+                <span className="tierlab">Primary</span>
+                <ExprRow x={m.primary} kind="primary" themeId={m.id} on={on} toggle={toggle} liq={m.primary.liq} />
+              </div>
+
+              {m.secondary.length > 0 && (
+                <div className="tier">
+                  <span className="tierlab">Secondary</span>
+                  {m.secondary.map(x => <ExprRow key={x.t} x={x} kind="secondary" themeId={m.id} on={on} toggle={toggle} />)}
+                </div>
+              )}
+
+              {m.levered.length > 0 && (
+                <div className="tier">
+                  <span className="tierlab">Levered</span>
+                  {m.levered.map(x => (
+                    <ExprRow key={x.t} x={x} kind="levered" themeId={m.id} on={on} toggle={toggle}
+                             extra={<span className="decay">γ={x.gamma} · resets daily, days not weeks</span>} />
+                  ))}
+                </div>
+              )}
+
+              {m.structures.length > 0 && (
+                <div className="tier">
+                  <span className="tierlab">Options</span>
+                  {m.structures.map(s => (
+                    <label key={s.id} className={`expr ${on(`${m.id}|option|${s.id}`) ? "sel" : ""}`}>
+                      <input type="checkbox" checked={on(`${m.id}|option|${s.id}`)}
+                             onChange={() => toggle(m.id, "option", s.id, { structure: s, underlying: m.primary.t })} />
+                      <div style={{ flex: 1 }}>
+                        <div className="row" style={{ gap: 7 }}>
+                          <b style={{ fontSize: 13 }}>{s.name}</b>
+                          <span className="tag">{m.primary.t}</span>
+                          <span className="tag">{s.expiry} · {s.days}d</span>
+                        </div>
+                        <div className="nm">{s.legs}</div>
+                        <div className="why">{s.why}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {m.vol?.ok && (
+                <div className="volrow">
+                  IV30 <b>{m.vol.iv30}%</b> · RV30 <b>{m.vol.rv30 ?? "—"}%</b> ·
+                  25Δ RR <b>{m.vol.rr25 ?? "—"}</b> · term <b>{m.vol.termSlope ?? "—"}</b> ·
+                  walls <b>{m.vol.putWall ?? "—"} / {m.vol.callWall ?? "—"}</b> ·
+                  max pain <b>{m.vol.maxPain ?? "—"}</b>
+                </div>
+              )}
+              {m.primary.liq === "X" && <div className="note">No tradable chain on {m.primary.t} — shares expression only.</div>}
+            </>
+          )}
+        </div>
+      ))}
+
+      {!busy && (
+        <div className="card">
+          <div className="row">
+            <button className="primary" disabled={chosen.length === 0} onClick={onNext}>
+              Continue with {chosen.length} expression{chosen.length === 1 ? "" : "s"} →
+            </button>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+              {themesChosen.length} theme{themesChosen.length === 1 ? "" : "s"} · produces {notes} note{notes === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ExprRow({ x, kind, themeId, on, toggle, liq, extra }) {
+  const k = `${themeId}|${kind}|${x.t}`;
+  return (
+    <label className={`expr ${on(k) ? "sel" : ""}`}>
+      <input type="checkbox" checked={on(k)} onChange={() => toggle(themeId, kind, x.t, { price: x.price })} />
+      <div style={{ flex: 1 }}>
+        <div className="row" style={{ gap: 7 }}>
+          <b style={{ fontSize: 13.5 }}>{x.t}</b>
+          {liq && <span className={`pill ${liq.toLowerCase()}`}>{liq === "X" ? "shares only" : `options ${liq}`}</span>}
+          {x.lev && <span className="pill c">{x.lev > 0 ? `${x.lev}x` : `${x.lev}x inverse`}</span>}
+        </div>
+        <div className="nm">{x.n}</div>
+        <div className="stats">
+          <span>px <b>${(x.price || 0).toFixed(2)}</b></span>
+          <span>vol <b>{fmtV(x.volume)}</b></span>
+          <span>$ADV <b>{fmtB(x.dollarADV)}</b></span>
+          {extra}
+        </div>
+      </div>
+    </label>
+  );
+}
