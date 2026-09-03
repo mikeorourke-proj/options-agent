@@ -9,13 +9,27 @@ async function call(url, opts) {
   return body;
 }
 
+/* Session cache. GLD's chain is 1,500 contracts and was being pulled once
+   per theme that resolved to it — three times, 4.1MB. Keyed per route +
+   ticker, cleared when a new source is parsed. */
+const _cache = new Map();
+export const clearCache = () => { _cache.clear(); RunLog.debug("api", "cache.clear"); };
+
 const mkt = (route, params = {}) => {
   // Drop undefined/null so they don't serialise as the string "undefined",
   // which would defeat server-side defaults.
   const clean = Object.fromEntries(
     Object.entries({ route, ...params }).filter(([, v]) => v !== undefined && v !== null && v !== "")
   );
-  return call("/.netlify/functions/mkt?" + new URLSearchParams(clean));
+  const url = "/.netlify/functions/mkt?" + new URLSearchParams(clean);
+  const key = `${route}:${params.ticker || ""}:${params.from || ""}`;
+  if (_cache.has(key)) {
+    RunLog.debug("api", "cache.hit", { key });
+    return _cache.get(key);
+  }
+  const p = call(url);
+  _cache.set(key, p);
+  return p;
 };
 
 export const api = {

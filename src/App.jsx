@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import RunLog from "./lib/runlog.js";
+import { clearCache } from "./lib/api.js";
 import StepSource from "./steps/StepSource.jsx";
 import StepIdeas from "./steps/StepIdeas.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.5.0";
+export const VERSION = "0.6.0";
 
 const STEPS = [
   { id: "source",    label: "Source" },
@@ -52,6 +53,7 @@ export default function App() {
   useEffect(() => { RunLog.start("session", { app: "tactical-note", v: VERSION }); }, []);
 
   function applyParsed(next) {
+    clearCache();
     setParsed(next);
     setPicks({ sel: {}, primaryThemeId: next?.primaryThemeId || null, split: [] });
     setMenuCache(null);

@@ -53,6 +53,22 @@ parser cannot silently invert a view when it has to show its source.
 **No attribution.** Three layers: prompt instruction, quoted-span
 rejection, and a regex scan for attribution verbs that warns in the log.
 
+**Anchor-first retrieval.** Each theme names one anchorTag identifying the
+asset it trades. Only funds carrying that tag are eligible. Without it a
+silver theme pulls gold funds through a shared driver tag like
+"debasement" and, gold being more liquid, gold takes the primary slot --
+relevance losing to size. Ranking is relevance first, dollar ADV second.
+
+**Tradeable subjects only.** Themes are directional views on assets, never
+on abstractions. "Bearish inflation expectations" becomes "bullish US
+Treasuries", so the direction applied to the vehicle is the direction
+actually intended -- otherwise a bearish-inflation theme selects TMV, the
+inverse Treasury fund, and states the opposite trade.
+
+**Clusters.** Themes sharing one driver carry the same cluster id and can
+be combined into a single theme whose anchors union, so the debasement
+complex ranks GLD, SLV and IBIT side by side in one menu.
+
 **Retrieval, not recall.** Claude returns tags from a fixed vocabulary;
 `searchUniverse()` resolves those against `etf-universe.js`. The model
 never emits a ticker, so it cannot invent one. Tags outside the

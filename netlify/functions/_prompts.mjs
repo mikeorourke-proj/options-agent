@@ -23,7 +23,9 @@ Return ONLY a JSON object, no preamble, no markdown fences:
       "id": "<kebab-case, e.g. bearish-gold>",
       "direction": "bullish" | "bearish" | "neutral",
       "subject": "<2-4 words naming what the view is on, e.g. Gold, Semiconductors, US Treasuries>",
-      "tags": ["<2-5 terms from the supplied vocabulary ONLY>"],
+      "anchorTag": "<the ONE vocabulary tag naming the asset this theme trades>",
+      "tags": ["<2-5 terms from the supplied vocabulary ONLY, including anchorTag>"],
+      "cluster": "<kebab-case id shared by every theme driven by the SAME argument>",
       "basis": "stated" | "extended",
       "evidence": "<one verbatim sentence from the AUTHOR'S OWN PROSE supporting this direction; empty string if basis is extended>",
       "rationale": "<one sentence in the author's voice, why this view follows>",
@@ -61,10 +63,27 @@ CRITICAL RULES
    overrides the document. It may introduce themes the document never mentions, and those
    themes are basis "stated".
 
-8. LENGTH. Return at most 6 themes, the most tradeable first. "evidence" is ONE sentence.
-   "rationale" is ONE sentence. Do not pad.
+8. TRADEABLE SUBJECTS ONLY. Every theme must be a directional view on an asset or asset
+   group that can actually be bought or sold, and the direction must be ON THAT ASSET.
+   Never create a theme on an abstraction. Translate it into the asset that expresses it:
+     "bearish inflation expectations"  -> "bullish US Treasuries"
+     "bearish Fed liquidity"           -> "bearish risk assets" or "bullish US Dollar"
+     "bullish de-dollarisation"        -> "bearish US Dollar"
+   If a driver cannot be translated into a tradeable asset, omit it.
 
-9. Separate themes by SUBJECT, not by instrument. "Bearish gold" and "bearish silver" are two
+9. ANCHOR TAG. Each theme names the one vocabulary tag identifying the asset it trades:
+   Silver -> "silver", Gold -> "gold", Semiconductors -> "semis", Treasuries -> "longbond".
+   This tag decides which funds are eligible, so it must name the ASSET, never the driver.
+   "debasement" and "macro" are drivers, not anchors.
+
+10. CLUSTER. Themes that follow from the SAME underlying argument share one cluster id.
+   A piece arguing the debasement trade is exhausted yields bearish gold, bearish silver and
+   bearish crypto -- three themes, one cluster, because one argument drives all three.
+
+11. LENGTH. At most 6 themes, most tradeable first. "evidence" and "rationale" are ONE
+   sentence each. Do not pad.
+
+12. Separate themes by SUBJECT, not by instrument. "Bearish gold" and "bearish silver" are two
    themes. Group instruments of the same underlying asset into one theme.`;
 
 const EDIT_SYSTEM = `You are a copy editor for institutional research at a broker-dealer.

@@ -21,7 +21,19 @@ const grade = q => {
 async function buildMenu(theme, catalystDate, horizon) {
   const t = RunLog.timer("ui", `menu.${theme.id}`);
 
-  const pool = searchUniverse(theme.tags, { boostCls: theme.assetClass, excludeLevered: true, limit: 8 });
+  /* Anchor-first. Without an anchor a silver theme pulls gold funds via a
+     shared driver tag and, being more liquid, gold takes the primary slot.
+     A combined cluster carries several anchors and unions the pools. */
+  const anchors = theme.anchors?.length ? theme.anchors : [theme.anchorTag].filter(Boolean);
+  let pool = [];
+  if (anchors.length) {
+    for (const a of anchors) {
+      for (const e of searchUniverse(theme.tags, { anchor: a, excludeLevered: true, limit: 5 }))
+        if (!pool.some(p => p.t === e.t)) pool.push(e);
+    }
+  }
+  if (!pool.length) pool = searchUniverse(theme.tags, { excludeLevered: true, limit: 8 });
+  RunLog.info("ui", `pool.${theme.id}`, { anchors, tickers: pool.map(p => p.t) });
   if (!pool.length) { t.end({ candidates: 0 }); return { ...theme, none: true, primary: null, secondary: [], levered: [], structures: [] }; }
 
   // cheap pass: quote only, to rank on dollar ADV
@@ -33,11 +45,14 @@ async function buildMenu(theme, catalystDate, horizon) {
     } catch { return { ...e, price: 0, dollarADV: 0, dead: true }; }
   });
 
-  const ranked = priced.filter(e => !e.dead && e.price > 0).sort((a, b) => b.dollarADV - a.dollarADV);
+  // Relevance outranks size: a silver theme must not be led by a gold fund
+  // simply because gold trades more.
+  const ranked = priced.filter(e => !e.dead && e.price > 0)
+    .sort((a, b) => (b.hits?.length || 0) - (a.hits?.length || 0) || b.dollarADV - a.dollarADV);
   if (!ranked.length) { t.end({ candidates: 0 }); return { ...theme, none: true, primary: null, secondary: [], levered: [], structures: [] }; }
 
   const primary = ranked[0];
-  const secondary = ranked.slice(1, 3);
+  const secondary = ranked.slice(1, 4);
 
   // levered products on the primary, direction-matched
   const levCands = leveredFor(primary.t, { direction: theme.direction });
@@ -78,6 +93,7 @@ async function buildMenu(theme, catalystDate, horizon) {
 export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCache, setMenuCache, onNext }) {
   const [menus, setMenus] = useState(menuCache || []);
   const [busy, setBusy] = useState(!menuCache);
+  const [merging, setMerging] = useState(null);
   const ran = useRef(Boolean(menuCache));
 
   useEffect(() => {
@@ -89,6 +105,69 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
     })();
     /* eslint-disable-next-line */
   }, []);
+
+  /* Combine every theme sharing a driver into one. The debasement complex
+     is one trade expressed three ways, not three trades — combining unions
+     the anchors so GLD, SLV and IBIT rank side by side in one menu. */
+  async function combineCluster(cluster) {
+    const members = menus.filter(m => m.cluster === cluster);
+    if (members.length < 2) return;
+    setMerging(cluster);
+    const merged = {
+      id: `combined-${cluster}`,
+      cluster,
+      combinedFrom: members.map(m => m.id),
+      direction: members[0].direction,
+      subject: members.map(m => m.subject).join(" · "),
+      basis: members.every(m => m.basis === "stated") ? "stated" : "extended",
+      evidence: members.find(m => m.evidence)?.evidence || "",
+      rationale: members.find(m => m.basis === "stated")?.rationale || members[0].rationale,
+      catalyst: members.find(m => m.catalyst?.date)?.catalyst || members[0].catalyst,
+      anchors: [...new Set(members.map(m => m.anchorTag).filter(Boolean))],
+      tags: [...new Set(members.flatMap(m => m.tags || []))],
+    };
+    RunLog.info("ui", "cluster.combine", { cluster, from: merged.combinedFrom, anchors: merged.anchors });
+    const built = await buildMenu(merged, null, "weeks");
+    const next = [built, ...menus.filter(m => m.cluster !== cluster)];
+    setMenus(next); setMenuCache(next);
+    setPicks(p => ({
+      ...p,
+      sel: Object.fromEntries(Object.entries(p.sel).filter(([, v]) => !merged.combinedFrom.includes(v.themeId))),
+      primaryThemeId: merged.combinedFrom.includes(p.primaryThemeId) ? built.id : p.primaryThemeId,
+    }));
+    setMerging(null);
+  }
+
+  async function splitCluster(id) {
+    const m = menus.find(x => x.id === id);
+    if (!m?.combinedFrom) return;
+    setMerging(m.cluster);
+    const originals = parsed.themes.filter(t => m.combinedFrom.includes(t.id));
+    const rebuilt = [];
+    for (const th of originals) rebuilt.push(await buildMenu(th, null, "weeks"));
+    const next = [...menus.filter(x => x.id !== id), ...rebuilt];
+    setMenus(next); setMenuCache(next);
+    RunLog.info("ui", "cluster.split", { id });
+    setMerging(null);
+  }
+
+  /* Anchor-first retrieval is strict by design, so a theme can legitimately
+     return one fund. Manual add covers everything the table does not. */
+  async function addTicker(themeId, tk) {
+    const t = tk.trim().toUpperCase();
+    if (!t) return;
+    setMerging(themeId);
+    try {
+      const [q, ref] = await Promise.all([api.quote(t), api.reference(t)]);
+      if (!q?.price) throw new Error("no quote");
+      const row = { t, n: ref?.name || t, cls: "—", hits: [], manual: true,
+                    price: q.price, volume: q.volume || 0, dollarADV: q.price * (q.volume || 0) };
+      const next = menus.map(m => m.id === themeId ? { ...m, secondary: [...m.secondary, row] } : m);
+      setMenus(next); setMenuCache(next);
+      RunLog.info("ui", "vehicle.manual.add", { themeId, ticker: t });
+    } catch (e) { RunLog.error("ui", `manual add ${t}`, e); }
+    setMerging(null);
+  }
 
   const on = (k) => Boolean(picks.sel[k]);
   function toggle(themeId, kind, ticker, extra = {}) {
@@ -127,6 +206,17 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
         </div>}
       </div>
 
+      {clusters(menus).map(c => c.size > 1 && (
+        <div key={c.cluster} className="clusterbar">
+          <b>{c.size} themes share one driver</b>
+          <span>{c.subjects}</span>
+          <span className="spacer" />
+          <button className="ghost" disabled={merging === c.cluster} onClick={() => combineCluster(c.cluster)}>
+            {merging === c.cluster ? <><span className="spin" />&nbsp;Combining…</> : "Combine into one theme"}
+          </button>
+        </div>
+      ))}
+
       {menus.map(m => (
         <div key={m.id} className={`card theme ${picks.primaryThemeId === m.id ? "prim" : ""}`}>
           <div className="row" style={{ gap: 9, marginBottom: 3 }}>
@@ -138,6 +228,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                    onChange={() => setPrimaryTheme(m.id)} /> primary</label>
             <label className="mini"><input type="checkbox" checked={picks.split.includes(m.id)}
                    onChange={() => toggleSplit(m.id)} /> own note</label>
+            {m.combinedFrom && <button className="ib-btn" onClick={() => splitCluster(m.id)}>split</button>}
           </div>
 
           {m.evidence
@@ -192,6 +283,14 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                 </div>
               )}
 
+              <div className="addrow" style={{ marginTop: 10, paddingTop: 10 }}>
+                <input type="text" placeholder="Add ticker…" style={{ maxWidth: 150, fontFamily: "var(--mono)" }}
+                       onKeyDown={e => { if (e.key === "Enter") { addTicker(m.id, e.target.value); e.target.value = ""; } }} />
+                <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                  Enter to screen and add — anything listed, in or out of the table.
+                </span>
+              </div>
+
               {m.vol?.ok && (
                 <div className="volrow">
                   IV30 <b>{m.vol.iv30}%</b> · RV30 <b>{m.vol.rv30 ?? "—"}%</b> ·
@@ -220,6 +319,17 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
       )}
     </>
   );
+}
+
+function clusters(menus) {
+  const by = {};
+  for (const m of menus) {
+    const k = m.cluster || m.id;
+    (by[k] ||= []).push(m);
+  }
+  return Object.entries(by).map(([cluster, list]) => ({
+    cluster, size: list.length, subjects: list.map(l => l.subject).join(" · "),
+  }));
 }
 
 function ExprRow({ x, kind, themeId, on, toggle, liq, extra }) {

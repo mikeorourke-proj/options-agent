@@ -157,7 +157,24 @@ export const TAG_VOCAB = [...new Set(ETF_UNIVERSE.flatMap(e => e.tags))].sort();
    tags gold, silver, bitcoin and longbond at once; filtering to a
    single class would silently drop the crypto and rates expressions of
    the same idea. Tag fit decides membership; class only breaks ties. */
-export function searchUniverse(tags = [], { boostCls, excludeLevered = true, limit = 12, minHits = 1 } = {}) {
+export function searchUniverse(tags = [], { boostCls, excludeLevered = true, limit = 12, minHits = 1, anchor } = {}) {
+  /* Anchor-first retrieval. Without this, a theme on silver pulls in gold
+     funds via a shared driver tag like "debasement", and because gold is
+     more liquid it then wins the primary slot — relevance losing to size.
+     When an anchor is supplied, only funds carrying it are eligible. */
+  if (anchor) {
+    const anchored = ETF_UNIVERSE
+      .filter(e => (!excludeLevered || e.grp !== "Levered") && e.tags.includes(anchor));
+    if (anchored.length) {
+      const want = new Set(tags.map(t => String(t).toLowerCase()));
+      const LIQ = { A: 0.9, B: 0.5, C: 0.15, X: 0 };
+      return anchored
+        .map(e => ({ ...e, hits: e.tags.filter(t => want.has(t)),
+                     score: e.tags.filter(t => want.has(t)).length + (LIQ[e.liq] ?? 0) }))
+        .sort((a, b) => b.score - a.score || a.t.localeCompare(b.t))
+        .slice(0, limit);
+    }
+  }
   const want = new Set(tags.map(s => String(s).toLowerCase()));
   const LIQ = { A: 0.9, B: 0.5, C: 0.15, X: 0 };
   return ETF_UNIVERSE
