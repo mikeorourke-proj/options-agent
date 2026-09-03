@@ -22,6 +22,9 @@ const MODELS = {
   draft:  "claude-opus-5",
 };
 const FALLBACK_MODEL = "claude-opus-5";
+// Theme extraction returns several objects each carrying a verbatim
+// sentence. 1500 truncated mid-string on a 5k-char Closing Print.
+const MAX_TOKENS = { themes: 8000, thesis: 8000, edit: 6000, draft: 6000 };
 const API = "https://api.anthropic.com/v1/messages";
 
 const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
@@ -74,7 +77,10 @@ CRITICAL RULES
    overrides the document. It may introduce themes the document never mentions, and those
    themes are basis "stated".
 
-8. Separate themes by SUBJECT, not by instrument. "Bearish gold" and "bearish silver" are two
+8. LENGTH. Return at most 6 themes, the most tradeable first. "evidence" is ONE sentence.
+   "rationale" is ONE sentence. Do not pad.
+
+9. Separate themes by SUBJECT, not by instrument. "Bearish gold" and "bearish silver" are two
    themes. Group instruments of the same underlying asset into one theme.`;
 
 const EDIT_SYSTEM = `You are a copy editor for institutional research at a broker-dealer.
@@ -131,7 +137,7 @@ ${text}`;
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1500,
+        max_tokens: MAX_TOKENS[task] || 4000,
         system,
         messages: [{ role: "user", content: user }],
       }),
@@ -148,8 +154,15 @@ ${text}`;
     const raw = (body.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
 
+    const truncated = body.stop_reason === "max_tokens";
     let parsed = null, parseError = null;
-    try { parsed = JSON.parse(cleaned); } catch (e) { parseError = e.message; }
+    try { parsed = JSON.parse(cleaned); }
+    catch (e) {
+      parseError = truncated
+        ? `Model output hit the ${MAX_TOKENS[task] || 4000}-token cap and was cut off mid-JSON. Shorten the source or raise MAX_TOKENS.`
+        : e.message;
+    }
+    if (truncated) L.warn("output.truncated", { task, maxTokens: MAX_TOKENS[task], outTok: body.usage?.output_tokens });
 
     /* Enforce the vocabulary server-side. The model is instructed not to
        invent tags; this is the check that it did not. */
@@ -180,7 +193,8 @@ ${text}`;
     }
 
     L.info("model", {
-      model: MODEL, ms,
+      model: MODEL, ms, stopReason: body.stop_reason,
+      themes: parsed?.themes?.map(t => `${t.direction}:${t.subject}:${t.basis}`),
       inTok: body.usage?.input_tokens, outTok: body.usage?.output_tokens,
       parsedOk: Boolean(parsed), parseError,
       droppedTags: dropped.length ? dropped : undefined,
@@ -195,6 +209,7 @@ ${text}`;
     return L.respond({
       task, model: MODEL, parsed, raw: parsed ? undefined : cleaned, parseError,
       droppedTags: dropped, quotedEvidenceRejected: quoteHits, attributionFlags: attrib,
+      truncated,
       usage: { in: body.usage?.input_tokens, out: body.usage?.output_tokens, ms },
     });
   } catch (e) {

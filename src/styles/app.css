@@ -209,3 +209,4 @@ button.ghost {
   font-family: var(--mono); font-size: 11px; color: var(--muted);
 }
 .volrow b { color: var(--ink); }
+.ver { font-size: 10.5px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 3px; padding: 1px 6px; }

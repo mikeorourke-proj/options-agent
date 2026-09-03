@@ -45,6 +45,8 @@ export default function StepSource({ parsed, setParsed, onNext }) {
     const t = RunLog.timer("ui", "themes.extract", { chars: text.length, hasNote: Boolean(note.trim()) });
     try {
       const res = await api.think("themes", text, { vocab: TAG_VOCAB, note: note.trim() || undefined });
+      if (res.truncated && !res.parsed)
+        throw new Error(`${res.parseError} (${res.usage?.out} tokens returned)`);
       if (!res.parsed?.themes?.length) throw new Error(res.parseError || res.error || "no themes returned");
 
       RunLog.fact("themes", res.parsed.themes.map(x => `${x.direction}:${x.subject}`),
