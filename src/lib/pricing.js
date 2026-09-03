@@ -136,12 +136,12 @@ export function priceStructure(legs, spot, expiry) {
   // Scan the payoff to get max gain, max loss and breakevens without
   // special-casing every structure.
   const lo = spot * 0.55, hi = spot * 1.55, steps = 900;
-  let maxG = -Infinity, maxL = Infinity;
+  let maxG = -Infinity, maxL = Infinity, maxAtEdge = false;
   const be = []; let prev = null;
   for (let i = 0; i <= steps; i++) {
     const S = lo + (hi - lo) * i / steps;
     const pl = payoff(legs, S) - net;
-    if (pl > maxG) maxG = pl;
+    if (pl > maxG) { maxG = pl; maxAtEdge = (i === 0 || i === steps); }
     if (pl < maxL) maxL = pl;
     if (prev !== null && Math.sign(pl) !== Math.sign(prev) && prev !== 0) {
       const Sp = lo + (hi - lo) * (i - 1) / steps;
@@ -153,7 +153,11 @@ export function priceStructure(legs, spot, expiry) {
   return {
     net, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0,
     maxGain: maxG, maxLoss: maxL, risk, breakevens: be,
-    rr: maxG === Infinity ? null : +(maxG / risk).toFixed(2),
+    // Max gain sitting at the scan boundary means the payoff is uncapped;
+    // quoting a finite ratio there would be an artefact of the scan range.
+    uncapped: maxAtEdge,
+    rr: maxAtEdge ? null : +(maxG / risk).toFixed(2),
+    maxGainDisplay: maxAtEdge ? Infinity : maxG,
     theta, minOI, spreadCost, T,
     priceSource: srcs.has("quote") ? "quote" : srcs.has("last") ? "last trade" : "model",
     payoffAt: S => payoff(legs, S) - net,
@@ -232,22 +236,37 @@ export function rejectReason(pr, legs, spot) {
   if (!pr) return "could not price all legs";
   if (pr.minOI < 100) return `open interest ${pr.minOI} on the thinnest leg`;
   if (pr.debit > spot * 100 * 0.25) return "outlay exceeds 25% of notional";
-  if (pr.maxGain !== Infinity && pr.rr != null && pr.rr < 0.25) return `reward:risk ${pr.rr}`;
+  if (pr.rr != null && pr.rr < 0.25) return `reward:risk ${pr.rr}`;
   if (!pr.breakevens.length && pr.credit === 0) return "no breakeven within +/-55%";
   return null;
 }
 
 /* Full pipeline for one candidate structure. */
 export function evaluate(structure, contracts, spot, v, ctx) {
-  const legs = buildLegs(structure.id, contracts, structure.expiry, spot, v);
-  if (!legs) { RunLog.gate(`structure:${structure.id}`, false, { reason: "strikes unavailable" }); return null; }
-  const pr = priceStructure(legs, spot, structure.expiry);
-  const reject = rejectReason(pr, legs, spot);
-  if (reject) { RunLog.gate(`structure:${structure.id}`, false, { reason: reject }); return null; }
-  const econ = scoreEconomics(pr, legs, spot, v, ctx);
-  RunLog.gate(`structure:${structure.id}`, true, { score: econ.score, rr: pr.rr, pop: econ.pop });
-  return {
-    ...structure, legs, pricing: pr, econ,
-    legText: legs.map(l => `${l.qty > 0 ? "+" : ""}${l.qty} ${l.k}${l.type === "call" ? "C" : "P"}`).join(" / "),
-  };
+  /* Walk the expiry ladder nearest-first. A weekly may be too thin at the
+     strikes this structure needs while the next listing is fine, so the
+     liquidity gate selects the expiry rather than rejecting the idea. */
+  const ladder = structure.expiryCandidates?.length ? structure.expiryCandidates : [structure.expiry];
+  const tried = [];
+
+  for (const expiry of ladder) {
+    const legs = buildLegs(structure.id, contracts, expiry, spot, v);
+    if (!legs) { tried.push(`${expiry}: strikes unavailable`); continue; }
+    const pr = priceStructure(legs, spot, expiry);
+    const reject = rejectReason(pr, legs, spot);
+    if (reject) { tried.push(`${expiry}: ${reject}`); continue; }
+
+    const econ = scoreEconomics(pr, legs, spot, v, ctx);
+    RunLog.gate(`structure:${structure.id}`, true, {
+      expiry, score: econ.score, rr: pr.rr, pop: econ.pop,
+      skipped: tried.length ? tried : undefined,
+    });
+    return {
+      ...structure, expiry, days: Math.round((new Date(expiry) - Date.now()) / 864e5),
+      legs, pricing: pr, econ,
+      legText: legs.map(l => `${l.qty > 0 ? "+" : ""}${l.qty} ${l.k}${l.type === "call" ? "C" : "P"}`).join(" / "),
+    };
+  }
+  RunLog.gate(`structure:${structure.id}`, false, { reason: "no expiry cleared the gate", tried });
+  return null;
 }

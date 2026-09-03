@@ -53,6 +53,16 @@ parser cannot silently invert a view when it has to show its source.
 **No attribution.** Three layers: prompt instruction, quoted-span
 rejection, and a regex scan for attribution verbs that warns in the log.
 
+**Expiry is chosen by liquidity, not by date alone.** Weeklies and
+monthlies sit side by side in the chain and look identical by date, but a
+weekly strike can carry open interest of 4 where the monthly carries
+thousands. Taking the first expiry past the catalyst therefore priced the
+untradeable listing, every structure failed the OI gate, and whole themes
+returned no options at all. rankExpiries() returns a ladder -- nearest
+first, skipping expiries too thin to price -- and evaluate() walks it until
+one clears the gate, so the gate selects the expiry instead of killing the
+idea. Skipped expiries are logged on the passing gate entry.
+
 **Two rankings, two questions.** ETFs are ordered by APPROPRIATENESS --
 how well the fund expresses the theme -- from purity of exposure (GLD is
 bullion, GDX is miner equity carrying its own beta), options grade,

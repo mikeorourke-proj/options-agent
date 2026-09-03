@@ -8,7 +8,7 @@
    Every branch is a line you can argue with. Disagreeing means editing
    a threshold, not rewriting a prompt.
    ═══════════════════════════════════════════════════════════════════ */
-import { chooseExpiry, dte } from "./vol.js";
+import { rankExpiries, dte } from "./vol.js";
 
 /* Vol state from the chain, with thresholds in one place. */
 export function volState(v, rv) {
@@ -32,10 +32,11 @@ export function suggestStructures(view, v, rv, {
 } = {}) {
   const s = volState(v, rv);
   const blind = v.iv30 == null;   // no vol read: only the baseline is honest
-  const expiry = chooseExpiry(v.expiries, catalystDate, horizon);
+  const expiryCandidates = rankExpiries(v.expiries, catalystDate, horizon, 5, new Date(), v.expiryOI);
+  const expiry = expiryCandidates[0];
   const days = expiry ? dte(expiry) : null;
   const out = [];
-  const add = (id, name, legs, why, needs = "B") => out.push({ id, name, legs, why, expiry, days, needs });
+  const add = (id, name, legs, why, needs = "B") => out.push({ id, name, legs, why, expiry, expiryCandidates, days, needs });
 
   const thin = liq === "C" || liq === "X";
 

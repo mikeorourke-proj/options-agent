@@ -310,15 +310,15 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                             <span className="rank">{i + 1}</span>
                             <b style={{ fontSize: 13 }}>{s.name}</b>
                             <span className="tag">{m.primary.t}</span>
-                            <span className="tag">{s.expiry} · {s.days}d</span>
+                            <span className="tag" title={s.expiryCandidates?.length > 1 ? `considered: ${s.expiryCandidates.join(", ")}` : undefined}>{s.expiry} · {s.days}d</span>
                             <span className="spacer" />
                             <span className="scorepill" title="view-conditional economics score">{e.score.toFixed(2)}</span>
                           </div>
                           <div className="legs">{s.legText}</div>
                           <div className="stats">
                             <span>{net >= 0 ? "debit" : "credit"} <b>${Math.abs(net).toFixed(2)}</b></span>
-                            <span>max gain <b>{p.maxGain === Infinity ? "unlimited" : "$" + (p.maxGain / 100).toFixed(2)}</b></span>
-                            <span>R:R <b>{p.rr ?? "—"}</b></span>
+                            <span>max gain <b>{p.uncapped ? "uncapped" : "$" + (p.maxGain / 100).toFixed(2)}</b></span>
+                            <span>R:R <b>{p.rr ?? "n/a"}</b></span>
                             <span>POP <b>{e.pop}%</b></span>
                             <span>EV <b style={{ color: e.ev >= 0 ? "var(--green)" : "var(--red)" }}>${(e.ev / 100).toFixed(2)}</b></span>
                             <span>b/e <b>{p.breakevens.join(" / ") || "—"}</b></span>

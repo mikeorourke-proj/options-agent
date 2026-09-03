@@ -59,6 +59,15 @@ export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date())
 
   out.expiries = [...new Set(list.map(c => c.details.expiration_date))].sort();
 
+  /* Open interest by expiry. Weeklies and monthlies sit side by side in the
+     chain and look identical by date alone, but a weekly can carry OI of 4
+     where the monthly carries thousands. Expiry choice must see this. */
+  out.expiryOI = {};
+  for (const c of list) {
+    const e = c.details.expiration_date;
+    out.expiryOI[e] = (out.expiryOI[e] || 0) + (c.open_interest || 0);
+  }
+
   /* ── ATM IV on the front expiry ≥ 20 DTE (the standard 30-day proxy) */
   const frontExp = out.expiries.find(e => dte(e, now) >= 20) || out.expiries[out.expiries.length - 1];
   const front = list.filter(c => c.details.expiration_date === frontExp);
@@ -139,13 +148,46 @@ export function realisedVol(bars = [], window = 30) {
   return +(Math.sqrt(v * 252) * 100).toFixed(1);
 }
 
-/* First listed expiry at least `buffer` days past the catalyst. When no
-   catalyst is set, fall back to the horizon's natural window. */
-export function chooseExpiry(expiries = [], catalystDate, horizon = "weeks", buffer = 5, now = new Date()) {
-  if (!expiries.length) return null;
+/* Expiry candidates, in preference order.
+
+   Two failure modes to avoid. Taking the first expiry past the catalyst
+   lands on a weekly whose strikes carry almost no open interest, and every
+   structure then fails the liquidity gate. Taking the single most liquid
+   expiry overshoots — reaching a monthly 37 days past a 5-day catalyst
+   means paying weeks of premium you did not need.
+
+   So return a ranked list: nearest first, skipping expiries too thin to
+   support a spread, and let pricing walk it until one clears the gate. */
+export function rankExpiries(expiries = [], catalystDate, horizon = "weeks",
+                             buffer = 5, now = new Date(), expiryOI = null) {
+  if (!expiries.length) return [];
   const target = catalystDate
     ? dte(catalystDate, now) + buffer
     : ({ days: 10, weeks: 35, months: 90 })[horizon] || 35;
+  const span = ({ days: 30, weeks: 45, months: 75 })[horizon] || 45;
+
   const fwd = expiries.filter(e => dte(e, now) >= Math.max(target, 2));
-  return fwd[0] || expiries[expiries.length - 1];
+  if (!fwd.length) return [expiries[expiries.length - 1]];
+  if (!expiryOI) return fwd.slice(0, 4);
+
+  const win = fwd.filter(e => dte(e, now) <= target + span);
+  const pool = win.length ? win : fwd.slice(0, 3);
+  /* Absolute floor, not a share of the largest: a dominant monthly would
+     otherwise disqualify weeklies that are perfectly tradeable. Per-leg OI
+     is checked downstream, so this only needs to skip the truly dead. */
+  const viable = pool.filter(e => (expiryOI[e] || 0) >= 1000);
+  const deepest = pool.reduce((a, b) => (expiryOI[b] || 0) > (expiryOI[a] || 0) ? b : a);
+  const ordered = [...viable];
+  if (!ordered.includes(deepest)) ordered.push(deepest);          // always keep the liquid fallback
+  if (!ordered.length) ordered.push(pool[0]);
+
+  RunLog.debug("calc", "expiry.rank", {
+    target, horizon, order: ordered.map(e => `${e}:${expiryOI[e] || 0}`),
+  });
+  return ordered.slice(0, 4);
+}
+
+/* Back-compat single pick. */
+export function chooseExpiry(expiries, catalystDate, horizon, buffer, now, expiryOI) {
+  return rankExpiries(expiries, catalystDate, horizon, buffer, now, expiryOI)[0] || null;
 }
