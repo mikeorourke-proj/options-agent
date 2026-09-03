@@ -53,6 +53,14 @@ parser cannot silently invert a view when it has to show its source.
 **No attribution.** Three layers: prompt instruction, quoted-span
 rejection, and a regex scan for attribution verbs that warns in the log.
 
+**Asset identity vs sensitivity.** Each fund carries `a` (what it IS) and
+`tags` (what it RESPONDS TO). GLD's tags include "dollar" because gold
+moves on the dollar, but its asset is gold -- anchoring on tags put GLD at
+the top of a US Dollar theme, and left IBIT out of a crypto theme because
+only ETHA happened to carry a "crypto" tag. ANCHOR_VOCAB is built from `a`
+and passed to the model separately from TAG_VOCAB; an anchor outside it is
+rejected server-side and logged.
+
 **Anchor-first retrieval.** Each theme names one anchorTag identifying the
 asset it trades. Only funds carrying that tag are eligible. Without it a
 silver theme pulls gold funds through a shared driver tag like

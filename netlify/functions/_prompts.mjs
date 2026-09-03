@@ -71,10 +71,12 @@ CRITICAL RULES
      "bullish de-dollarisation"        -> "bearish US Dollar"
    If a driver cannot be translated into a tradeable asset, omit it.
 
-9. ANCHOR TAG. Each theme names the one vocabulary tag identifying the asset it trades:
-   Silver -> "silver", Gold -> "gold", Semiconductors -> "semis", Treasuries -> "longbond".
-   This tag decides which funds are eligible, so it must name the ASSET, never the driver.
-   "debasement" and "macro" are drivers, not anchors.
+9. ANCHOR TAG. Each theme names the one term identifying the ASSET it trades, chosen from
+   the ANCHOR VOCABULARY, which is a separate list from the tag vocabulary. The anchor decides
+   which funds are eligible, so it must name what the theme trades, never why.
+   Gold -> "gold". Silver -> "silver". Semiconductors -> "semis". Treasuries -> "longbond".
+   US Dollar -> "dollar". Bitcoin/crypto -> "crypto". Mega-cap tech -> "nasdaq".
+   If no anchor fits the subject, drop the theme rather than forcing a loose one.
 
 10. CLUSTER. Themes that follow from the SAME underlying argument share one cluster id.
    A piece arguing the debasement trade is exhausted yields bearish gold, bearish silver and
@@ -109,16 +111,21 @@ export const SYSTEM_PROMPTS = {
    Quoted spans matter most: in this author's commentary the quoted view
    is usually the one being rebutted, so evidence drawn from inside
    quotation marks is both an attribution risk and an inversion risk. */
-export function enforce(parsed, { vocab = [], sourceText = "" } = {}) {
-  const dropped = [], quoteHits = [], attrib = [];
-  if (!parsed || !Array.isArray(parsed.themes)) return { dropped, quoteHits, attrib };
+export function enforce(parsed, { vocab = [], anchors = [], sourceText = "" } = {}) {
+  const dropped = [], quoteHits = [], attrib = [], badAnchors = [];
+  if (!parsed || !Array.isArray(parsed.themes)) return { dropped, quoteHits, attrib, badAnchors };
 
   const ok = new Set(vocab);
   const quoted = [...String(sourceText).matchAll(/[\u201C"']([^\u201D"']{25,})[\u201D"']/g)].map(m => m[1]);
   const inQuote = ev => quoted.some(q => q.includes(ev.slice(0, 60)) || ev.includes(q.slice(0, 60)));
   const ATTRIB = /\b(said|stated|wrote|according to|noted that|argues|reports)\b/i;
 
+  const okAnchor = new Set(anchors);
   for (const th of parsed.themes) {
+    if (anchors.length && th.anchorTag && !okAnchor.has(th.anchorTag)) {
+      badAnchors.push(`${th.id}:${th.anchorTag}`);
+      th.anchorTag = null;      // fall back to tag matching rather than mis-anchor
+    }
     if (Array.isArray(th.tags)) {
       const before = th.tags;
       th.tags = before.filter(t => ok.has(t));
@@ -131,5 +138,5 @@ export function enforce(parsed, { vocab = [], sourceText = "" } = {}) {
       if (th[f] && ATTRIB.test(th[f])) attrib.push(`${th.id}.${f}`);
     }
   }
-  return { dropped, quoteHits, attrib };
+  return { dropped, quoteHits, attrib, badAnchors };
 }

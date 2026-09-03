@@ -21,7 +21,7 @@ export default async (request) => {
 
   let payload = {};
   try { payload = await request.json(); } catch {}
-  const { jobId, task = "themes", text = "", vocab = [], note, today } = payload;
+  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today } = payload;
   if (!jobId) { L.error("no jobId", new Error("missing jobId")); return; }
 
   const put = (doc) => store.setJSON(jobId, { ...doc, jobId, task, at: new Date().toISOString() });
@@ -37,8 +37,11 @@ export default async (request) => {
     const user = task === "edit" ? text : [
       `Today is ${today || new Date().toISOString().slice(0, 10)}.`,
       ``,
-      `ALLOWED TAG VOCABULARY (use only these):`,
+      `ALLOWED TAG VOCABULARY (tags = sensitivities; use only these):`,
       vocab.join(", "),
+      ``,
+      `ANCHOR VOCABULARY (anchorTag = the asset traded; use only these):`,
+      anchors.join(", "),
       ``,
       note ? `ANALYST NOTE (authoritative — the author speaking directly):\n${note}\n` : "",
       `SOURCE DOCUMENT:`,
@@ -81,10 +84,11 @@ export default async (request) => {
         : e.message;
     }
 
-    const checks = parsed ? enforce(parsed, { vocab, sourceText: text }) : { dropped: [], quoteHits: [], attrib: [] };
+    const checks = parsed ? enforce(parsed, { vocab, anchors, sourceText: text }) : { dropped: [], quoteHits: [], attrib: [], badAnchors: [] };
     if (checks.dropped.length)   L.warn("vocab.violation", { dropped: checks.dropped });
     if (checks.quoteHits.length) L.warn("evidence.quoted", { themes: checks.quoteHits });
     if (checks.attrib.length)    L.warn("attribution.suspected", { fields: checks.attrib });
+    if (checks.badAnchors?.length) L.warn("anchor.invalid", { themes: checks.badAnchors });
     if (truncated)               L.warn("output.truncated", { outTok: body.usage?.output_tokens });
 
     L.info("model", {

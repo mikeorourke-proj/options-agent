@@ -81,6 +81,17 @@ export function suggestStructures(view, v, rv, {
           `Implied ${v.iv30}% under realised ${rv}% — own the move, direction unspecified.`);
   }
 
+  /* A directional view must always produce something. Without this a
+     bearish theme in a neutral vol regime returned nothing at all. */
+  if (view === "bullish" && !out.some(o => o.id === "call_spread"))
+    add("call_spread", "Call spread", "Buy ~50Δ call / sell above",
+        v.callWall ? `Baseline structure. Sell into the ${v.callWall} call wall (${v.callWallConc}% of near-dated call OI).`
+                   : `Baseline defined-risk structure; vol offers no strong steer either way.`);
+  if (view === "bearish" && !out.some(o => o.id === "put_spread"))
+    add("put_spread", "Put spread", "Buy ~50Δ put / sell below",
+        v.putWall ? `Baseline structure. Sell into the ${v.putWall} put wall (${v.putWallConc}% of near-dated put OI).`
+                  : `Baseline defined-risk structure; vol offers no strong steer either way.`);
+
   /* Gates. Thin chains cannot support multi-leg structures; low
      conviction should not carry undefined risk. */
   const rank = { A: 3, B: 2, C: 1, X: 0 };

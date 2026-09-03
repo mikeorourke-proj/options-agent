@@ -1,7 +1,7 @@
 import { useState } from "react";
 import RunLog from "../lib/runlog.js";
 import { api } from "../lib/api.js";
-import { TAG_VOCAB } from "../data/etf-universe.js";
+import { TAG_VOCAB, ANCHOR_VOCAB } from "../data/etf-universe.js";
 
 const SAMPLES = {
   debasement: `Debunking Debasement
@@ -47,7 +47,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
     try {
       const res = await api.thinkLong(
         "themes", text,
-        { vocab: TAG_VOCAB, note: note.trim() || undefined },
+        { vocab: TAG_VOCAB, anchors: ANCHOR_VOCAB, note: note.trim() || undefined },
         (status, polls, secs) => setPhase(`${status === "running" ? "reading" : "queued"} · ${secs}s`)
       );
       if (res.truncated && !res.parsed)

@@ -217,6 +217,17 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
         </div>
       ))}
 
+      {!busy && (
+        <div className="actionbar">
+          <button className="primary" disabled={chosen.length === 0} onClick={onNext}>
+            Continue with {chosen.length} expression{chosen.length === 1 ? "" : "s"} →
+          </button>
+          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
+            {themesChosen.length} theme{themesChosen.length === 1 ? "" : "s"} · produces {notes} note{notes === 1 ? "" : "s"}
+          </span>
+        </div>
+      )}
+
       {menus.map(m => (
         <div key={m.id} className={`card theme ${picks.primaryThemeId === m.id ? "prim" : ""}`}>
           <div className="row" style={{ gap: 9, marginBottom: 3 }}>
@@ -305,18 +316,6 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
         </div>
       ))}
 
-      {!busy && (
-        <div className="card">
-          <div className="row">
-            <button className="primary" disabled={chosen.length === 0} onClick={onNext}>
-              Continue with {chosen.length} expression{chosen.length === 1 ? "" : "s"} →
-            </button>
-            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
-              {themesChosen.length} theme{themesChosen.length === 1 ? "" : "s"} · produces {notes} note{notes === 1 ? "" : "s"}
-            </span>
-          </div>
-        </div>
-      )}
     </>
   );
 }
