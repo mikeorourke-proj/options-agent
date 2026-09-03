@@ -31,6 +31,7 @@ export function suggestStructures(view, v, rv, {
   catalystDate, horizon = "weeks", conviction = "medium", liq = "B", max = 2,
 } = {}) {
   const s = volState(v, rv);
+  const blind = v.iv30 == null;   // no vol read: only the baseline is honest
   const expiry = chooseExpiry(v.expiries, catalystDate, horizon);
   const days = expiry ? dte(expiry) : null;
   const out = [];
@@ -38,7 +39,7 @@ export function suggestStructures(view, v, rv, {
 
   const thin = liq === "C" || liq === "X";
 
-  if (view === "bullish") {
+  if (view === "bullish" && !blind) {
     if (s.cheap || (s.putSkew && !s.rich))
       add("long_call", "Long call", "Buy ~50Δ call",
           s.cheap ? `Implied ${v.iv30}% is at or under realised ${rv}% — own convexity outright.`
@@ -55,7 +56,7 @@ export function suggestStructures(view, v, rv, {
           `Front/back ${v.termSlope} — near-term vol is expensive relative to deferred.`, "A");
   }
 
-  if (view === "bearish") {
+  if (view === "bearish" && !blind) {
     if (s.cheap || s.callSkew)
       add("long_put", "Long put", "Buy ~50Δ put",
           s.cheap ? `Implied ${v.iv30}% is at or under realised ${rv}% — protection is cheap.`
@@ -72,7 +73,7 @@ export function suggestStructures(view, v, rv, {
           `Credit structure. Wins on time and on a failure to reclaim ${v.callWall ?? "resistance"}.`, "A");
   }
 
-  if (view === "neutral") {
+  if (view === "neutral" && !blind) {
     if (s.rich && v.maxPain && !thin)
       add("iron_fly", "Iron fly at max pain", `Straddle at ${v.maxPain}, wings bought`,
           `Implied over realised by ${s.vrp} pts with pin risk at ${v.maxPain}.`, "A");
@@ -102,7 +103,8 @@ export function suggestStructures(view, v, rv, {
   if (!keep.length && out.length) keep = [out.find(o => o.needs !== "A") || out[0]];
 
   return keep.slice(0, max).map(o => ({
-    ...o,
+    ...o, blind,
+    why: blind ? `${o.why} No implied-vol read on this chain, so this is a default rather than a vol-driven choice.` : o.why,
     gatedOut: out.filter(x => !keep.includes(x)).map(x => x.name),
   }));
 }

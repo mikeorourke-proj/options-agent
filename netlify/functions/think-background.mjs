@@ -95,7 +95,7 @@ export default async (request) => {
       model: MODEL, ms, stopReason: body.stop_reason,
       inTok: body.usage?.input_tokens, outTok: body.usage?.output_tokens,
       parsedOk: Boolean(parsed),
-      themes: parsed?.themes?.map(t => `${t.direction}:${t.subject}:${t.basis}`),
+      themes: parsed?.themes?.map(t => `${t.direction}:${t.subject}:${t.basis}:${t.anchorTag}:${t.cluster}`),
     });
 
     await put({

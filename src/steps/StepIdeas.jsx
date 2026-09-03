@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import { api, mapLimit } from "../lib/api.js";
-import { searchUniverse, leveredFor } from "../data/etf-universe.js";
+import { searchUniverse, leveredFor, appropriateness } from "../data/etf-universe.js";
 import { analyzeChain, realisedVol } from "../lib/vol.js";
 import { suggestStructures } from "../lib/strategy.js";
+import { evaluate } from "../lib/pricing.js";
+import { dte } from "../lib/vol.js";
 
 const fmtB  = n => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(0)}M` : n ? `$${n.toFixed(0)}` : "—";
 const fmtV  = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${((n || 0) / 1e3).toFixed(0)}K`;
@@ -33,7 +35,7 @@ async function buildMenu(theme, catalystDate, horizon) {
     }
   }
   if (!pool.length) pool = searchUniverse(theme.tags, { excludeLevered: true, limit: 8 });
-  RunLog.info("ui", `pool.${theme.id}`, { anchors, tickers: pool.map(p => p.t) });
+  RunLog.info("ui", `pool.${theme.id}`, { anchors, cluster: theme.cluster, tickers: pool.map(p => p.t) });
   if (!pool.length) { t.end({ candidates: 0 }); return { ...theme, none: true, primary: null, secondary: [], levered: [], structures: [] }; }
 
   // cheap pass: quote only, to rank on dollar ADV
@@ -45,10 +47,14 @@ async function buildMenu(theme, catalystDate, horizon) {
     } catch { return { ...e, price: 0, dollarADV: 0, dead: true }; }
   });
 
-  // Relevance outranks size: a silver theme must not be led by a gold fund
-  // simply because gold trades more.
+  /* Order by how well each fund expresses the theme, not by how much it
+     trades. Purity dominates, liquidity is log-scaled so size cannot
+     overwhelm relevance, and decay is charged against the horizon. */
+  const hzDays = { days: 10, weeks: 28, months: 90 }[horizon] || 28;
   const ranked = priced.filter(e => !e.dead && e.price > 0)
-    .sort((a, b) => (b.hits?.length || 0) - (a.hits?.length || 0) || b.dollarADV - a.dollarADV);
+    .map(e => { const a = appropriateness(e, { horizonDays: hzDays }); return { ...e, fit: a.score, fitWhy: a.why }; })
+    .sort((a, b) => b.fit - a.fit);
+  RunLog.info("ui", `rank.${theme.id}`, { order: ranked.map(r => `${r.t}:${r.fit}`) });
   if (!ranked.length) { t.end({ candidates: 0 }); return { ...theme, none: true, primary: null, secondary: [], levered: [], structures: [] }; }
 
   const primary = ranked[0];
@@ -60,9 +66,11 @@ async function buildMenu(theme, catalystDate, horizon) {
     try {
       const q = await api.quote(e.t);
       const px = q?.price || 0;
-      return { ...e, price: px, volume: q?.volume || 0, dollarADV: px * (q?.volume || 0) };
+      const row = { ...e, price: px, volume: q?.volume || 0, dollarADV: px * (q?.volume || 0) };
+      const a = appropriateness(row, { horizonDays: hzDays });
+      return { ...row, fit: a.score, fitWhy: a.why };
     } catch { return null; }
-  })).filter(e => e && e.price > 0).sort((a, b) => b.dollarADV - a.dollarADV).slice(0, 2);
+  })).filter(e => e && e.price > 0).sort((a, b) => b.fit - a.fit).slice(0, 2);
 
   // chain analytics on the primary only — one heavy call per theme
   let vol = null, structures = [], liq = "X";
@@ -77,12 +85,26 @@ async function buildMenu(theme, catalystDate, horizon) {
       vol = analyzeChain(primary.t, chain.contracts, primary.price);
       const rv = realisedVol(bars?.bars || [], 30);
       vol.rv30 = rv;
-      structures = suggestStructures(theme.direction, vol, rv, {
+      /* Candidates from the matrix, then priced against the real chain and
+         ranked on view-conditional economics. Risk-neutral EV is zero for
+         every structure, so the distribution is shifted by the move the
+         stated conviction implies and structures compete on how well they
+         monetise THAT move. */
+      const cands = suggestStructures(theme.direction, vol, rv, {
         catalystDate: theme.catalyst?.date || catalystDate, horizon,
-        conviction: theme.conviction || "medium", liq, max: 2,
+        conviction: theme.conviction || "medium", liq, max: 6,
       });
-      if (structures[0]?.gatedOut?.length)
-        RunLog.info("ui", `structures.gated:${primary.t}`, structures[0].gatedOut);
+      const ctx = { direction: theme.direction, conviction: theme.conviction || "medium",
+                    catalystDate: theme.catalyst?.date || catalystDate, rv };
+      structures = cands
+        .map(c => evaluate(c, chain.contracts, primary.price, vol, ctx))
+        .filter(Boolean)
+        .sort((a, b) => b.econ.score - a.econ.score)
+        .slice(0, 3);
+      RunLog.info("ui", `structures.${primary.t}`, {
+        considered: cands.length, priced: structures.length,
+        ranked: structures.map(s2 => `${s2.id}:${s2.econ.score}`),
+      });
     }
   } catch (e) { RunLog.error("ui", `chain ${primary.t}`, e); }
 
@@ -252,7 +274,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
           {m.primary && (
             <>
               <div className="tier">
-                <span className="tierlab">Primary</span>
+                <span className="tierlab">Primary — best fit to the theme</span>
                 <ExprRow x={m.primary} kind="primary" themeId={m.id} on={on} toggle={toggle} liq={m.primary.liq} />
               </div>
 
@@ -275,22 +297,43 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
 
               {m.structures.length > 0 && (
                 <div className="tier">
-                  <span className="tierlab">Options</span>
-                  {m.structures.map(s => (
-                    <label key={s.id} className={`expr ${on(`${m.id}|option|${s.id}`) ? "sel" : ""}`}>
-                      <input type="checkbox" checked={on(`${m.id}|option|${s.id}`)}
-                             onChange={() => toggle(m.id, "option", s.id, { structure: s, underlying: m.primary.t })} />
-                      <div style={{ flex: 1 }}>
-                        <div className="row" style={{ gap: 7 }}>
-                          <b style={{ fontSize: 13 }}>{s.name}</b>
-                          <span className="tag">{m.primary.t}</span>
-                          <span className="tag">{s.expiry} · {s.days}d</span>
+                  <span className="tierlab">Options — ranked on view-conditional economics</span>
+                  {m.structures.map((s, i) => {
+                    const p = s.pricing, e = s.econ;
+                    const net = p.net / 100;
+                    return (
+                      <label key={s.id} className={`expr ${on(`${m.id}|option|${s.id}`) ? "sel" : ""}`}>
+                        <input type="checkbox" checked={on(`${m.id}|option|${s.id}`)}
+                               onChange={() => toggle(m.id, "option", s.id, { structure: s, underlying: m.primary.t })} />
+                        <div style={{ flex: 1 }}>
+                          <div className="row" style={{ gap: 7 }}>
+                            <span className="rank">{i + 1}</span>
+                            <b style={{ fontSize: 13 }}>{s.name}</b>
+                            <span className="tag">{m.primary.t}</span>
+                            <span className="tag">{s.expiry} · {s.days}d</span>
+                            <span className="spacer" />
+                            <span className="scorepill" title="view-conditional economics score">{e.score.toFixed(2)}</span>
+                          </div>
+                          <div className="legs">{s.legText}</div>
+                          <div className="stats">
+                            <span>{net >= 0 ? "debit" : "credit"} <b>${Math.abs(net).toFixed(2)}</b></span>
+                            <span>max gain <b>{p.maxGain === Infinity ? "unlimited" : "$" + (p.maxGain / 100).toFixed(2)}</b></span>
+                            <span>R:R <b>{p.rr ?? "—"}</b></span>
+                            <span>POP <b>{e.pop}%</b></span>
+                            <span>EV <b style={{ color: e.ev >= 0 ? "var(--green)" : "var(--red)" }}>${(e.ev / 100).toFixed(2)}</b></span>
+                            <span>b/e <b>{p.breakevens.join(" / ") || "—"}</b></span>
+                          </div>
+                          <div className="why">{s.why}</div>
+                          <div className="econwhy">
+                            EV/risk {e.evOnRisk} · convexity captured {e.convexity} ·
+                            theta to catalyst {e.carryPct}% of outlay · exec {e.execPct}% ·
+                            modelled move {e.impliedMove >= 0 ? "+" : ""}{e.impliedMove}σ ({e.sdPct}% 1σ) ·
+                            marks: {p.priceSource}
+                          </div>
                         </div>
-                        <div className="nm">{s.legs}</div>
-                        <div className="why">{s.why}</div>
-                      </div>
-                    </label>
-                  ))}
+                      </label>
+                    );
+                  })}
                 </div>
               )}
 
@@ -345,10 +388,11 @@ function ExprRow({ x, kind, themeId, on, toggle, liq, extra }) {
         <div className="nm">{x.n}</div>
         <div className="stats">
           <span>px <b>${(x.price || 0).toFixed(2)}</b></span>
-          <span>vol <b>{fmtV(x.volume)}</b></span>
           <span>$ADV <b>{fmtB(x.dollarADV)}</b></span>
+          {x.fit != null && <span>fit <b>{x.fit.toFixed(2)}</b></span>}
           {extra}
         </div>
+        {x.fitWhy && <div className="fitwhy">{x.fitWhy}</div>}
       </div>
     </label>
   );

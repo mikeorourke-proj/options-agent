@@ -53,6 +53,33 @@ parser cannot silently invert a view when it has to show its source.
 **No attribution.** Three layers: prompt instruction, quoted-span
 rejection, and a regex scan for attribution verbs that warns in the log.
 
+**Two rankings, two questions.** ETFs are ordered by APPROPRIATENESS --
+how well the fund expresses the theme -- from purity of exposure (GLD is
+bullion, GDX is miner equity carrying its own beta), options grade,
+log-scaled dollar volume, and structural drag charged against the horizon
+so levered and roll-decay products fall away as the holding period grows.
+The options underlying is the top-ranked fund, so both orderings follow
+from one score.
+
+**Options are ranked on view-conditional economics.** Priced off implied
+vol, every structure has a risk-neutral expected value of zero, so ranking
+on EV ties everything -- the edge is in the analyst's view, not the
+market's. The distribution is therefore shifted by the move the stated
+conviction implies (high 1.0sd, medium 0.6sd, low 0.3sd over the horizon)
+and structures compete on how well they monetise THAT move:
+
+    EV on risk        0.35   expected P&L / max loss
+    Probability       0.25   P(beyond breakeven)
+    Convexity kept    0.15   share of the modelled move monetised
+    Carry to catalyst 0.15   theta burned before the event
+    Execution         0.10   bid-ask as % of outlay
+
+Nothing is hard-coded about which structure is better: at high conviction
+the outright wins on convexity, at low conviction the credit backspread
+wins on carry. Cost efficiency is deliberately NOT a separate term -- it
+already sits inside EV-on-risk, and weighting it twice would bias toward
+selling convexity, which is exactly what a dated catalyst argues against.
+
 **Asset identity vs sensitivity.** Each fund carries `a` (what it IS) and
 `tags` (what it RESPONDS TO). GLD's tags include "dollar" because gold
 moves on the dollar, but its asset is gold -- anchoring on tags put GLD at
