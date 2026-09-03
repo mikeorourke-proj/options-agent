@@ -73,7 +73,7 @@ async function buildMenu(theme, catalystDate, horizon) {
   })).filter(e => e && e.price > 0).sort((a, b) => b.fit - a.fit).slice(0, 2);
 
   // chain analytics on the primary only — one heavy call per theme
-  let vol = null, structures = [], liq = "X";
+  let vol = null, structures = [], liq = "X", optionsBlocked = [];
   try {
     const [chain, bars] = await Promise.all([
       api.chain(primary.t, primary.price),
@@ -96,11 +96,12 @@ async function buildMenu(theme, catalystDate, horizon) {
       });
       const ctx = { direction: theme.direction, conviction: theme.conviction || "medium",
                     catalystDate: theme.catalyst?.date || catalystDate, rv };
-      structures = cands
-        .map(c => evaluate(c, chain.contracts, primary.price, vol, ctx))
-        .filter(Boolean)
+      const evaluated = cands.map(c => ({ c, r: evaluate(c, chain.contracts, primary.price, vol, ctx) }));
+      structures = evaluated.filter(x => x.r).map(x => x.r)
         .sort((a, b) => b.econ.score - a.econ.score)
         .slice(0, 3);
+      // Why nothing qualified — an empty tier must explain itself.
+      optionsBlocked = evaluated.filter(x => !x.r).map(x => x.c.name);
       RunLog.info("ui", `structures.${primary.t}`, {
         considered: cands.length, priced: structures.length,
         ranked: structures.map(s2 => `${s2.id}:${s2.econ.score}`),
@@ -109,7 +110,7 @@ async function buildMenu(theme, catalystDate, horizon) {
   } catch (e) { RunLog.error("ui", `chain ${primary.t}`, e); }
 
   t.end({ primary: primary.t, secondary: secondary.map(s => s.t), levered: levered.map(l => l.t), structures: structures.length });
-  return { ...theme, primary: { ...primary, liq }, secondary, levered, vol, structures };
+  return { ...theme, primary: { ...primary, liq }, secondary, levered, vol, structures, optionsBlocked };
 }
 
 export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCache, setMenuCache, onNext }) {
@@ -292,6 +293,18 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                     <ExprRow key={x.t} x={x} kind="levered" themeId={m.id} on={on} toggle={toggle}
                              extra={<span className="decay">γ={x.gamma} · resets daily, days not weeks</span>} />
                   ))}
+                </div>
+              )}
+
+              {m.structures.length === 0 && m.primary.liq !== "X" && (
+                <div className="tier">
+                  <span className="tierlab">Options</span>
+                  <div className="note">
+                    No structure on {m.primary.t} cleared the liquidity and risk gates
+                    {m.optionsBlocked?.length ? ` — ${m.optionsBlocked.join(", ")} rejected` : ""}.
+                    The run log lists every expiry tried and why each failed. Express this as shares,
+                    or add a more liquid vehicle above.
+                  </div>
                 </div>
               )}
 

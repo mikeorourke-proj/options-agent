@@ -6,7 +6,7 @@ import StepIdeas from "./steps/StepIdeas.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.8.1";
+export const VERSION = "0.8.3";
 
 const STEPS = [
   { id: "source",    label: "Source" },

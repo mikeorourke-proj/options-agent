@@ -181,7 +181,7 @@ export function rankExpiries(expiries = [], catalystDate, horizon = "weeks",
   if (!ordered.includes(deepest)) ordered.push(deepest);          // always keep the liquid fallback
   if (!ordered.length) ordered.push(pool[0]);
 
-  RunLog.debug("calc", "expiry.rank", {
+  RunLog.info("calc", "expiry.rank", {
     target, horizon, order: ordered.map(e => `${e}:${expiryOI[e] || 0}`),
   });
   return ordered.slice(0, 4);

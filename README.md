@@ -53,6 +53,15 @@ parser cannot silently invert a view when it has to show its source.
 **No attribution.** Three layers: prompt instruction, quoted-span
 rejection, and a regex scan for attribution verbs that warns in the log.
 
+**The chain is fetched as two disjoint expiry slices.** A single ascending
+fetch spends its page budget on near-dated contracts. QQQ at a +/-9% strike
+window carries ~200 strikes per expiry, so eight pages reached only 12
+expiries, two of them beyond 20 days -- the expiry the structure needed was
+never fetched, and every candidate failed on "strikes unavailable". Slice
+NEAR (0-48d) supplies walls, GEX and 30-day vol; slice FAR (30-100d)
+guarantees the expiry the structure will actually use. Contracts are
+deduped by contract ticker across the overlap.
+
 **Expiry is chosen by liquidity, not by date alone.** Weeklies and
 monthlies sit side by side in the chain and look identical by date, but a
 weekly strike can carry open interest of 4 where the monthly carries

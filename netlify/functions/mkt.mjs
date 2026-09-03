@@ -75,49 +75,66 @@ export default async (request) => {
       }
 
       /* Options chain, paginated, windowed around spot. */
+      /* Chain fetched as TWO disjoint expiry slices.
+
+         A single ascending fetch spends its page budget on near-dated
+         contracts: QQQ at a +/-9% window carries ~200 strikes per expiry,
+         so 8 pages reached only 12 expiries, 2 of them beyond 20 days. The
+         target expiry was never fetched and every structure failed on
+         "strikes unavailable".
+
+         Slice NEAR covers walls, GEX and 30-day vol. Slice FAR guarantees
+         the expiry the structure will actually use, whatever the density. */
       case "chain": {
         const spot = Number(q.get("spot")) || 0;
         const pct = Number(q.get("pct")) || (WIDE_CHAIN.has(ticker) ? 0.09 : 0.16);
-        const maxDte = Number(q.get("maxDte")) || 150;
-        const d0 = new Date(), d1 = new Date(Date.now() + maxDte * 864e5);
-        const expLo = d0.toISOString().slice(0, 10), expHi = d1.toISOString().slice(0, 10);
+        const day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+        const win = spot > 0 ? strikeWindow(spot, pct) : null;
+        const strikeQ = win ? `&strike_price.gte=${win.lo}&strike_price.lte=${win.hi}` : "";
+        if (win) L.info("chain.window", { ticker, spot, pct, ...win });
 
-        let url = `${HOST}/v3/snapshot/options/${ticker}?limit=250`
-                + `&expiration_date.gte=${expLo}&expiration_date.lte=${expHi}&${key}`;
-        if (spot > 0) {
-          const { lo, hi } = strikeWindow(spot, pct);
-          url += `&strike_price.gte=${lo}&strike_price.lte=${hi}`;
-          L.info("chain.window", { ticker, spot, pct, lo, hi, expLo, expHi });
-        }
+        const slices = [
+          { name: "near", lo: day(0),  hi: day(48),  pages: 6 },
+          { name: "far",  lo: day(30), hi: day(100), pages: 6 },
+        ];
+
         const all = [];
-        let pages = 0;
-        while (url && pages < 8) {
-          const r = await L.fetch(url);
-          const res = r.body?.results || [];
-          all.push(...res);
-          url = r.body?.next_url ? `${r.body.next_url}&${key}` : null;
-          pages++;
-          if (url) await new Promise(z => setTimeout(z, 90));
+        const seen = new Set();
+        let anyTruncated = false;
+
+        for (const sl of slices) {
+          let url = `${HOST}/v3/snapshot/options/${ticker}?limit=250`
+                  + `&expiration_date.gte=${sl.lo}&expiration_date.lte=${sl.hi}${strikeQ}&${key}`;
+          let p = 0;
+          while (url && p < sl.pages) {
+            const r = await L.fetch(url);
+            for (const c of r.body?.results || []) {
+              const id = c.details?.ticker;
+              if (id && !seen.has(id)) { seen.add(id); all.push(c); }
+            }
+            url = r.body?.next_url ? `${r.body.next_url}&${key}` : null;
+            p++;
+            if (url) await new Promise(z => setTimeout(z, 90));
+          }
+          if (url) { anyTruncated = true; L.warn("chain.slice.truncated", { ticker, slice: sl.name, pages: p }); }
+          L.info("chain.slice", { ticker, slice: sl.name, from: sl.lo, to: sl.hi, pages: p, total: all.length });
         }
-        /* Contracts with no greeks cannot be analysed — RSP returns
-           these. Count them so the client can gate on liquidity. */
+
         const usable = all.filter(c => c.greeks && typeof c.greeks.delta === "number");
         const withOI = all.filter(c => (c.open_interest || 0) > 0);
-        // Expiry coverage matters as much as contract count: if pagination
-        // truncated before reaching 20+ DTE there is no 30-day ATM vol.
         const exps = [...new Set(all.map(c => c.details?.expiration_date).filter(Boolean))].sort();
         const far = exps.filter(e => (new Date(e) - Date.now()) / 864e5 >= 20).length;
+
         L.info("chain.quality", {
-          ticker, fetched: all.length, pages, expiries: exps.length, expiriesOver20d: far,
-          withGreeks: usable.length, withOI: withOI.length,
-          truncated: Boolean(url),
+          ticker, fetched: all.length, expiries: exps.length, expiriesOver20d: far,
+          withGreeks: usable.length, withOI: withOI.length, truncated: anyTruncated,
           tradable: usable.length > 40 && withOI.length > 40,
         });
-        if (url) L.warn("chain.truncated", { ticker, pages, note: "page cap hit; narrow the strike or expiry window" });
+
         return L.respond({
-          ticker, contracts: all, pages,
+          ticker, contracts: all,
           quality: { fetched: all.length, withGreeks: usable.length, withOI: withOI.length,
-                     expiries: exps.length, expiriesOver20d: far, truncated: Boolean(url) },
+                     expiries: exps.length, expiriesOver20d: far, truncated: anyTruncated },
         });
       }
 
