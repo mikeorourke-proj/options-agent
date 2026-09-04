@@ -119,9 +119,14 @@ Treasuries", so the direction applied to the vehicle is the direction
 actually intended -- otherwise a bearish-inflation theme selects TMV, the
 inverse Treasury fund, and states the opposite trade.
 
-**Clusters.** Themes sharing one driver carry the same cluster id and can
-be combined into a single theme whose anchors union, so the debasement
-complex ranks GLD, SLV and IBIT side by side in one menu.
+**Clusters are grouped by driver AND direction.** Themes sharing one driver
+carry the same cluster id and can be combined into a single theme whose
+anchors union, so the debasement complex ranks GLD, SLV and IBIT side by
+side in one menu. Direction is part of the grouping key: one argument can
+drive views both ways -- "the debasement trade is exhausted" implies
+bearish gold AND bullish dollar -- and merging those into one card would
+apply a single direction to both legs, screening the dollar with bearish
+logic.
 
 **Retrieval, not recall.** Claude returns tags from a fixed vocabulary;
 `searchUniverse()` resolves those against `etf-universe.js`. The model

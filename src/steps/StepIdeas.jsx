@@ -132,15 +132,14 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
   /* Combine every theme sharing a driver into one. The debasement complex
      is one trade expressed three ways, not three trades — combining unions
      the anchors so GLD, SLV and IBIT rank side by side in one menu. */
-  async function combineCluster(cluster) {
-    const members = menus.filter(m => m.cluster === cluster);
+  async function combineCluster(cluster, direction) {
+    const members = menus.filter(m => m.cluster === cluster && m.direction === direction && !m.combinedFrom);
     if (members.length < 2) return;
-    setMerging(cluster);
+    setMerging(`${cluster}::${direction}`);
     const merged = {
-      id: `combined-${cluster}`,
-      cluster,
+      id: `combined-${cluster}-${direction}`,
+      cluster, direction,
       combinedFrom: members.map(m => m.id),
-      direction: members[0].direction,
       subject: members.map(m => m.subject).join(" · "),
       basis: members.every(m => m.basis === "stated") ? "stated" : "extended",
       evidence: members.find(m => m.evidence)?.evidence || "",
@@ -151,7 +150,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
     };
     RunLog.info("ui", "cluster.combine", { cluster, from: merged.combinedFrom, anchors: merged.anchors });
     const built = await buildMenu(merged, null, "weeks");
-    const next = [built, ...menus.filter(m => m.cluster !== cluster)];
+    const next = [built, ...menus.filter(m => !(m.cluster === cluster && m.direction === direction && !m.combinedFrom))];
     setMenus(next); setMenuCache(next);
     setPicks(p => ({
       ...p,
@@ -164,7 +163,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
   async function splitCluster(id) {
     const m = menus.find(x => x.id === id);
     if (!m?.combinedFrom) return;
-    setMerging(m.cluster);
+    setMerging(m.id);
     const originals = parsed.themes.filter(t => m.combinedFrom.includes(t.id));
     const rebuilt = [];
     for (const th of originals) rebuilt.push(await buildMenu(th, null, "weeks"));
@@ -230,12 +229,14 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
       </div>
 
       {clusters(menus).map(c => c.size > 1 && (
-        <div key={c.cluster} className="clusterbar">
+        <div key={c.key} className="clusterbar">
+          <span className={`dirbadge ${c.direction}`}>{c.direction}</span>
           <b>{c.size} themes share one driver</b>
           <span>{c.subjects}</span>
           <span className="spacer" />
-          <button className="ghost" disabled={merging === c.cluster} onClick={() => combineCluster(c.cluster)}>
-            {merging === c.cluster ? <><span className="spin" />&nbsp;Combining…</> : "Combine into one theme"}
+          <button className="ghost" disabled={merging === c.key}
+                  onClick={() => combineCluster(c.cluster, c.direction)}>
+            {merging === c.key ? <><span className="spin" />&nbsp;Combining…</> : "Combine into one theme"}
           </button>
         </div>
       ))}
@@ -400,11 +401,13 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
 function clusters(menus) {
   const by = {};
   for (const m of menus) {
-    const k = m.cluster || m.id;
+    if (m.combinedFrom) continue;                 // already merged
+    const k = `${m.cluster || m.id}::${m.direction}`;
     (by[k] ||= []).push(m);
   }
-  return Object.entries(by).map(([cluster, list]) => ({
-    cluster, size: list.length, subjects: list.map(l => l.subject).join(" · "),
+  return Object.entries(by).map(([key, list]) => ({
+    key, cluster: list[0].cluster || list[0].id, direction: list[0].direction,
+    size: list.length, subjects: list.map(l => l.subject).join(" · "),
   }));
 }
 

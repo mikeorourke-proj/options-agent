@@ -94,8 +94,8 @@ export default async (request) => {
         if (win) L.info("chain.window", { ticker, spot, pct, ...win });
 
         const slices = [
-          { name: "near", lo: day(0),  hi: day(48),  pages: 6 },
-          { name: "far",  lo: day(30), hi: day(100), pages: 6 },
+          { name: "near", lo: day(0),  hi: day(48),  pages: 9 },
+          { name: "far",  lo: day(30), hi: day(100), pages: 5 },
         ];
 
         const all = [];
