@@ -258,6 +258,8 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
             <span className={`dirbadge ${m.direction}`}>{m.direction}</span>
             <span style={{ fontSize: 16, fontWeight: 600 }}>{m.subject}</span>
             <span className={`pill ${m.basis === "stated" ? "a" : "c"}`}>{m.basis}</span>
+            {(parsed.attributionFlags || []).some(f => f.startsWith(m.id + ".")) &&
+              <span className="pill x" title="A field in this theme reads like it attributes a view to someone. Check before publishing.">check attribution</span>}
             <span className="spacer" />
             <label className="mini"><input type="radio" name="primary" checked={picks.primaryThemeId === m.id}
                    onChange={() => setPrimaryTheme(m.id)} /> primary</label>

@@ -25,7 +25,12 @@ function strikeWindow(spot, pct) {
   return { lo: Math.floor(spot * (1 - pct)), hi: Math.ceil(spot * (1 + pct)) };
 }
 
-const WIDE_CHAIN = new Set(["SPY", "QQQ", "IWM", "TLT", "HYG", "GLD", "SLV", "XLF", "EEM", "FXI"]);
+const WIDE_CHAIN = new Set(["TLT", "HYG", "GLD", "SLV", "XLF", "EEM", "FXI"]);
+/* $1-strike names with enormous density. At +/-9% QQQ carries ~256 contracts
+   per expiry, so even nine pages cannot cover the near window and the walls
+   are then computed from partial open interest. Both walls sit inside +/-4%
+   in practice, so a tighter window loses nothing. */
+const DENSE_CHAIN = new Set(["SPY", "QQQ", "IWM", "VOO", "IVV"]);
 
 export default async (request) => {
   const apiKey = Netlify.env.get("POLYGON_API_KEY");
@@ -87,7 +92,8 @@ export default async (request) => {
          the expiry the structure will actually use, whatever the density. */
       case "chain": {
         const spot = Number(q.get("spot")) || 0;
-        const pct = Number(q.get("pct")) || (WIDE_CHAIN.has(ticker) ? 0.09 : 0.16);
+        const pct = Number(q.get("pct"))
+                 || (DENSE_CHAIN.has(ticker) ? 0.065 : WIDE_CHAIN.has(ticker) ? 0.09 : 0.16);
         const day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
         const win = spot > 0 ? strikeWindow(spot, pct) : null;
         const strikeQ = win ? `&strike_price.gte=${win.lo}&strike_price.lte=${win.hi}` : "";

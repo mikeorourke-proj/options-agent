@@ -58,8 +58,11 @@ export default function StepSource({ parsed, setParsed, onNext }) {
                   { src: "think/themes", model: res.model });
       if (res.quotedEvidenceRejected?.length)
         RunLog.warn("ui", "evidence rejected as quoted material", res.quotedEvidenceRejected);
+      if (res.attributionFlags?.length)
+        RunLog.warn("ui", "possible attribution in output", res.attributionFlags);
 
-      setParsed({ ...res.parsed, sourceText: text, analystNote: note, model: res.model });
+      setParsed({ ...res.parsed, sourceText: text, analystNote: note, model: res.model,
+                  attributionFlags: res.attributionFlags || [], quotedRejected: res.quotedEvidenceRejected || [] });
       t.end({ themes: res.parsed.themes.length, model: res.model, tokens: res.usage });
       onNext();
     } catch (e) { t.fail(e); setErr(e.message); }

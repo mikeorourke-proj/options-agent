@@ -53,6 +53,12 @@ parser cannot silently invert a view when it has to show its source.
 **No attribution.** Three layers: prompt instruction, quoted-span
 rejection, and a regex scan for attribution verbs that warns in the log.
 
+**Dense chains get a tighter strike window.** SPY/QQQ/IWM carry ~256
+contracts per expiry at +/-9%, enough to exhaust nine pages on the near
+slice alone -- which means walls and GEX computed from partial open
+interest, silently. Those names use +/-6.5%; both walls sit inside +/-4% in
+practice, so nothing is lost.
+
 **The chain is fetched as two disjoint expiry slices.** A single ascending
 fetch spends its page budget on near-dated contracts. QQQ at a +/-9% strike
 window carries ~200 strikes per expiry, so eight pages reached only 12

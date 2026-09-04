@@ -34,6 +34,9 @@ export function suggestStructures(view, v, rv, {
   const blind = v.iv30 == null;   // no vol read: only the baseline is honest
   const expiryCandidates = rankExpiries(v.expiries, catalystDate, horizon, 5, new Date(), v.expiryOI);
   const expiry = expiryCandidates[0];
+  // No listed expiry means no structure. Say so rather than emitting
+  // candidates that will fail downstream on a phantom expiry.
+  if (!expiry) return [];
   const days = expiry ? dte(expiry) : null;
   const out = [];
   const add = (id, name, legs, why, needs = "B") => out.push({ id, name, legs, why, expiry, expiryCandidates, days, needs });
