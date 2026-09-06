@@ -302,7 +302,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
       {!busy && (
         <div className="actionbar">
           <button className="primary" disabled={chosen.length === 0} onClick={onNext}>
-            Continue with {chosen.length} expression{chosen.length === 1 ? "" : "s"} →
+            Compose note with {chosen.length} expression{chosen.length === 1 ? "" : "s"} →
           </button>
           <span style={{ fontSize: 12.5, color: "var(--muted)" }}>
             {themesChosen.length} theme{themesChosen.length === 1 ? "" : "s"} · produces {notes} note{notes === 1 ? "" : "s"}
@@ -358,9 +358,9 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                   <div className="planrow">
                     <span>{m.primary.plan.single ? "immediate" : "scale"} <b>
                       {m.primary.plan.single ? `at ${m.primary.price.toFixed(2)}`
-                        : `${m.primary.price.toFixed(2)} \u2192 ${m.primary.plan.wall}`}</b></span>
+                        : `${m.primary.price.toFixed(2)} → ${m.primary.plan.wall}`}</b></span>
                     <span>entry <b>{m.primary.plan.entry.toFixed(2)}</b></span>
-                    <span>target <b>{m.primary.tgt.struct}</b> ({m.primary.shareScore.rewardSigma}\u03c3)</span>
+                    <span>target <b>{m.primary.tgt.struct}</b> ({m.primary.shareScore.rewardSigma}σ)</span>
                     <span>stop <b>{m.primary.plan.stop.toFixed(2)}</b></span>
                     <span>risk <b>{m.primary.shareScore.riskPct}%</b></span>
                     <span>R:R <b>{m.primary.shareScore.rr}</b></span>
@@ -424,7 +424,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                               {p.legDetail.map((L, j) => (
                                 <tr key={j}>
                                   <td className={L.action === "Buy" ? "buy" : "sell"}>{L.action}</td>
-                                  <td>{L.qty}\u00D7</td>
+                                  <td>{L.qty}×</td>
                                   <td className="strike">{s.expiry.slice(5)} <b>{L.strike}</b> {L.type}</td>
                                   <td className="mono">${L.px.toFixed(2)}</td>
                                   <td className="dim">{L.moneyness >= 0 ? "+" : ""}{L.moneyness}%</td>

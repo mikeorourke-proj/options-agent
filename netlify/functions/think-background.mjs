@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { getStore } from "@netlify/blobs";
 import { srvLog } from "./_runlog.mjs";
-import { SYSTEM_PROMPTS, MODELS, MAX_TOKENS, enforce } from "./_prompts.mjs";
+import { SYSTEM_PROMPTS, MODELS, MAX_TOKENS, enforce, checkVoice } from "./_prompts.mjs";
 
 const API = "https://api.anthropic.com/v1/messages";
 
@@ -34,7 +34,9 @@ export default async (request) => {
     await put({ status: "running", log: L.log });
     const MODEL = MODELS[task] || MODELS.themes;
     const system = SYSTEM_PROMPTS[task] || SYSTEM_PROMPTS.themes;
-    const user = task === "edit" ? text : [
+    const user = task === "edit" ? text
+      : task === "draft" ? `NOTE MODEL:\n${text}`
+      : [
       `Today is ${today || new Date().toISOString().slice(0, 10)}.`,
       ``,
       `ALLOWED TAG VOCABULARY (tags = sensitivities; use only these):`,
@@ -84,7 +86,16 @@ export default async (request) => {
         : e.message;
     }
 
-    const checks = parsed ? enforce(parsed, { vocab, anchors, sourceText: text }) : { dropped: [], quoteHits: [], attrib: [], badAnchors: [] };
+    const checks = parsed && task !== "draft" ? enforce(parsed, { vocab, anchors, sourceText: text })
+                 : { dropped: [], quoteHits: [], attrib: [], badAnchors: [] };
+    // Draft: run the voice checks on every paragraph and report them back.
+    let voice = null;
+    if (parsed && task === "draft") {
+      voice = {};
+      const paras = { summary: parsed.summary, execution: parsed.execution, ...(parsed.themes || {}) };
+      for (const [k, v] of Object.entries(paras)) { const h = checkVoice(v); if (h.length) voice[k] = h; }
+      if (Object.keys(voice).length) L.warn("voice.violation", voice);
+    }
     if (checks.dropped.length)   L.warn("vocab.violation", { dropped: checks.dropped });
     if (checks.quoteHits.length) L.warn("evidence.quoted", { themes: checks.quoteHits });
     if (checks.attrib.length)    L.warn("attribution.suspected", { fields: checks.attrib });
@@ -104,7 +115,7 @@ export default async (request) => {
       result: parsed ? {
         task, model: MODEL, parsed, truncated,
         droppedTags: checks.dropped, quotedEvidenceRejected: checks.quoteHits,
-        attributionFlags: checks.attrib,
+        attributionFlags: checks.attrib, voice,
         usage: { in: body.usage?.input_tokens, out: body.usage?.output_tokens, ms },
       } : undefined,
       raw: parsed ? undefined : cleaned.slice(0, 2000),

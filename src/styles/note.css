@@ -1,0 +1,131 @@
+/* ═══════════════════════════════════════════════════════════════════
+   note.css — the Institutional Tactical Note, for screen preview and print
+
+   Rules that matter for the PDF:
+   - A4 with physical units (mm, pt). No px anywhere in this file.
+   - No flex `gap`; print engines ignore it. Margins and tables instead.
+   - Colours sampled from the house research template.
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  --n-blue: #0079C1; --n-band: #0159A6; --n-navy: #001F5F; --n-gray: #6A737B;
+  --n-green: #00703C; --n-red: #C00000; --n-amber: #B26A00;
+  --n-ink: #000; --n-muted: #5A5A5A; --n-light: #8C8C8C; --n-hair: #D9D9D9;
+  --n-alt: #F2F5F9; --n-tint: #EAF2FA;
+}
+
+@page { size: A4; margin: 0; }
+@media print {
+  body { margin: 0; background: #fff; }
+  .app > *:not(.noteprint) { display: none !important; }
+  .noteprint { display: block !important; }
+  .page { page-break-after: always; box-shadow: none; margin: 0; }
+  .page:last-child { page-break-after: auto; }
+}
+
+.noteprint { background: #E9ECF0; padding: 8mm 0; }
+.page {
+  width: 210mm; min-height: 297mm; margin: 0 auto 8mm; background: #fff;
+  padding: 11mm 14.8mm 16mm; box-sizing: border-box; position: relative;
+  font-family: Arial, "Liberation Sans", Helvetica, sans-serif; color: var(--n-ink);
+  font-size: 8.4pt; line-height: 1.36; box-shadow: 0 1mm 4mm rgba(0,0,0,.12);
+}
+.page * { box-sizing: border-box; }
+
+/* ── masthead ──────────────────────────────────────────────────── */
+.mast { position: relative; height: 16mm; }
+.wm { font-family: "Liberation Serif", "Times New Roman", Georgia, serif; font-size: 20pt; letter-spacing: -.2pt; position: absolute; left: 0; bottom: 1mm; }
+.wm .a { color: var(--n-gray); } .wm .b { color: var(--n-blue); }
+.wm .dot-i { position: relative; display: inline-block; }
+.wm .mark { position: absolute; left: -.02em; bottom: .86em; width: .55em; height: .55em; border: .075em solid var(--n-blue); }
+.wm .mark::after { content: ""; position: absolute; left: -.075em; bottom: -.075em; width: .24em; height: .24em; background: #fff; }
+.mast .kind { position: absolute; right: 0; top: 0; text-align: right; line-height: 1.5; }
+.mast .kind .k1 { font-size: 7.4pt; color: var(--n-muted); }
+.mast .kind .k2 { font-size: 6.8pt; color: var(--n-blue); }
+.mast .kind .k3 { font-size: 6.6pt; color: var(--n-muted); }
+
+.band { background: var(--n-band); color: #fff; padding: 3.2mm 4mm 2.8mm; margin-top: 2mm; }
+.band .t { font-size: 10.5pt; font-weight: 700; margin-bottom: 1.6mm; }
+.band .row { font-size: 6.8pt; }
+.band .row b { font-weight: 700; margin-right: 4mm; }
+.band .row span { margin-right: 5mm; }
+.band .row .sec { float: right; font-weight: 700; }
+
+/* ── two columns ───────────────────────────────────────────────── */
+.cols { margin-top: 5mm; }
+.cols::after { content: ""; display: table; clear: both; }
+.col-l { float: left; width: 106mm; }
+.col-r { float: right; width: 67mm; }
+
+.headline { color: var(--n-blue); font-size: 10.6pt; font-weight: 700; line-height: 1.25; margin: 0 0 3mm; }
+.para { text-align: justify; margin: 0 0 2.6mm; }
+.para .lead { color: var(--n-blue); font-weight: 700; }
+.para .body[contenteditable="true"]:focus { outline: 1pt dashed var(--n-blue); outline-offset: 1mm; background: #FBFDFF; }
+.para .body:empty::before { content: "\2014 draft or type here \2014"; color: var(--n-light); font-style: italic; }
+
+/* rail */
+.rh { font-size: 6.8pt; font-weight: 700; border-bottom: .3mm solid #0276CD; padding-bottom: .8mm; margin: 3.4mm 0 1.8mm; }
+.rail table { width: 100%; border-collapse: collapse; font-size: 5.9pt; }
+.rail td, .rail th { padding: .35mm 0; vertical-align: baseline; }
+.rail th { font-weight: 700; color: var(--n-muted); font-size: 5.4pt; text-align: right; }
+.rail th:first-child, .rail td:first-child { text-align: left; }
+.rail td { text-align: right; }
+.rail td:first-child { font-weight: 700; }
+.rail td.sub { text-align: left; color: var(--n-muted); font-size: 5.2pt; padding-bottom: 1.4mm; }
+.rail .dn { color: var(--n-red); } .rail .up { color: var(--n-green); }
+.rail .g { color: var(--n-green); } .rail .r { color: var(--n-red); } .rail .am { color: var(--n-amber); }
+.rail .note { font-style: italic; color: var(--n-light); font-size: 5.3pt; }
+.risk { margin: 0 0 1.4mm; }
+.risk b { font-size: 6pt; }
+.risk b::before { content: "\25A0  "; color: var(--n-red); font-size: 5pt; }
+.risk div { font-size: 5.6pt; color: var(--n-muted); margin-left: 3.5mm; }
+
+.analyst { position: absolute; right: 14.8mm; bottom: 34mm; width: 67mm; border-top: .2mm solid var(--n-hair); padding-top: 1.8mm; font-size: 6.6pt; line-height: 1.5; }
+.analyst b { font-size: 7.2pt; }
+.analyst .em { color: var(--n-blue); }
+
+.disc { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 17mm; border-top: .35mm solid var(--n-blue); padding-top: 1.6mm; font-size: 6.2pt; line-height: 1.32; text-align: justify; }
+.foot { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 8mm; border-top: .3mm solid var(--n-blue); padding-top: 1.4mm; font-size: 6.8pt; }
+.foot b { color: var(--n-blue); }
+.foot span { float: right; }
+
+/* ── page 2+ ───────────────────────────────────────────────────── */
+.rhead { font-size: 6.8pt; border-bottom: .3mm solid var(--n-blue); padding-bottom: 1.4mm; margin-bottom: 4mm; }
+.rhead span { float: right; }
+.exh { color: var(--n-navy); font-size: 7.4pt; font-weight: 700; margin: 3.4mm 0 1.6mm; }
+.exh.first { margin-top: 0; }
+.sub { color: var(--n-blue); font-size: 6pt; font-weight: 700; margin: 1.2mm 0 1mm; }
+table.x { width: 100%; border-collapse: collapse; font-size: 6.1pt; }
+table.x th { background: var(--n-navy); color: #fff; font-weight: 700; font-size: 5.9pt; padding: 1mm 1.2mm; text-align: left; }
+table.x td { padding: .9mm 1.2mm; border-bottom: .1mm solid var(--n-hair); }
+table.x tr:nth-child(odd) td { background: var(--n-alt); }
+table.x tr:last-child td { border-bottom: .25mm solid var(--n-navy); }
+table.x td:first-child { font-weight: 700; }
+table.x .c { text-align: center; }
+.src { font-style: italic; color: var(--n-muted); font-size: 5.6pt; margin: 1mm 0 0; line-height: 1.35; }
+
+/* positioning map */
+.pm { font-size: 5.6pt; }
+.pm .row { position: relative; height: 8mm; }
+.pm .tk { position: absolute; left: 0; top: 2.2mm; font-weight: 700; font-size: 6.2pt; }
+.pm .ax { position: absolute; left: 14mm; right: 16mm; top: 3.6mm; height: .15mm; background: var(--n-hair); }
+.pm .band { position: absolute; top: 2.9mm; height: 1.5mm; background: #CFE3F5; margin: 0; padding: 0; }
+.pm .rung { position: absolute; top: 2.7mm; height: 1.9mm; width: .25mm; background: #7FA8CE; }
+.pm .wall { position: absolute; top: 2mm; height: 3.3mm; width: .3mm; }
+.pm .wall.p { background: var(--n-green); } .pm .wall.c { background: var(--n-red); }
+.pm .lab { position: absolute; top: 0; transform: translateX(-50%); font-size: 5.2pt; }
+.pm .lab.p { color: var(--n-green); } .pm .lab.c { color: var(--n-red); } .pm .lab.s { color: #444C57; }
+.pm .avg { position: absolute; top: 1.9mm; height: 3.6mm; width: .35mm; background: var(--n-navy); }
+.pm .avgl { position: absolute; top: 5.7mm; transform: translateX(-50%); color: var(--n-navy); font-weight: 700; font-size: 5.2pt; }
+.pm .tgt { position: absolute; right: 0; top: 2.2mm; color: var(--n-blue); }
+
+/* keys */
+.key { margin-top: 3mm; font-size: 6pt; }
+.key b.h { display: block; color: var(--n-navy); font-size: 6.4pt; margin-bottom: 1mm; }
+.key div { margin-bottom: .6mm; color: var(--n-muted); }
+.key div b { display: inline-block; width: 12mm; }
+.key .A { color: var(--n-green); } .key .B { color: var(--n-blue); } .key .C { color: var(--n-amber); } .key .X { color: var(--n-red); }
+
+.appx h1 { color: var(--n-blue); font-size: 10.5pt; margin: 4mm 0 3mm; }
+.appx h2 { font-size: 7.4pt; margin: 3mm 0 1.4mm; }
+.appx p { font-size: 6.9pt; line-height: 1.42; text-align: justify; margin: 0 0 2mm; }
+.appx .copy { color: var(--n-blue); font-weight: 700; font-size: 6.6pt; margin-top: 3mm; }

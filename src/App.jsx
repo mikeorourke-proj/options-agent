@@ -3,10 +3,11 @@ import RunLog from "./lib/runlog.js";
 import { clearCache } from "./lib/api.js";
 import StepSource from "./steps/StepSource.jsx";
 import StepIdeas from "./steps/StepIdeas.jsx";
+import StepNote from "./steps/StepNote.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.11.0";
+export const VERSION = "0.12.0";
 
 const STEPS = [
   { id: "source",    label: "Source" },
@@ -49,6 +50,7 @@ export default function App() {
   const [parsed, setParsed] = useState(null);
   const [picks, setPicks] = useState({ sel: {}, primaryThemeId: null, split: [] });
   const [menuCache, setMenuCache] = useState(null);
+  const [noteState, setNoteState] = useState({ prose: { summary: "", themes: {}, execution: "" } });
 
   useEffect(() => { RunLog.start("session", { app: "tactical-note", v: VERSION }); }, []);
 
@@ -57,11 +59,14 @@ export default function App() {
     setParsed(next);
     setPicks({ sel: {}, primaryThemeId: next?.primaryThemeId || null, split: [] });
     setMenuCache(null);
+    setNoteState({ prose: { summary: "", themes: {}, execution: "" } });
   }
 
+  const selected = Object.keys(picks.sel).length > 0;
   const reach = i => i === 0 ? true
                    : i === 1 ? Boolean(parsed)
-                   : i === 2 ? Object.keys(picks.sel).length > 0 : false;
+                   : i === 4 ? selected && Boolean(menuCache)
+                   : false;                      // 2 and 3 not yet built
 
   return (
     <div className="app">
@@ -88,17 +93,9 @@ export default function App() {
         {step === 0 && <StepSource parsed={parsed} setParsed={applyParsed} onNext={() => setStep(1)} />}
         {step === 1 && parsed &&
           <StepIdeas parsed={parsed} setParsed={setParsed} picks={picks} setPicks={setPicks}
-                     menuCache={menuCache} setMenuCache={setMenuCache} onNext={() => setStep(2)} />}
-        {step >= 2 && (
-          <div className="card">
-            <h2>{STEPS[step].label}</h2>
-            <p className="hint">Next build. Selections are carried in state and in the run log.</p>
-            <pre style={{ fontSize: 11.5, background: "var(--bg)", padding: 12, borderRadius: 6, overflow: "auto", maxHeight: 420 }}>
-{JSON.stringify({ primaryThemeId: picks.primaryThemeId, split: picks.split, selections: Object.values(picks.sel) }, null, 2)}
-            </pre>
-            <button className="ghost" onClick={() => setStep(1)}>← Back</button>
-          </div>
-        )}
+                     menuCache={menuCache} setMenuCache={setMenuCache} onNext={() => setStep(4)} />}
+        {step === 4 && parsed && menuCache &&
+          <StepNote parsed={parsed} picks={picks} menus={menuCache} noteState={noteState} setNoteState={setNoteState} />}
       </div>
 
       <LogBar />

@@ -9,7 +9,7 @@ export const MODELS = {
   draft:  "claude-opus-5",
 };
 
-export const MAX_TOKENS = { themes: 8000, thesis: 8000, edit: 6000, draft: 6000 };
+export const MAX_TOKENS = { themes: 8000, thesis: 8000, edit: 6000, draft: 5000 };
 
 const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
 
@@ -99,11 +99,69 @@ Return ONLY a JSON object:
 { "edited": "<the corrected text>", "changes": ["<short description of each substantive change>"] }`;
 
 
+const DRAFT_SYSTEM = `You draft the commentary for an institutional Tactical Note. You are writing AS the desk's
+Chief Market Strategist, in the first person plural.
+
+You receive a JSON model of the note: the themes carried, each with its ETF expression and any
+derivatives alternative, with every number already computed. You write prose around those numbers.
+You do not compute, adjust, round, or invent any figure.
+
+Return ONLY a JSON object, no preamble, no markdown fences:
+{
+  "summary": "<one paragraph, 70-110 words>",
+  "themes": { "<subject exactly as given>": "<one paragraph, 60-100 words>", ... },
+  "execution": "<one paragraph, 80-130 words>"
+}
+
+VOICE — every rule is checked mechanically after you write:
+1. CONDITIONAL. "We would be short GLD", "we would scale". Never "we are", "we recommend",
+   "we like", "buy", "sell" as imperatives. The desk proposes; it does not report a position.
+2. ETF FIRST, DERIVATIVE ALONGSIDE. Each theme paragraph opens with the ETF expression, then
+   presents the derivatives alternative with its cost and constraint stated plainly. Both appear.
+   Neither is argued out of the note.
+3. NO RANKING LANGUAGE. Never "best", "preferred", "lead", "strongest", "top", "superior",
+   "ranks", or any comparison between expressions or between themes. The client judges. You
+   describe each trade on its own terms.
+4. NO ATTRIBUTION. Never name a person, firm, bank, publication, or research house. Refer to
+   positioning or consensus in the abstract.
+5. NUMBERS AS GIVEN. Quote the figures from the model verbatim. Cite the walls, the scale
+   band, the weighted average, the target, the stop, the risk, the option debit and POP. Do not
+   add figures the model does not contain.
+6. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
+   consistent with it. Do not contradict the source.
+7. EXECUTION paragraph explains the scale mechanics for the scaled legs, the immediate legs,
+   the price-triggered nature of the ladder, the stop, and that option legs price off the
+   current quote. Reference the execute window and hold window as given.
+8. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
+   questions. British spelling of "realised"; otherwise American.`;
+
 export const SYSTEM_PROMPTS = {
+  draft:  DRAFT_SYSTEM,
   themes: THEMES_SYSTEM,
   thesis: THEMES_SYSTEM,
   edit:   EDIT_SYSTEM,
 };
+
+/* Voice checks on a draft. Each returns the offending phrase so the UI can
+   point at it. These are the rules the prompt states, enforced. */
+export const VOICE_CHECKS = [
+  { id: "declarative", re: /\b(we are (short|long|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
+    msg: "declarative voice — use 'we would'" },
+  { id: "ranking", re: /\b(best|preferred|lead trade|strongest|superior|top pick|ranks?|outranks?|better than|worse than)\b/i,
+    msg: "ranking language" },
+  { id: "attribution", re: /\b(said|stated|according to|wrote|reports?|noted that|argues)\b/i,
+    msg: "possible attribution" },
+  { id: "filler", re: /\b(it is worth noting|needless to say|importantly|interestingly)\b/i,
+    msg: "filler" },
+];
+export function checkVoice(text) {
+  const hits = [];
+  for (const c of VOICE_CHECKS) {
+    const m = String(text || "").match(c.re);
+    if (m) hits.push({ id: c.id, msg: c.msg, phrase: m[0] });
+  }
+  return hits;
+}
 
 /* Server-side enforcement of the rules the prompt states. The model is
    told not to break them; this is the check that it did not.

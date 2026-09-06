@@ -18,6 +18,13 @@ v4 options dashboard is preserved verbatim at **/legacy.html**.
       data/etf-universe.js        curated vehicle table (97 funds)
       steps/StepSource.jsx        1. document + your read -> themes
       steps/StepIdeas.jsx         2. theme cards -> expression menus
+      steps/StepNote.jsx          5. settings, Opus draft, editable note, print
+      note/NoteView.jsx           the three-page note, print-CSS
+      lib/compose.js              note model from state; draft context
+      lib/shares.js               ETF leg: scale plan, targets, expectancy
+      lib/ordering.js             expectancy order with tie band
+      lib/pricing.js              option pricing + view-conditional economics
+      styles/note.css             A4, mm/pt only, no flex gap
       lib/vol.js                  chain analytics (IV, 25d RR, walls, max pain)
       lib/strategy.js             structure matrix (deterministic)
       components/SourceBar.jsx    persistent header
@@ -185,7 +192,14 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
-- Steps 3-5 (structure, scenarios, note) are placeholders.
+- Step 5 (Note) is live: compose from state, draft on a button, edit
+  in place, print to PDF via the browser. The Python mock renderer is
+  retired -- every number it hardcoded is now in state.
+- Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
+  are disabled. Themes continues straight to Note.
+- The draft prompt enforces five voice rules mechanically (conditional
+  voice, ETF first, no ranking language, no attribution, numbers as
+  given). Violations are returned and shown above the note.
 - Theme extraction runs as a BACKGROUND function: Opus takes 25-40s on a
   full Closing Print and Netlify kills synchronous functions at 26s.
   think-background.mjs writes to the "think-jobs" blob store; the client
