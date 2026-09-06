@@ -34,8 +34,19 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
       if (!res?.parsed) throw new Error(res?.parseError || "no draft returned");
       const p = res.parsed;
       // Map the model's subject keys back to theme ids.
+      // Match section headers to themes tolerantly — the model may vary case
+      // or spacing in the subject it echoes back.
+      const norm = k => String(k || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const bySubj = Object.fromEntries(Object.entries(p.themes || {}).map(([k, v]) => [norm(k), v]));
       const themes = {};
-      for (const th of note.themes) themes[th.id] = p.themes?.[th.subject] || p.themes?.[th.id] || "";
+      const unmatched = [];
+      for (const th of note.themes) {
+        const hit = bySubj[norm(th.subject)] || bySubj[norm(th.id)]
+          || Object.entries(bySubj).find(([k]) => k.includes(norm(th.subject)) || norm(th.subject).includes(k))?.[1];
+        themes[th.id] = hit || "";
+        if (!hit) unmatched.push(th.subject);
+      }
+      if (unmatched.length) RunLog.warn("ui", "draft.unmatched.themes", { unmatched, returned: Object.keys(p.themes || {}) });
       setNoteState({ ...s, prose: { summary: p.summary || "", themes, execution: p.execution || "" },
                      draftedBy: res.model, draftedAt: new Date().toISOString() });
       setVoice(res.voice && Object.keys(res.voice).length ? res.voice : null);

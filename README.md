@@ -197,6 +197,10 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- The draft returns delimited sections (### SUMMARY / ### THEME: x /
+  ### EXECUTION), never JSON. English prose contains quotation marks and
+  apostrophes; the first live draft failed at character 3,084 on an
+  unescaped quote inside a JSON string. Sections cannot break that way.
 - The draft prompt enforces five voice rules mechanically (conditional
   voice, ETF first, no ranking language, no attribution, numbers as
   given). Violations are returned and shown above the note.

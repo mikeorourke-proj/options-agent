@@ -79,11 +79,32 @@ export default async (request) => {
     const truncated = body.stop_reason === "max_tokens";
 
     let parsed = null, parseError = null;
-    try { parsed = JSON.parse(cleaned); }
-    catch (e) {
-      parseError = truncated
-        ? `Output hit the ${MAX_TOKENS[task]}-token cap and was cut off mid-JSON.`
-        : e.message;
+    if (task === "draft") {
+      /* Prose comes back as delimited sections, not JSON — a quotation mark
+         in a sentence must not be able to break the whole draft. */
+      const secs = [...raw.matchAll(/^###\s*(SUMMARY|EXECUTION|THEME:\s*(.+?))\s*$\n([\s\S]*?)(?=^###\s|\s*$)/gim)];
+      if (secs.length) {
+        parsed = { summary: "", themes: {}, execution: "" };
+        for (const m of secs) {
+          const body = m[3].trim().replace(/\s*\n\s*/g, " ");
+          if (/^SUMMARY/i.test(m[1])) parsed.summary = body;
+          else if (/^EXECUTION/i.test(m[1])) parsed.execution = body;
+          else if (m[2]) parsed.themes[m[2].trim()] = body;
+        }
+        const wc = t => (t || "").split(/\s+/).filter(Boolean).length;
+        L.info("draft.sections", { summary: wc(parsed.summary), execution: wc(parsed.execution),
+                                   themes: Object.fromEntries(Object.entries(parsed.themes).map(([k, v]) => [k, wc(v)])) });
+        if (!parsed.summary || !parsed.execution) { parseError = "draft missing SUMMARY or EXECUTION section"; parsed = null; }
+      } else {
+        parseError = truncated ? `Output hit the ${MAX_TOKENS[task]}-token cap.` : "draft returned no recognisable sections";
+      }
+    } else {
+      try { parsed = JSON.parse(cleaned); }
+      catch (e) {
+        parseError = truncated
+          ? `Output hit the ${MAX_TOKENS[task]}-token cap and was cut off mid-JSON.`
+          : e.message;
+      }
     }
 
     const checks = parsed && task !== "draft" ? enforce(parsed, { vocab, anchors, sourceText: text })
@@ -118,7 +139,7 @@ export default async (request) => {
         attributionFlags: checks.attrib, voice,
         usage: { in: body.usage?.input_tokens, out: body.usage?.output_tokens, ms },
       } : undefined,
-      raw: parsed ? undefined : cleaned.slice(0, 2000),
+      raw: parsed ? undefined : cleaned.slice(0, 3000),
       log: L.log,
     });
   } catch (e) {

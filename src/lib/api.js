@@ -82,8 +82,9 @@ export const api = {
       }
       if (doc.status === "failed") {
         if (doc.log) RunLog.absorb(doc.log);
-        t.fail(new Error(doc.error || "extraction failed"));
-        throw new Error(doc.error || "extraction failed");
+        if (doc.raw) RunLog.warn("llm", "job.raw", { head: String(doc.raw).slice(0, 600) });
+        t.fail(new Error(doc.error || "job failed"));
+        throw new Error(doc.error || "job failed");
       }
     }
     t.fail(new Error("timed out after 3 minutes"));
