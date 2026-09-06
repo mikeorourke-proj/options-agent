@@ -78,6 +78,39 @@ first, skipping expiries too thin to price -- and evaluate() walks it until
 one clears the gate, so the gate selects the expiry instead of killing the
 idea. Skipped expiries are logged on the passing gate entry.
 
+**The note orders expressions without stating why.** Two sections, ETF
+Expression and Derivatives Expression, each in sequence, no scores. An
+implicit order carries more weight than an explicit one, so the tool must
+be confident before it orders: ordering.js sorts on expectancy (the least
+opinionated criterion -- it imposes no hit-rate-vs-magnitude preference)
+and any expressions inside the tie band (0.5% of notional for ETFs, 0.10
+EV per $ of premium for options) keep the order the analyst raised them
+in. The action bar shows the resulting sequence; the log records whether
+it was decisive or fell through to source order.
+
+**Loss definition is a scored component.** Before v0.11 shares took 0.30
+of the composite on convexity and carry before any economics ran, so an
+option could almost never rank above the underlying and the order was a
+foregone conclusion. riskDef (0.10) credits a debit structure fully, a
+credit spread at 0.8, a naked short leg at zero, and shares by liquidity
+grade (A 0.40 .. X 0.10) -- a stop is an intention, not a contract.
+
+**Carry is charged to a date when there is one.** Without a catalyst
+date there is no "before", so theta is charged across the whole holding
+window. That is harsher on options than the old half-expiry default, and
+it is why an undated thesis favours the underlying.
+
+**Shares and options are scored on one scale.** Reward-to-risk is
+scale-invariant, so it cannot tell a target one standard deviation away
+from one a third of a deviation away -- IBIT looks better than GLD at
+3.3:1 against 2.1:1 until you see the targets are 1.10 and 0.67 sigma
+out. The ETF leg is therefore scored the way the options are: expectancy
+under a distribution shifted by the stated conviction, with the same five
+components and the same normalisation bands (exported from pricing.js so
+the two cannot drift). Shares score 1.0 on convexity and near-zero carry,
+which are genuine structural advantages and exactly why an undated thesis
+favours the underlying. R:R is still displayed, but no longer ranks.
+
 **Two rankings, two questions.** ETFs are ordered by APPROPRIATENESS --
 how well the fund expresses the theme -- from purity of exposure (GLD is
 bullion, GDX is miner equity carrying its own beta), options grade,

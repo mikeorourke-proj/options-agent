@@ -18,6 +18,24 @@ import RunLog from "./runlog.js";
 const SQ2PI = Math.sqrt(2 * Math.PI);
 const pdf = x => Math.exp(-x * x / 2) / SQ2PI;
 
+/* Normalisation bands, shared with shares.js so the ETF leg and the option
+   legs are scored on one scale. Widened from the original ranges, which
+   clipped every share expression to 1.000 and destroyed discrimination. */
+export const NORM = {
+  evOnRisk:  [-0.25, 1.50],
+  pop:       [0.20, 0.85],
+  convexity: [0.15, 0.85],
+  carry:     [0.05, 0.60],
+  exec:      [0.02, 0.25],
+  riskDef:   [0.00, 1.00],
+};
+/* riskDef credits a loss that is a number rather than a hope. Without it
+   shares took 0.30 of the composite on convexity and carry before any
+   economics ran, and options could almost never rank above the underlying
+   — which made the note's order a foregone conclusion. */
+export const WEIGHTS_SCORE = { evOnRisk: .32, pop: .22, convexity: .13, carry: .13, exec: .10, riskDef: .10 };
+export const nz = (x, [a, b]) => Math.max(0, Math.min(1, (x - a) / (b - a)));
+
 /* Abramowitz-Stegun 7.1.26 normal CDF, ~1e-7 accuracy. */
 export function N(x) {
   const s = x < 0 ? -1 : 1; x = Math.abs(x) / Math.SQRT2;
@@ -177,7 +195,7 @@ export function priceStructure(legs, spot, expiry) {
 const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
 
 export function scoreEconomics(pr, legs, spot, v, {
-  direction, conviction = "medium", catalystDate, rv,
+  direction, conviction = "medium", catalystDate, rv, horizonDays = 42,
 }) {
   const T = pr.T;
   const sig = ((v.iv30 ?? rv ?? 25) / 100);
@@ -211,25 +229,34 @@ export function scoreEconomics(pr, legs, spot, v, {
   const evOnRisk  = ev / pr.risk;                                   // core
   const convexity = evIdeal > 0 ? Math.max(0, Math.min(1, ev / evIdeal)) : 0.5;
 
-  // Theta burned before the catalyst is dead weight: you pay it to reach
-  // the event, so it counts against a dated trade.
+  /* Theta is charged for the days you must hold before the trade can be
+     judged. With a dated catalyst that is the days to the event. Without
+     one there is no "before" — the option decays across the whole holding
+     window, which is exactly why an undated thesis favours the underlying.
+     The old half-expiry default understated that. */
   const dToCat = catalystDate
     ? Math.max(0, (new Date(catalystDate) - Date.now()) / 864e5)
-    : Math.max(0, T * 365 * 0.5);
+    : Math.min(T * 365, horizonDays);
   const carry = pr.debit > 0 ? Math.max(0, -pr.theta * dToCat) / pr.debit : 0;
+  const undated = !catalystDate;
 
   const exec = pr.debit > 0 ? pr.spreadCost / pr.debit : pr.spreadCost / pr.risk;
 
-  const n = (x, a, b) => Math.max(0, Math.min(1, (x - a) / (b - a)));
+  // Loss definition: a debit structure cannot lose more than its debit; a
+  // credit spread is bounded by its width; a short naked leg is not bounded.
+  const hasNakedShort = legs.some(l => l.qty < 0) &&
+    !legs.some(l => l.qty > 0 && l.type === legs.find(x => x.qty < 0).type);
+  const riskDef = hasNakedShort ? 0.0 : pr.debit > 0 ? 1.0 : 0.8;
+
   const parts = {
-    evOnRisk:   n(evOnRisk, -0.25, 0.85),
-    pop:        n(pWin, 0.20, 0.75),
-    convexity:  n(convexity, 0.15, 0.85),
-    carry:      1 - n(carry, 0.05, 0.60),
-    exec:       1 - n(exec, 0.02, 0.25),
+    evOnRisk:   nz(evOnRisk, NORM.evOnRisk),
+    pop:        nz(pWin, NORM.pop),
+    convexity:  nz(convexity, NORM.convexity),
+    carry:      1 - nz(carry, NORM.carry),
+    exec:       1 - nz(exec, NORM.exec),
+    riskDef:    nz(riskDef, NORM.riskDef),
   };
-  const score = 0.35 * parts.evOnRisk + 0.25 * parts.pop
-              + 0.15 * parts.convexity + 0.15 * parts.carry + 0.10 * parts.exec;
+  const score = Object.entries(WEIGHTS_SCORE).reduce((s2, [k, w]) => s2 + w * parts[k], 0);
 
   return {
     score: +score.toFixed(3), parts,
@@ -237,6 +264,7 @@ export function scoreEconomics(pr, legs, spot, v, {
     pop: +(pWin * 100).toFixed(1), convexity: +convexity.toFixed(2),
     carryPct: +(carry * 100).toFixed(1), execPct: +(exec * 100).toFixed(1),
     impliedMove: +(mu / sd || 0).toFixed(2), sdPct: +(sd * 100).toFixed(1),
+    riskDef, undated, carryDays: Math.round(dToCat),
   };
 }
 
@@ -270,6 +298,8 @@ export function evaluate(structure, contracts, spot, v, ctx) {
       expiry, score: econ.score, rr: pr.rr, pop: econ.pop,
       skipped: tried.length ? tried : undefined,
     });
+    RunLog.fact(`legs.${v.ticker || "?"}.${structure.id}`, pr.legDetail,
+                { src: pr.priceSource, net: +(pr.net / 100).toFixed(2), expiry });
     return {
       ...structure, expiry, days: Math.round((new Date(expiry) - Date.now()) / 864e5),
       legs, pricing: pr, econ,

@@ -267,3 +267,22 @@ button.ghost {
 .legtbl td.mono { font-family: var(--mono); }
 .legtbl td.dim { color: var(--muted); font-family: var(--mono); font-size: 10.5px; }
 .legtbl tr.nettr td { border-top: 1px solid var(--line); padding-top: 4px; color: var(--ink); }
+
+.planrow {
+  margin: 4px 0 2px 26px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); line-height: 1.7;
+}
+.planrow > span { display: inline-block; margin-right: 14px; white-space: nowrap; }
+.planrow b { color: var(--ink); font-weight: 700; margin-left: 3px; }
+
+.ranked {
+  margin-top: 11px; padding: 8px 11px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; line-height: 1.8;
+}
+.ranked > b { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--jblue); margin-bottom: 3px; }
+.ranked > span { display: inline-block; margin-right: 16px; font-family: var(--mono); color: var(--muted); }
+.ranked > span.win { color: var(--ink); font-weight: 700; }
+.ranked em { font-style: normal; color: var(--jblue); font-weight: 700; }
+.ranked .dim { display: block; margin-top: 3px; font-family: var(--sans); font-size: 10.5px; color: var(--muted); font-style: italic; }
+.noteorder { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+.noteorder b { color: var(--ink); font-weight: 700; }
+.noteorder em { display: block; font-family: var(--sans); font-style: italic; font-size: 10.5px; margin-top: 2px; }
