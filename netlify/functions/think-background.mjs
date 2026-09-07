@@ -44,6 +44,7 @@ export default async (request) => {
     const user = task === "edit" ? text
       : task === "draft" ? `NOTE MODEL:\n${text}`
       : task === "transcribe" ? "Transcribe this document."
+      : task === "spell" ? `SECTIONS:\n${text}`
       : [
       `Today is ${today || new Date().toISOString().slice(0, 10)}.`,
       ``,
@@ -181,6 +182,9 @@ export default async (request) => {
       } catch (e) { L.warn("immediate.check.skipped", { message: e.message }); }
       if (Object.keys(voice).length) L.warn("voice.violation", voice);
     }
+    if (parsed && task === "spell")
+      L.info("spell", { findings: Array.isArray(parsed) ? parsed.length : "not an array",
+                        words: Array.isArray(parsed) ? parsed.map(x => `${x.section}:${x.wrong}→${x.suggest}`) : undefined });
     if (checks.dropped.length)   L.warn("vocab.violation", { dropped: checks.dropped });
     if (checks.quoteHits.length) L.warn("evidence.quoted", { themes: checks.quoteHits });
     if (checks.attrib.length)    L.warn("attribution.suspected", { fields: checks.attrib });

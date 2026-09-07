@@ -192,6 +192,20 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- PROOFREAD is a step, because native spellcheck cannot guard a printed
+  document. Chrome marks a misspelling only while its field is focused and
+  never paints the mark on the printed page, so "Draaaining" went through a
+  subtitle input that had spellCheck set and printed clean. The spellCheck
+  attributes stay -- they help while typing -- but the guard is the button.
+  It returns FINDINGS, never prose: prose in a JSON string is what broke the
+  first live draft at character 3,084, and keeping the model away from the
+  sentences also stops it rewriting a directional claim or rounding a number
+  on the way past. Findings are verified client-side against the section
+  they name, character for character, and dropped if they do not match --
+  a suggestion that cannot be applied safely is not shown. House words
+  (realised and its forms) and all-capital tickers are blocked in code as
+  well as in the prompt, because one click would otherwise apply them.
+  Nothing changes until replace is clicked; keep dismisses.
 - No last sale reaches the prose, on either execution mode. A scaled leg
   reads "scaling from current levels to 48.00 targeting a weighted average
   execution of 46.96"; an immediate leg reads "at current levels". The first

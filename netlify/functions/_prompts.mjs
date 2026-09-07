@@ -8,13 +8,14 @@ export const MODELS = {
   edit:       "claude-opus-5",
   draft:      "claude-opus-5",
   transcribe: "claude-opus-5",
+  spell:      "claude-opus-5",
 };
 
 /* Budgets cover thinking blocks as well as visible output. A draft is only
    ~700 words, but two runs burned all 5,000 tokens on reasoning and were
    cut off before emitting a single text block — the failure looked like a
    parse error when nothing had been written at all. */
-export const MAX_TOKENS = { themes: 12000, thesis: 12000, edit: 8000, draft: 16000, transcribe: 16000 };
+export const MAX_TOKENS = { themes: 12000, thesis: 12000, edit: 8000, draft: 16000, transcribe: 16000, spell: 8000 };
 
 const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
 
@@ -211,12 +212,53 @@ RULES
 
 7. If the document contains no readable text, return the marker and nothing after it.`;
 
+/* Proofreading returns FINDINGS, never prose. The note's prose is full of
+   quotation marks and apostrophes and cannot survive a JSON string — the
+   first live draft broke at character 3,084 for exactly that reason. Words
+   are short tokens and are safe to wrap. It also keeps the model away from
+   the sentences: it can point at a typo, it cannot quietly rewrite a
+   directional claim or round a number on the way past. */
+const SPELL_SYSTEM = `You proofread an institutional research note for SPELLING and typing errors only.
+
+You receive a JSON object of named sections. Return ONLY a JSON array, no preamble, no markdown:
+
+[{ "section": "<the section key exactly as supplied>",
+   "wrong": "<the misspelled word, copied character for character>",
+   "suggest": "<the correction>",
+   "note": "<at most six words, or empty>" }]
+
+Return [] if there is nothing wrong. Prefer returning nothing to guessing.
+
+RULES
+
+1. SPELLING AND TYPOS ONLY. Not grammar, not punctuation, not style, not word choice, not
+   capitalisation of ordinary words. Never suggest a better word for a correctly spelled one,
+   and never rewrite a phrase. If a sentence reads awkwardly but every word is spelled
+   correctly, say nothing.
+
+2. NEVER FLAG: ticker symbols (IBIT, GLD, SLV, TLT, QQQ and any other all-capital symbol);
+   market and options vocabulary (theta, vega, gamma, skew, backwardation, contango, straddle,
+   strangle, backspread, moneyness, POP, OI, ETF, ETN, repo, CPI, QE); Greek letters and
+   symbols; proper nouns; hyphenated compounds that are obviously intentional.
+
+3. British "realised" and "realise" are HOUSE STYLE and correct. Do not suggest the American
+   spelling of those. Everything else is American spelling.
+
+4. "wrong" MUST appear verbatim in the section you name, character for character, including
+   case. If you cannot copy it exactly, leave it out. A finding that does not match is worse
+   than no finding.
+
+5. Report each distinct misspelling once per section.
+
+6. Never report a number, date, price, strike or percentage.`;
+
 export const SYSTEM_PROMPTS = {
   draft:      DRAFT_SYSTEM,
   themes:     THEMES_SYSTEM,
   thesis:     THEMES_SYSTEM,
   edit:       EDIT_SYSTEM,
   transcribe: TRANSCRIBE_SYSTEM,
+  spell:      SPELL_SYSTEM,
 };
 
 /* Voice checks on a draft. Each returns the offending phrase so the UI can

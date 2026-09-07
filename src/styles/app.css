@@ -132,6 +132,18 @@ button.ghost {
 
 .err-banner { background: rgba(192,0,0,.06); border: 1px solid rgba(192,0,0,.25); color: var(--red); padding: 10px 13px; border-radius: 6px; font-size: 12.5px; margin-bottom: 14px; }
 .note { background: rgba(178,106,0,.07); border: 1px solid rgba(178,106,0,.22); color: #7A4A00; padding: 10px 13px; border-radius: 6px; font-size: 12.5px; }
+.ok-banner { background: rgba(0,112,60,.06); border: 1px solid rgba(0,112,60,.22); color: var(--green); padding: 10px 13px; border-radius: 6px; font-size: 12.5px; }
+
+/* Proofreading findings. Each is a proposal until it is clicked. */
+.spellfix { margin: 8px 0 0; padding: 0; list-style: none; }
+.spellfix li { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 5px 0; border-top: 1px solid rgba(178,106,0,.18); }
+.spellfix li:first-child { border-top: none; }
+.spellfix code { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); min-width: 96px; }
+.spellfix s { color: var(--red); text-decoration-thickness: 1px; }
+.spellfix b { color: var(--ink); }
+.spellfix em { color: var(--muted); font-size: 11.5px; }
+.spellfix button { margin-left: auto; padding: 2px 9px; font-size: 11px; }
+.spellfix button + button { margin-left: 0; }
 .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(0,121,193,.25); border-top-color: var(--jblue); border-radius: 50%; animation: sp .7s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg); } }
 

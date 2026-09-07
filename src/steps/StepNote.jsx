@@ -11,6 +11,8 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
   const [phase, setPhase] = useState(null);
   const [err, setErr] = useState(null);
   const [voice, setVoice] = useState(null);
+  const [spell, setSpell] = useState(null);
+  const [proofing, setProofing] = useState(false);
   const auto = useRef(false);
 
   /* Draft on arrival. A blank page every morning defeats the purpose, and
@@ -128,6 +130,78 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
 
   const hasProse = Boolean(s.prose?.summary);
 
+  /* Native spellcheck marks a word only while its field is focused, and it
+     never reaches the printed page — "Draaaining" printed clean through a
+     field that had spellCheck set. So the note gets a proof pass of its own.
+     It returns findings, never prose: the model points at a word, it does
+     not get to rewrite a sentence, round a number or soften a view. */
+  const SETTING_KEYS = { title: "Title", subtitle: "Subtitle", executeWindow: "Execute",
+                         holdWindow: "Hold", sector: "Sector line" };
+
+  /* The prompt tells the model to leave these alone; this is the check that
+     it did, in the same spirit as vocabulary enforcement on the extractor.
+     "Realised" is house style and a suggestion to Americanise it should never
+     reach the screen, where one click would apply it. */
+  const HOUSE_WORD = /^(realis(e|ed|es|ing|ation))$/i;
+  const TICKERISH  = /^[A-Z][A-Z0-9]{1,5}$/;
+
+  function proofSections() {
+    const out = {};
+    for (const k of Object.keys(SETTING_KEYS)) if (s[k]?.trim()) out[k] = s[k];
+    if (s.prose?.summary) out.summary = s.prose.summary;
+    if (s.prose?.execution) out.execution = s.prose.execution;
+    for (const th of note.themes) {
+      const v = s.prose?.themes?.[th.id];
+      if (v?.trim()) out[th.id] = v;
+    }
+    return out;
+  }
+
+  async function proof() {
+    setProofing(true); setErr(null); setSpell(null);
+    const sections = proofSections();
+    const t = RunLog.timer("llm", "spell", { sections: Object.keys(sections).length });
+    try {
+      const res = await api.thinkLong("spell", JSON.stringify(sections), {},
+        (status, polls, secs) => setPhase(`proofing · ${secs}s`));
+      const raw = res?.parsed;
+      if (!Array.isArray(raw)) throw new Error(res?.parseError || "proof returned no list");
+
+      /* A finding whose word is not in the section verbatim cannot be applied
+         safely, so it is dropped rather than shown. The model is told to copy
+         exactly; this is the check that it did. */
+      const found = [], rejected = [], blocked = [];
+      raw.forEach((f, i) => {
+        const body = sections[f?.section];
+        if (!body || !f.wrong || !f.suggest || !body.includes(f.wrong)) { rejected.push(`${f?.section}:${f?.wrong}`); return; }
+        if (HOUSE_WORD.test(f.wrong) || TICKERISH.test(f.wrong)) { blocked.push(`${f.section}:${f.wrong}`); return; }
+        found.push({ ...f, key: `${f.section}:${f.wrong}:${i}` });
+      });
+      if (rejected.length) RunLog.warn("llm", "spell.unmatched", { rejected });
+      if (blocked.length) RunLog.warn("llm", "spell.house.blocked", { blocked });
+      RunLog.info("ui", "spell.result", { found: found.length, rejected: rejected.length, blocked: blocked.length });
+      setSpell({ found, checked: Object.keys(sections).length });
+      t.end({ found: found.length, rejected: rejected.length, model: res.model });
+    } catch (e) { t.fail(e); setErr(e.message); }
+    setProofing(false); setPhase(null);
+  }
+
+  /* Replace every occurrence in the one section it was found in. Settings and
+     prose live in different places in state, so the write is routed. */
+  function applyFix(f) {
+    const swap = str => str.split(f.wrong).join(f.suggest);
+    if (SETTING_KEYS[f.section]) set(f.section, swap(s[f.section] || ""));
+    else if (f.section === "summary" || f.section === "execution") setProse(f.section, swap(s.prose?.[f.section] || ""));
+    else setProse(f.section, swap(s.prose?.themes?.[f.section] || ""));
+    setSpell(prev => prev && { ...prev, found: prev.found.filter(x => x.key !== f.key) });
+    RunLog.info("ui", "spell.applied", { section: f.section, wrong: f.wrong, suggest: f.suggest });
+  }
+
+  const dismissFix = f => {
+    setSpell(prev => prev && { ...prev, found: prev.found.filter(x => x.key !== f.key) });
+    RunLog.info("ui", "spell.dismissed", { section: f.section, wrong: f.wrong });
+  };
+
   return (
     <>
       <div className="card">
@@ -170,9 +244,35 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
           </div>
         )}
 
+        {spell && (
+          <div className={spell.found.length ? "note" : "ok-banner"} style={{ marginTop: 12 }}>
+            {spell.found.length === 0
+              ? <><b>Proofread clean.</b> {spell.checked} sections checked, nothing flagged.</>
+              : <>
+                  <b>{spell.found.length} spelling {spell.found.length === 1 ? "item" : "items"}</b> across {spell.checked} sections.
+                  Tickers, options vocabulary and the house "realised" are excluded.
+                  <ul className="spellfix">
+                    {spell.found.map(f => (
+                      <li key={f.key}>
+                        <code>{SETTING_KEYS[f.section] || note.themes.find(t => t.id === f.section)?.subject || f.section}</code>
+                        <s>{f.wrong}</s> → <b>{f.suggest}</b>
+                        {f.note ? <em> {f.note}</em> : null}
+                        <button className="ghost" onClick={() => applyFix(f)}>replace</button>
+                        <button className="ghost" onClick={() => dismissFix(f)}>keep</button>
+                      </li>
+                    ))}
+                  </ul>
+                </>}
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 14 }}>
-          <button className="primary" disabled={busy || note.themes.length === 0} onClick={draft}>
+          <button className="primary" disabled={busy || proofing || note.themes.length === 0} onClick={draft}>
             {busy ? <><span className="spin" />&nbsp; {phase || "Sending…"}</> : hasProse ? "Re-draft with Opus" : "Draft with Opus"}
+          </button>
+          <button className="ghost" disabled={busy || proofing || !hasProse} onClick={proof}
+                  title="Spelling and typos only — tickers, options vocabulary and the house 'realised' are left alone. Nothing is changed until you click replace.">
+            {proofing ? <><span className="spin" />&nbsp; {phase || "Proofing…"}</> : "Proofread"}
           </button>
           <button className="ghost" disabled={!hasProse} onClick={print}
                   title={allAccepted ? "" : "Sections still unaccepted — they will print with a draft mark on screen only"}>
