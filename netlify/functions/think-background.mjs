@@ -136,12 +136,21 @@ export default async (request) => {
     if (checks.badAnchors?.length) L.warn("anchor.invalid", { themes: checks.badAnchors });
     if (truncated)               L.warn("output.truncated", { outTok: body.usage?.output_tokens });
 
-    L.info("model", {
-      model: MODEL, ms, stopReason: body.stop_reason, blocks, rawChars: raw.length,
-      inTok: body.usage?.input_tokens, outTok: body.usage?.output_tokens,
-      parsedOk: Boolean(parsed),
-      themes: parsed?.themes?.map(t => `${t.direction}:${t.subject}:${t.basis}:${t.anchorTag}:${t.cluster}`),
-    });
+    /* Diagnostics must never be able to discard a good result: themes is an
+   array for extraction and an object for a draft, and a log line that
+   assumed the array killed a complete note. */
+    try {
+      L.info("model", {
+        model: MODEL, ms, stopReason: body.stop_reason, blocks, rawChars: raw.length,
+        inTok: body.usage?.input_tokens, outTok: body.usage?.output_tokens,
+        parsedOk: Boolean(parsed),
+        themes: Array.isArray(parsed?.themes)
+          ? parsed.themes.map(t => `${t.direction}:${t.subject}:${t.basis}:${t.anchorTag}:${t.cluster}`)
+          : parsed?.themes ? Object.keys(parsed.themes) : undefined,
+      });
+    } catch (logErr) {
+      L.warn("model.log.failed", { message: logErr.message });
+    }
 
     await put({
       status: parsed ? "done" : "failed",

@@ -197,6 +197,9 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- Diagnostics are wrapped and never assume a payload shape. parsed.themes
+  is an ARRAY for extraction and an OBJECT for a draft; a log line that
+  called .map on it discarded a complete, correctly-parsed note.
 - Token budgets cover THINKING blocks, not just visible output. Two live
   drafts burned all 5,000 tokens reasoning and were cut off before a
   single text block was emitted -- the failure presented as a parse error
