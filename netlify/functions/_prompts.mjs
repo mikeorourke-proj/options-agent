@@ -9,7 +9,11 @@ export const MODELS = {
   draft:  "claude-opus-5",
 };
 
-export const MAX_TOKENS = { themes: 8000, thesis: 8000, edit: 6000, draft: 5000 };
+/* Budgets cover thinking blocks as well as visible output. A draft is only
+   ~700 words, but two runs burned all 5,000 tokens on reasoning and were
+   cut off before emitting a single text block — the failure looked like a
+   parse error when nothing had been written at all. */
+export const MAX_TOKENS = { themes: 12000, thesis: 12000, edit: 8000, draft: 16000 };
 
 const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
 

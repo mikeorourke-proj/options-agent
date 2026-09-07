@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import { api } from "../lib/api.js";
 import { composeNote, draftContext } from "../lib/compose.js";
@@ -10,6 +10,16 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
   const [phase, setPhase] = useState(null);
   const [err, setErr] = useState(null);
   const [voice, setVoice] = useState(null);
+  const auto = useRef(false);
+
+  /* Draft on arrival. A blank page every morning defeats the purpose, and
+     nothing is committed until a section is accepted. */
+  useEffect(() => {
+    if (auto.current || s.prose?.summary || note.themes.length === 0) return;
+    auto.current = true;
+    draft();
+    /* eslint-disable-next-line */
+  }, []);
 
   const note = useMemo(() => composeNote({ parsed, picks, menus, settings: s }),
                        [parsed, picks, menus, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector, s.prose]);
@@ -21,6 +31,15 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     setNoteState({ ...s, prose: p });
     RunLog.info("ui", "prose.edit", { field: k, chars: v.length });
   };
+  const accept = (k, on = true) => {
+    const a = { ...(s.accepted || {}) };
+    if (on) a[k] = true; else delete a[k];
+    setNoteState({ ...s, accepted: a });
+    RunLog.info("ui", "prose.accept", { field: k, accepted: on });
+  };
+  const sectionKeys = ["summary", ...note.themes.map(t => t.id), "execution"];
+  const acceptedCount = sectionKeys.filter(k => s.accepted?.[k]).length;
+  const allAccepted = acceptedCount === sectionKeys.length && sectionKeys.length > 0;
 
   /* The draft is a button, not a side effect: a draft you didn't ask for
      is worse than a blank page. */
@@ -48,6 +67,8 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
       }
       if (unmatched.length) RunLog.warn("ui", "draft.unmatched.themes", { unmatched, returned: Object.keys(p.themes || {}) });
       setNoteState({ ...s, prose: { summary: p.summary || "", themes, execution: p.execution || "" },
+                     accepted: {},                       // nothing accepted until read
+                     partial: p.partial || null,
                      draftedBy: res.model, draftedAt: new Date().toISOString() });
       setVoice(res.voice && Object.keys(res.voice).length ? res.voice : null);
       t.end({ model: res.model, voiceHits: res.voice ? Object.keys(res.voice).length : 0 });
@@ -108,18 +129,30 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
           <button className="primary" disabled={busy || note.themes.length === 0} onClick={draft}>
             {busy ? <><span className="spin" />&nbsp; {phase || "Sending…"}</> : hasProse ? "Re-draft with Opus" : "Draft with Opus"}
           </button>
-          <button className="ghost" disabled={!hasProse} onClick={print}>Print / Save as PDF</button>
+          <button className="ghost" disabled={!hasProse} onClick={print}
+                  title={allAccepted ? "" : "Sections still unaccepted — they will print with a draft mark on screen only"}>
+            Print / Save as PDF
+          </button>
+          <button className="ghost" disabled={!hasProse || allAccepted}
+                  onClick={() => { sectionKeys.forEach(k => accept(k)); RunLog.info("ui", "prose.acceptAll", { n: sectionKeys.length }); }}>
+            Accept all
+          </button>
           {s.draftedBy && <span style={{ fontSize: 11.5, color: "var(--muted)", fontFamily: "var(--mono)" }}>
             drafted by {s.draftedBy} · {new Date(s.draftedAt).toLocaleTimeString()}</span>}
           <span className="spacer" />
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>
-            {note.etfOrder.length} ETF · {note.optOrder.length} derivatives · {note.themes.length} theme{note.themes.length === 1 ? "" : "s"}
+          <span style={{ fontSize: 12, color: allAccepted ? "var(--green)" : "var(--muted)" }}>
+            {hasProse ? `${acceptedCount} of ${sectionKeys.length} sections accepted · ` : ""}
+            {note.etfOrder.length} ETF · {note.optOrder.length} derivatives
           </span>
         </div>
-        {busy && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Opus drafts in 20–40 seconds.</div>}
+        {busy && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Opus drafts in 20–60 seconds.</div>}
+        {s.partial && <div className="note" style={{ marginTop: 10 }}>
+          The draft was cut short — <b>{s.partial.join(" and ")}</b> {s.partial.length > 1 ? "are" : "is"} empty.
+          Re-draft, or write {s.partial.length > 1 ? "them" : "it"} yourself.
+        </div>}
       </div>
 
-      <NoteView note={note} onProse={setProse} />
+      <NoteView note={note} onProse={setProse} accepted={s.accepted || {}} onAccept={accept} />
     </>
   );
 }

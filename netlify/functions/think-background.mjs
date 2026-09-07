@@ -74,7 +74,9 @@ export default async (request) => {
       return;
     }
 
+    const blocks = (body.content || []).map(b => b.type);
     const raw = (body.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+    if (!raw) L.warn("model.no.text", { blocks, outTok: body.usage?.output_tokens, stopReason: body.stop_reason });
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
     const truncated = body.stop_reason === "max_tokens";
 
@@ -94,7 +96,18 @@ export default async (request) => {
         const wc = t => (t || "").split(/\s+/).filter(Boolean).length;
         L.info("draft.sections", { summary: wc(parsed.summary), execution: wc(parsed.execution),
                                    themes: Object.fromEntries(Object.entries(parsed.themes).map(([k, v]) => [k, wc(v)])) });
-        if (!parsed.summary || !parsed.execution) { parseError = "draft missing SUMMARY or EXECUTION section"; parsed = null; }
+        /* A truncated draft still has complete sections before the cut.
+           Keep them and say which are missing rather than discarding the lot. */
+        const missing = [];
+        if (!parsed.summary) missing.push("summary");
+        if (!parsed.execution) missing.push("execution");
+        if (missing.length) {
+          L.warn("draft.partial", { missing, got: Object.keys(parsed.themes), truncated });
+          parsed.partial = missing;
+        }
+        if (!parsed.summary && !Object.keys(parsed.themes).length) {
+          parseError = "draft returned no usable sections"; parsed = null;
+        }
       } else {
         parseError = truncated ? `Output hit the ${MAX_TOKENS[task]}-token cap.` : "draft returned no recognisable sections";
       }
@@ -124,7 +137,7 @@ export default async (request) => {
     if (truncated)               L.warn("output.truncated", { outTok: body.usage?.output_tokens });
 
     L.info("model", {
-      model: MODEL, ms, stopReason: body.stop_reason,
+      model: MODEL, ms, stopReason: body.stop_reason, blocks, rawChars: raw.length,
       inTok: body.usage?.input_tokens, outTok: body.usage?.output_tokens,
       parsedOk: Boolean(parsed),
       themes: parsed?.themes?.map(t => `${t.direction}:${t.subject}:${t.basis}:${t.anchorTag}:${t.cluster}`),

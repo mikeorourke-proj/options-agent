@@ -12,19 +12,28 @@ function Foot({ n }) { return <div className="foot"><b>JonesTrading</b><span>Pag
 
 /* Editable paragraph. onChange fires on blur so typing is not re-rendered
    on every keystroke. */
-function Para({ lead, text, onChange, k }) {
-  /* The lead-in is fixed; only the body is editable. Reading innerText of
-     the body span alone means no lead is ever saved back into the prose. */
+/* Lead-in fixed, body editable, accept button per section. Unaccepted
+   sections carry a draft rule on screen and print clean either way. */
+function Para({ lead, text, onChange, k, accepted, onAccept }) {
+  const editable = Boolean(onChange);
   return (
-    <p className="para" data-k={k}>
+    <p className={`para${editable && !accepted ? " unaccepted" : ""}`} data-k={k}>
       {lead && <span className="lead" contentEditable={false}>{lead} </span>}
-      <span className="body" contentEditable={Boolean(onChange)} suppressContentEditableWarning
+      <span className="body" contentEditable={editable} suppressContentEditableWarning
+            onInput={() => accepted && onAccept?.(k, false)}
             onBlur={e => onChange?.(e.currentTarget.innerText)}>{text}</span>
+      {editable && onAccept && text && (
+        <button className={`acc${accepted ? " on" : ""}`} contentEditable={false}
+                onClick={() => onAccept(k, !accepted)}
+                title={accepted ? "Accepted — click to reopen" : "Accept this section"}>
+          {accepted ? "\u2713 accepted" : "accept"}
+        </button>
+      )}
     </p>
   );
 }
 
-export default function NoteView({ note, onProse }) {
+export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
   const { meta, themes, etfOrder, optOrder, risks, prose } = note;
   const T = Object.fromEntries(themes.map(t => [t.id, t]));
   const etfRows = etfOrder.map(r => T[r.themeId]).filter(Boolean);
@@ -50,12 +59,15 @@ export default function NoteView({ note, onProse }) {
         <div className="cols">
           <div className="col-l">
             <div className="headline">{meta.subtitle}</div>
-            <Para lead="Summary:" k="summary" text={prose.summary} onChange={onProse && (v => onProse("summary", v))} />
+            <Para lead="Summary:" k="summary" text={prose.summary} onChange={onProse && (v => onProse("summary", v))}
+                  accepted={accepted.summary} onAccept={onAccept} />
             {etfRows.map(t => (
               <Para key={t.id} lead={`${t.subject}.`} k={t.id} text={prose.themes[t.id] || ""}
-                    onChange={onProse && (v => onProse(t.id, v))} />
+                    onChange={onProse && (v => onProse(t.id, v))}
+                    accepted={accepted[t.id]} onAccept={onAccept} />
             ))}
-            <Para lead="Execution strategy." k="execution" text={prose.execution} onChange={onProse && (v => onProse("execution", v))} />
+            <Para lead="Execution strategy." k="execution" text={prose.execution} onChange={onProse && (v => onProse("execution", v))}
+                  accepted={accepted.execution} onAccept={onAccept} />
           </div>
 
           <div className="col-r rail">

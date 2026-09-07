@@ -129,3 +129,19 @@ table.x .c { text-align: center; }
 .appx h2 { font-size: 7.4pt; margin: 3mm 0 1.4mm; }
 .appx p { font-size: 6.9pt; line-height: 1.42; text-align: justify; margin: 0 0 2mm; }
 .appx .copy { color: var(--n-blue); font-weight: 700; font-size: 6.6pt; margin-top: 3mm; }
+
+/* Accept controls — screen only, never printed. */
+.para { position: relative; }
+.para.unaccepted { border-left: .6mm solid #F0C36D; padding-left: 2.4mm; margin-left: -3mm; }
+.para .acc {
+  display: inline-block; margin-left: 2mm; vertical-align: 1pt;
+  border: .2mm solid var(--n-hair); background: #fff; color: var(--n-muted);
+  border-radius: 1mm; padding: .3mm 1.6mm; font-size: 5.6pt; cursor: pointer;
+  font-family: Arial, sans-serif;
+}
+.para .acc:hover { border-color: var(--n-blue); color: var(--n-blue); }
+.para .acc.on { background: #E6F4EC; border-color: var(--n-green); color: var(--n-green); }
+@media print {
+  .para .acc { display: none !important; }
+  .para.unaccepted { border-left: none; padding-left: 0; margin-left: 0; }
+}

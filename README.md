@@ -197,6 +197,14 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- Token budgets cover THINKING blocks, not just visible output. Two live
+  drafts burned all 5,000 tokens reasoning and were cut off before a
+  single text block was emitted -- the failure presented as a parse error
+  when nothing had been written. think-background now logs the content
+  block types and warns when no text came back at all.
+- The Note step drafts automatically on arrival, then each section is
+  edited in place and accepted individually. Editing an accepted section
+  reopens it. Accept controls never print.
 - The draft returns delimited sections (### SUMMARY / ### THEME: x /
   ### EXECUTION), never JSON. English prose contains quotation marks and
   apostrophes; the first live draft failed at character 3,084 on an
