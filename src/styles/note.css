@@ -34,7 +34,8 @@
   .noteprint { display: block !important; background: #fff !important; padding: 0 !important; }
   .page {
     page-break-after: always; break-after: page;
-    box-shadow: none !important; margin: 0 !important; width: 210mm; min-height: 296mm;
+    box-shadow: none !important; margin: 0 !important; width: 210mm;
+    min-height: 296mm; height: auto;
   }
   .page:last-child { page-break-after: auto; break-after: auto; }
 }
@@ -85,6 +86,8 @@
 /* rail */
 .rh { font-size: 6.8pt; font-weight: 700; border-bottom: .3mm solid #0276CD; padding-bottom: .8mm; margin: 3.4mm 0 1.8mm; }
 .rail table { width: 100%; border-collapse: collapse; font-size: 5.9pt; }
+.rail table.etfr { font-size: 5.6pt; }
+.rail table.etfr th, .rail table.etfr td { padding-left: .5mm; }
 .rail td, .rail th { padding: .35mm 0; vertical-align: baseline; }
 .rail th { font-weight: 700; color: var(--n-muted); font-size: 5.4pt; text-align: right; }
 .rail th:first-child, .rail td:first-child { text-align: left; }
@@ -114,7 +117,12 @@
 .exh { color: var(--n-navy); font-size: 7.4pt; font-weight: 700; margin: 3.4mm 0 1.6mm; }
 .exh.first { margin-top: 0; }
 .sub { color: var(--n-blue); font-size: 6pt; font-weight: 700; margin: 1.2mm 0 1mm; }
-table.x { width: 100%; border-collapse: collapse; font-size: 6.1pt; }
+/* Keep an exhibit whole: title, table and source travel together, and a
+   table never splits mid-row. Without this a four-structure note pushed
+   the last leg onto a fresh sheet with a duplicated header. */
+.exhblk { break-inside: avoid; page-break-inside: avoid; }
+table.x { width: 100%; border-collapse: collapse; font-size: 6.1pt; break-inside: avoid; page-break-inside: avoid; }
+table.x tr { break-inside: avoid; page-break-inside: avoid; }
 table.x th { background: var(--n-navy); color: #fff; font-weight: 700; font-size: 5.9pt; padding: 1mm 1.2mm; text-align: left; }
 table.x td { padding: .9mm 1.2mm; border-bottom: .1mm solid var(--n-hair); }
 table.x tr:nth-child(odd) td { background: var(--n-alt); }

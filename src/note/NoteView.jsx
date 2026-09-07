@@ -72,14 +72,16 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
 
           <div className="col-r rail">
             <div className="rh">ETF Expression</div>
-            <table><thead><tr><th></th><th>entry</th><th>stop</th><th>risk</th></tr></thead><tbody>
+            <table className="etfr"><thead><tr>
+              <th></th><th>entry</th><th>stop</th><th>risk</th><th>put wall</th><th>call wall</th>
+            </tr></thead><tbody>
               {etfRows.map(t => <>
                 <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
                   <td>{f(t.etf.plan?.entry)}</td><td className="r">{f(t.etf.plan?.stop)}</td>
-                  <td>{f(t.etf.share?.riskPct, 1)}%</td></tr>
-                <tr key={t.id + "s"}><td className="sub" colSpan={4}>
+                  <td>{f(t.etf.share?.riskPct, 1)}%</td>
+                  <td className="g">{t.vol?.putWall ?? "—"}</td><td className="r">{t.vol?.callWall ?? "—"}</td></tr>
+                <tr key={t.id + "s"}><td className="sub" colSpan={6}>
                   {t.etf.plan?.single ? "at last sale" : `scale ${f(t.etf.price)}→${t.etf.plan?.wall}`}
-                  &nbsp;·&nbsp; walls {t.vol?.putWall}/{t.vol?.callWall}
                   &nbsp;·&nbsp; 1σ {f(t.etf.tgt?.dn, 0)}–{f(t.etf.tgt?.up, 0)}</td></tr>
               </>)}
             </tbody></table>
@@ -130,24 +132,26 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
       <div className="page">
         <div className="rhead">Institutional Tactical Note — {meta.title}<span>{meta.date}</span></div>
 
-        <div className="exh first">Exhibit 1: Vehicle Screening</div>
+        <div className="exhblk"><div className="exh first">Exhibit 1: Vehicle Screening</div>
         <table className="x"><thead><tr><th>Theme</th><th>Selected</th><th>Alternatives considered</th><th>Why not selected</th></tr></thead><tbody>
           {etfRows.map(t => <tr key={t.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
             <td>{t.screening.considered.join(" · ") || "—"}</td><td>{t.screening.whyNot || "no second vehicle with a usable chain"}</td></tr>)}
         </tbody></table>
         <div className="src">Vehicles selected on directness of exposure, options liquidity, dollar volume, and structural decay over the holding period.</div>
+        </div>
 
-        {etfRows.some(t => t.levered.length) && <>
-          <div className="exh">Exhibit 2: Levered and Inverse Alternatives — Not Recommended at This Horizon</div>
+        {etfRows.some(t => t.levered.length) && (
+          <div className="exhblk"><div className="exh">Exhibit 2: Levered and Inverse Alternatives — Not Recommended at This Horizon</div>
           <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th>Leverage</th><th>Gamma X(X−1)</th><th>Suitability at {meta.holdWindow}</th></tr></thead><tbody>
             {etfRows.flatMap(t => t.levered.map(l => <tr key={l.tk}><td>{t.etf.tk}</td><td>{l.tk}</td>
               <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma}</td>
               <td>days only — daily reset decay compounds over {meta.holdWindow}</td></tr>))}
           </tbody></table>
           <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets. None is carried here.</div>
-        </>}
+          </div>
+        )}
 
-        <div className="exh">Exhibit 3: Positioning Map — Spot, Scale Range and Walls</div>
+        <div className="exhblk"><div className="exh">Exhibit 3: Positioning Map — Spot, Scale Range and Walls</div>
         <div className="pm">
           {etfRows.map(t => {
             const v = t.vol, p = t.etf.plan; if (!v?.putWall || !v?.callWall || !p) return null;
@@ -168,8 +172,9 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           })}
         </div>
         <div className="src">Walls in green/red; ticks are the five scale executions; navy line is the weighted average. Price-triggered — an unfilled rung is an unbuilt position.</div>
+        </div>
 
-        <div className="exh">Exhibit 4: ETF Expression</div>
+        <div className="exhblk"><div className="exh">Exhibit 4: ETF Expression</div>
         <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target execution</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
@@ -180,7 +185,8 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution.<br />
           Implied 1σ is the option-implied range over the holding period — the market's own measure of a normal move, not a price objective.</div>
 
-        <div className="exh">Exhibit 5: Derivatives Expression</div>
+        </div>
+        <div className="exhblk"><div className="exh">Exhibit 5: Derivatives Expression</div>
         <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Structure</th><th>Expiry</th><th>Legs</th><th>Net</th><th>Max gain</th><th>Breakeven</th><th>POP</th></tr></thead><tbody>
           {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
             <td>{o.name}</td><td className="c">{o.expiry.slice(5)}</td><td className="c">{o.legText}</td>
@@ -190,9 +196,10 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           {optRows.length === 0 && <tr><td colSpan={9}>No derivatives expression carried.</td></tr>}
         </tbody></table>
         <div className="src">Marks from {[...new Set(optRows.map(x => x.o.pricing.priceSource))].join(" / ") || "the chain"}. POP is the probability of finishing beyond breakeven under the stated view.</div>
+        </div>
 
         {optRows.length > 0 && <>
-          <div className="exh">Exhibit 6: Structure Notes</div>
+          <div className="exhblk"><div className="exh">Exhibit 6: Structure Notes</div>
           <table className="x"><thead><tr><th>Theme</th><th>Structure</th><th>Note</th></tr></thead><tbody>
             {optRows.flatMap(({ t, o }) => [
               <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td>{o.name}</td><td>{o.why}</td></tr>,
@@ -201,7 +208,8 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           </tbody></table>
           <div className="src">The first structure under each theme is the one carried; the second is the nearest alternative.</div>
 
-          <div className="exh">Exhibit 7: Option Leg Detail</div>
+          </div>
+        <div className="exhblk"><div className="exh">Exhibit 7: Option Leg Detail</div>
           <table className="x"><thead><tr><th></th><th>Action</th><th>Qty</th><th>Expiry</th><th>Strike</th><th>Type</th><th>Mark</th><th>Moneyness</th><th>Delta</th><th>OI</th></tr></thead><tbody>
             {optRows.flatMap(({ t, o }) => o.pricing.legDetail.map((L, i) => <tr key={t.id + o.id + i}>
               <td>{i === 0 ? `${t.etf.tk} ${o.name}` : ""}</td><td className="c">{L.action}</td><td className="c">{L.qty}</td>
@@ -209,6 +217,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               <td className="c">${f(L.px)}</td><td className="c">{pct(L.moneyness)}</td><td className="c">{f(L.delta, 3)}</td><td className="c">{L.oi.toLocaleString()}</td></tr>))}
           </tbody></table>
           <div className="src">One contract equals 100 shares. Delta shown per contract at the mark.</div>
+          </div>
         </>}
         <Foot n={2} />
       </div>

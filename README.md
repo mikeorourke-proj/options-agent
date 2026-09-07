@@ -197,6 +197,10 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- Each exhibit is wrapped in .exhblk with break-inside: avoid, so a title,
+  its table and its source line travel together and a table never splits
+  mid-row. A four-structure note previously pushed the last option leg to
+  a fresh sheet under a duplicated header.
 - print-color-adjust: exact is set on the note and everything inside it.
   Browsers strip background colour when printing by default, so the blue
   masthead band and every navy table header came out white.
