@@ -192,6 +192,27 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- No last sale reaches the prose, on either execution mode. A scaled leg
+  reads "scaling from current levels to 48.00 targeting a weighted average
+  execution of 46.96"; an immediate leg reads "at current levels". The first
+  rung is not a commitment and the tape has moved past it by the time the
+  note is read; what IS committed is the far end of the band and the
+  weighted average the ladder is built to achieve. Entry improvement went
+  with it -- a percentage against a stale price that says nothing the
+  weighted average does not. It survives in the internal explainer, which is
+  where an audit figure belongs.
+- House wording: "stop-loss", not "stop", checked by VOICE_CHECKS.stopword
+  on /stops? at/. The walls and implied range get their own sentence rather
+  than trailing off the stop with "with".
+- VOICE_CHECKS.objective had to be narrowed. "Targeting" is a price
+  objective everywhere except on the weighted average execution, which is a
+  level the ladder is built to achieve rather than one the trade predicts,
+  so the check carries a negative lookahead for that one construction. It
+  still fires on "targeting 380" and "our target of".
+- Editable fields carry spellCheck: the five note settings inputs, the two
+  source textareas, and the contentEditable prose body. No lang is forced --
+  pinning en-US would squiggle "realised" and offer to correct it, against
+  the house rule. Replacements come from the browser's own context menu.
 - Execution mode is RESOLVED, not just preferred. scalePlan forces immediate
   when the last sale sits inside NEAR_WALL (2%) of the wall being faded --
   the call wall on a bearish leg, the put wall on a bullish one -- because

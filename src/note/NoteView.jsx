@@ -19,7 +19,11 @@ function Para({ lead, text, onChange, k, accepted, onAccept }) {
   return (
     <p className={`para${editable && !accepted ? " unaccepted" : ""}`} data-k={k}>
       {lead && <span className="lead" contentEditable={false}>{lead} </span>}
-      <span className="body" contentEditable={editable} suppressContentEditableWarning
+      {/* Native spellcheck: squiggles plus the browser's own right-click
+          replacements, which beats shipping a dictionary. No lang is forced —
+          pinning en-US would put a squiggle under "realised" and offer to
+          "correct" it, against the house rule. */}
+      <span className="body" contentEditable={editable} spellCheck={editable} suppressContentEditableWarning
             onInput={() => accepted && onAccept?.(k, false)}
             onBlur={e => onChange?.(e.currentTarget.innerText)}>{text}</span>
       {editable && onAccept && text && (
@@ -73,18 +77,18 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           <div className="col-r rail">
             <div className="rh">ETF Expression</div>
             <table className="etfr"><thead><tr>
-              <th></th><th>entry</th><th>stop</th><th>risk</th><th>put wall</th><th>call wall</th>
+              <th></th><th>Target Entry</th><th>Stop-loss</th><th>Risk</th><th>Put wall</th><th>Call wall</th>
             </tr></thead><tbody>
               {etfRows.map(t => (
                 <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
-                  <td>{f(t.etf.plan?.entry)}</td><td className="r">{f(t.etf.plan?.stop)}</td>
+                  <td>{t.etf.plan?.single ? "current" : f(t.etf.plan?.entry)}</td><td className="r">{f(t.etf.plan?.stop)}</td>
                   <td>{f(t.etf.share?.riskPct, 1)}%</td>
                   <td className="g">{t.vol?.putWall ?? "—"}</td><td className="r">{t.vol?.callWall ?? "—"}</td></tr>
               ))}
             </tbody></table>
 
             <div className="rh">Derivatives Expression</div>
-            <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "net" : "debit"}</th><th>max gain</th></tr></thead><tbody>
+            <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "Net" : "Debit"}</th><th>Max gain</th></tr></thead><tbody>
               {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{t.etf.tk}</td>
                 <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {o.expiry.slice(5)}</td>
                 <td>${f(Math.abs(o.pricing.net) / 100)}{o.pricing.net < 0 ? " cr" : ""}</td>
@@ -174,7 +178,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         </div>
 
         <div className="exhblk"><div className="exh">Exhibit 4: ETF Expression</div>
-        <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target execution</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
+        <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target Entry</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>

@@ -100,22 +100,25 @@ export function draftContext(note) {
       subject: t.subject, direction: t.direction, evidence: t.evidence, rationale: t.rationale,
       catalyst: t.catalyst?.description || null, catalystDate: t.catalyst?.date || null,
       etf: t.etf && (() => {
-        /* An immediate leg has no ladder, no band and no entry improvement.
-           Sending those fields anyway produced "short IBIT immediately at
-           45.23, the ladder spanning 45.23 to 48.00 with entry improvement
-           of 0.0" — the model quoting exactly what it was given, per rule 6.
-           The last sale is also the wrong number to print: by the time the
-           note is read it is stale, and there is no ladder that makes it a
-           commitment. So an immediate leg is described as entering at
-           current levels and carries no entry price at all. */
+        /* An immediate leg has no ladder and no band. Sending those fields
+           anyway produced "short IBIT immediately at 45.23, the ladder
+           spanning 45.23 to 48.00 with entry improvement of 0.0" — the model
+           quoting exactly what it was given, per rule 6.
+
+           The last sale reaches the draft on NEITHER mode. On an immediate
+           leg there is no ladder that makes it a commitment; on a scaled leg
+           it is only the first rung, and by the time the note is read the
+           tape has moved past it. Both open at current levels. What is
+           committed is the far end of the band and the weighted average the
+           ladder is built to achieve, so those are the numbers sent.
+           Entry improvement goes with it: it is a percentage against the
+           stale price and says nothing the weighted average does not. */
         const imm = t.etf.plan?.execution === "immediate";
         return {
           ticker: t.etf.tk, execution: t.etf.plan?.execution,
-          ...(imm
-            ? { entry: "current levels" }
-            : { scaleFrom: fmt(t.etf.price), scaleTo: fmt(t.etf.plan?.wall),
-                targetExecution: fmt(t.etf.plan?.entry),
-                entryImprovementPct: fmt(t.etf.plan?.entryImprovementPct, 1) }),
+          entry: "current levels",
+          ...(imm ? {} : { scaleTo: fmt(t.etf.plan?.wall),
+                           targetExecution: fmt(t.etf.plan?.entry) }),
           /* No price objective reaches the draft. Targets anchor the reader,
              and the structural target is not always coherent: when the put
              wall sits above the last sale on a bearish trade, "targeting 60

@@ -129,7 +129,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
 
         {err && <div className="err-banner"><b>Extraction failed.</b> {err}</div>}
 
-        <textarea value={text} onChange={e => setText(e.target.value)} style={{ minHeight: 210 }}
+        <textarea spellCheck="true" value={text} onChange={e => setText(e.target.value)} style={{ minHeight: 210 }}
           placeholder="Paste the note or story here…" />
 
         {transcribed && (
@@ -167,7 +167,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
           document doesn't contain — a second-order read, a group the story never names, or a
           direction you disagree with.
         </p>
-        <textarea value={note} onChange={e => setNote(e.target.value)} style={{ minHeight: 92 }}
+        <textarea spellCheck="true" value={note} onChange={e => setNote(e.target.value)} style={{ minHeight: 92 }}
           placeholder="e.g. This pushes the neoclouds to the back of OpenAI's compute queue — bearish that group even though the story never mentions them." />
 
         <div className="row" style={{ marginTop: 12 }}>

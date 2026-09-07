@@ -148,18 +148,22 @@ VOICE — every rule is checked mechanically after you write:
    band and weighted average where the model supplies them, the stop, the risk, the option
    debit and POP. Do not add figures the model does not contain.
 7. EXECUTION MODE. Every ETF leg is either scaled or immediate, and the model says which.
-   A SCALED leg carries a scale band and a weighted average execution; describe the ladder and
-   cite both. An IMMEDIATE leg carries neither, and its entry field reads "current levels".
-   Write it that way — "we would be short IBIT at current levels". Never give an immediate leg
-   an entry price, a scale band, a ladder, a tranche, or an entry improvement. There is no
-   ladder to describe and the last sale is stale by the time the note is read. Do not infer a
-   band from the walls.
+   Neither carries a starting price: the last sale is stale by the time the note is read, so
+   both open at "current levels". Never write an entry price, and never mention entry
+   improvement — the model no longer contains either.
+     SCALED — "We would be short IBIT, scaling from current levels to 48.00 targeting a
+     weighted average execution of 46.96." Cite scaleTo and targetExecution, nothing before them.
+     IMMEDIATE — "We would be short IBIT at current levels." No band, no ladder, no tranche.
+   Call it the STOP-LOSS, not the stop: "The stop-loss at 48.48 ends the trade, 3.2% of risk."
+   Give the structure its own sentence rather than trailing it off the stop with "with":
+   "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
 8. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
-9. EXECUTION paragraph explains the scale mechanics for the scaled legs, states that the
-   immediate legs go on at current levels with no ladder to wait for, and covers the
-   price-triggered nature of the ladder, the stop, and that option legs price off the current
-   quote. Reference the execute window and hold window as given.
+9. EXECUTION paragraph explains the scale mechanics for the scaled legs — each running from
+   current levels to its wall, never from a price — states that the immediate legs go on at
+   current levels with no ladder to wait for, and covers the price-triggered nature of the
+   ladder, the stop-loss, and that option legs price off the current quote. Reference the
+   execute window and hold window as given.
 10. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
    questions. British spelling of "realised"; otherwise American.`;
 
@@ -224,8 +228,15 @@ export const VOICE_CHECKS = [
     msg: "ranking language" },
   { id: "attribution", re: /\b(said|stated|according to|wrote|reports?|noted that|argues)\b/i,
     msg: "possible attribution" },
-  { id: "objective", re: /\b(targeting|price target|objective of|target of|our target)\b/i,
+  /* "Targeting" is a price objective everywhere except on the weighted
+     average execution, which is a level the ladder is built to achieve
+     rather than a level the trade is predicting. The house phrasing is
+     "targeting a weighted average execution of 46.96", so the check has to
+     let that one construction through or it fires on every scaled leg. */
+  { id: "objective", re: /\b(?:price target|objective of|target of|our target|targeting(?!\s+(?:a|the)?\s*weighted\s+average\s+execution\b))\b/i,
     msg: "price objective — the note carries none" },
+  { id: "stopword", re: /\bstops? at\b/i,
+    msg: "house wording is 'stop-loss'" },
   { id: "filler", re: /\b(it is worth noting|needless to say|importantly|interestingly)\b/i,
     msg: "filler" },
 ];

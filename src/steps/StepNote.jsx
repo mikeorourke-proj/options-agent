@@ -138,25 +138,25 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
         <div className="row" style={{ alignItems: "flex-end" }}>
           <div style={{ flex: 2, minWidth: 260 }}>
             <div className="sec-label">Title</div>
-            <input type="text" value={s.title || ""} onChange={e => set("title", e.target.value)} placeholder={parsed.sourceTitle} />
+            <input type="text" spellCheck="true" value={s.title || ""} onChange={e => set("title", e.target.value)} placeholder={parsed.sourceTitle} />
           </div>
           <div style={{ flex: 3, minWidth: 300 }}>
             <div className="sec-label">Subtitle</div>
-            <input type="text" value={s.subtitle || ""} onChange={e => set("subtitle", e.target.value)} placeholder="The argument in one line" />
+            <input type="text" spellCheck="true" value={s.subtitle || ""} onChange={e => set("subtitle", e.target.value)} placeholder="The argument in one line" />
           </div>
         </div>
         <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
           <div style={{ flex: 1, minWidth: 150 }}>
             <div className="sec-label">Execute</div>
-            <input type="text" value={s.executeWindow || ""} onChange={e => set("executeWindow", e.target.value)} placeholder="5 to 10 days" />
+            <input type="text" spellCheck="true" value={s.executeWindow || ""} onChange={e => set("executeWindow", e.target.value)} placeholder="5 to 10 days" />
           </div>
           <div style={{ flex: 1, minWidth: 150 }}>
             <div className="sec-label">Hold</div>
-            <input type="text" value={s.holdWindow || ""} onChange={e => set("holdWindow", e.target.value)} placeholder="4 to 6 weeks" />
+            <input type="text" spellCheck="true" value={s.holdWindow || ""} onChange={e => set("holdWindow", e.target.value)} placeholder="4 to 6 weeks" />
           </div>
           <div style={{ flex: 1, minWidth: 180 }}>
             <div className="sec-label">Sector line</div>
-            <input type="text" value={s.sector || ""} onChange={e => set("sector", e.target.value)} placeholder="Cross-Asset / Macro" />
+            <input type="text" spellCheck="true" value={s.sector || ""} onChange={e => set("sector", e.target.value)} placeholder="Cross-Asset / Macro" />
           </div>
         </div>
 
