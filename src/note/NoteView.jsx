@@ -79,6 +79,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                   <td>{f(t.etf.share?.riskPct, 1)}%</td></tr>
                 <tr key={t.id + "s"}><td className="sub" colSpan={4}>
                   {t.etf.plan?.single ? "at last sale" : `scale ${f(t.etf.price)}→${t.etf.plan?.wall}`}
+                  &nbsp;·&nbsp; walls {t.vol?.putWall}/{t.vol?.callWall}
                   &nbsp;·&nbsp; 1σ {f(t.etf.tgt?.dn, 0)}–{f(t.etf.tgt?.up, 0)}</td></tr>
               </>)}
             </tbody></table>

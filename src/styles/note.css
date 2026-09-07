@@ -16,6 +16,13 @@
 @page { size: A4; margin: 0; }
 @media print {
   html, body { margin: 0; padding: 0; background: #fff; }
+  /* Without this the band, table headers and tints print white: browsers
+     strip background colour and force black text to save ink by default. */
+  .noteprint, .noteprint * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
   /* Hide the chrome by name. The previous rule hid every non-.noteprint
      child of .app — but .noteprint sits inside .main, so .main was hidden
      and the note went with it. The PDF came out blank. */
@@ -32,7 +39,7 @@
   .page:last-child { page-break-after: auto; break-after: auto; }
 }
 
-.noteprint { background: #E9ECF0; padding: 8mm 0; }
+.noteprint { background: #E9ECF0; padding: 8mm 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .page {
   width: 210mm; min-height: 297mm; margin: 0 auto 8mm; background: #fff;
   padding: 11mm 14.8mm 16mm; box-sizing: border-box; position: relative;

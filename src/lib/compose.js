@@ -103,8 +103,13 @@ export function draftContext(note) {
         ticker: t.etf.tk, execution: t.etf.plan?.execution,
         scaleFrom: fmt(t.etf.price), scaleTo: fmt(t.etf.plan?.wall),
         targetExecution: fmt(t.etf.plan?.entry), entryImprovementPct: fmt(t.etf.plan?.entryImprovementPct, 1),
-        target: t.etf.tgt?.struct, targetPct: fmt(t.etf.tgt?.structPct, 1),
+        /* No price objective reaches the draft. Targets anchor the reader,
+           and the structural target is not always coherent: when the put
+           wall sits above the last sale on a bearish trade, "targeting 60
+           at +0.3%" is a target in the wrong direction. The implied range
+           conveys scale without nominating a level. */
         impliedRange: t.etf.tgt ? `${fmt(t.etf.tgt.dn, 0)} to ${fmt(t.etf.tgt.up, 0)}` : null,
+        putWall: t.vol?.putWall, callWall: t.vol?.callWall,
         stop: fmt(t.etf.plan?.stop), riskPct: fmt(t.etf.share?.riskPct, 1),
         wallDistancePct: fmt(t.etf.plan?.distToWallPct, 1),
       },

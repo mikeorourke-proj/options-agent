@@ -139,15 +139,19 @@ VOICE — every rule is checked mechanically after you write:
    describe each trade on its own terms.
 4. NO ATTRIBUTION. Never name a person, firm, bank, publication, or research house. Refer to
    positioning or consensus in the abstract.
-5. NUMBERS AS GIVEN. Quote the figures from the model verbatim. Cite the walls, the scale
+5. NO PRICE OBJECTIVES. The model contains no target and you must not construct one. Never
+   write "targeting X", "objective", "price target", or a percentage move to a named level.
+   Describe the walls as structure, the implied range as the market's measure of a normal
+   move, and the stop as what ends the trade.
+6. NUMBERS AS GIVEN. Quote the figures from the model verbatim. Cite the walls, the scale
    band, the weighted average, the target, the stop, the risk, the option debit and POP. Do not
    add figures the model does not contain.
-6. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
+7. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
-7. EXECUTION paragraph explains the scale mechanics for the scaled legs, the immediate legs,
+8. EXECUTION paragraph explains the scale mechanics for the scaled legs, the immediate legs,
    the price-triggered nature of the ladder, the stop, and that option legs price off the
    current quote. Reference the execute window and hold window as given.
-8. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
+9. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
    questions. British spelling of "realised"; otherwise American.`;
 
 export const SYSTEM_PROMPTS = {
@@ -166,6 +170,8 @@ export const VOICE_CHECKS = [
     msg: "ranking language" },
   { id: "attribution", re: /\b(said|stated|according to|wrote|reports?|noted that|argues)\b/i,
     msg: "possible attribution" },
+  { id: "objective", re: /\b(targeting|price target|objective of|target of|our target)\b/i,
+    msg: "price objective — the note carries none" },
   { id: "filler", re: /\b(it is worth noting|needless to say|importantly|interestingly)\b/i,
     msg: "filler" },
 ];

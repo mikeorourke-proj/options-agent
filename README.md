@@ -197,6 +197,15 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- print-color-adjust: exact is set on the note and everything inside it.
+  Browsers strip background colour when printing by default, so the blue
+  masthead band and every navy table header came out white.
+- The note carries NO price objective, in tables or in prose. Targets
+  anchor the reader, and the structural target is not always coherent:
+  when the put wall sits above the last sale on a bearish trade the draft
+  wrote "targeting 60 at +0.3%" -- a target in the wrong direction. The
+  implied 1-sigma range conveys scale without nominating a level, and a
+  voice check rejects "targeting" and "objective".
 - Print CSS hides chrome BY NAME. The earlier rule hid every non-.noteprint
   child of .app, but .noteprint sits inside .main -- so .main was hidden and
   the note went with it. The exported PDF was blank.
