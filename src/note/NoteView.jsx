@@ -72,21 +72,24 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
 
           <div className="col-r rail">
             <div className="rh">ETF Expression</div>
-            <table><thead><tr><th></th><th>entry</th><th>target</th><th>stop</th></tr></thead><tbody>
+            <table><thead><tr><th></th><th>entry</th><th>stop</th><th>risk</th></tr></thead><tbody>
               {etfRows.map(t => <>
                 <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
-                  <td>{f(t.etf.plan?.entry)}</td><td className="g">{t.etf.tgt?.struct}</td><td className="r">{f(t.etf.plan?.stop)}</td></tr>
+                  <td>{f(t.etf.plan?.entry)}</td><td className="r">{f(t.etf.plan?.stop)}</td>
+                  <td>{f(t.etf.share?.riskPct, 1)}%</td></tr>
                 <tr key={t.id + "s"}><td className="sub" colSpan={4}>
-                  {t.etf.plan?.single ? `at last sale` : `scale ${f(t.etf.price)}→${t.etf.plan?.wall}`} &nbsp;·&nbsp; risk {f(t.etf.share?.riskPct, 1)}%</td></tr>
+                  {t.etf.plan?.single ? "at last sale" : `scale ${f(t.etf.price)}→${t.etf.plan?.wall}`}
+                  &nbsp;·&nbsp; 1σ {f(t.etf.tgt?.dn, 0)}–{f(t.etf.tgt?.up, 0)}</td></tr>
               </>)}
             </tbody></table>
 
             <div className="rh">Derivatives Expression</div>
-            <table><tbody>
+            <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "net" : "debit"}</th><th>max gain</th></tr></thead><tbody>
               {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{t.etf.tk}</td>
                 <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {o.expiry.slice(5)}</td>
-                <td>${f(Math.abs(o.pricing.net) / 100)}</td></tr>)}
-              {optRows.length === 0 && <tr><td colSpan={3} className="note">no tradable chain on the selected vehicles</td></tr>}
+                <td>${f(Math.abs(o.pricing.net) / 100)}{o.pricing.net < 0 ? " cr" : ""}</td>
+                <td className="g">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td></tr>)}
+              {optRows.length === 0 && <tr><td colSpan={4} className="note">no tradable chain on the selected vehicles</td></tr>}
             </tbody></table>
 
             <div className="rh">Volatility</div>
@@ -159,23 +162,22 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               <div className="wall c" style={{ left: Xmm(hi) }} /><span className="lab c" style={{ left: Xmm(hi) }}>{hi}</span>
               <span className="lab s" style={{ left: Xmm(t.etf.price) }}>{f(t.etf.price)}</span>
               <div className="avg" style={{ left: Xmm(p.entry) }} /><span className="avgl" style={{ left: Xmm(p.entry) }}>avg {f(p.entry, 0)}</span>
-              <span className="tgt">tgt {t.etf.tgt?.struct}</span>
+              
             </div>;
           })}
         </div>
         <div className="src">Walls in green/red; ticks are the five scale executions; navy line is the weighted average. Price-triggered — an unfilled rung is an unbuilt position.</div>
 
         <div className="exh">Exhibit 4: ETF Expression</div>
-        <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target execution</th><th>Target</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
+        <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target execution</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>
             <td className="c">{f(p?.entry)} ({pct(p?.entryImprovementPct)})</td>
-            <td className="c">{g?.struct} ({pct(g?.structPct)})</td>
             <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}</td><td className="c">{f(p?.stop)}</td><td className="c">{f(s?.riskPct, 1)}%</td></tr>; })}
         </tbody></table>
-        <div className="src">Target is the opposite open-interest wall, where dealer hedging turns supportive. Stop is a close 1% beyond the wall scaled into.<br />
-          Implied 1σ is the option-implied range over the holding period — a distribution, not a forecast.</div>
+        <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution.<br />
+          Implied 1σ is the option-implied range over the holding period — the market's own measure of a normal move, not a price objective.</div>
 
         <div className="exh">Exhibit 5: Derivatives Expression</div>
         <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Structure</th><th>Expiry</th><th>Legs</th><th>Net</th><th>Max gain</th><th>Breakeven</th><th>POP</th></tr></thead><tbody>
@@ -230,7 +232,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         <p>The following information has been provided only to the person or entity to which it is addressed for informational purposes only and should not be used or construed as an offer to sell, a solicitation, an offer to buy, or a recommendation for any security. This information is not purported to be tailored to any particular investor and is intended for institutional investors as defined by FINRA Rule 4512. Information and securities mentioned may reflect a third party’s independent opinions and are not recommendations of JonesTrading Institutional Services LLC (JTIS). JTIS does not guarantee that the information supplied is accurate, complete, or timely, or make any warranties with regard to the results obtained from its use.</p>
         <h2>Options Risk Disclosure:</h2>
         <p>Options involve risk and are not suitable for all investors. Prior to buying or selling an option, a person must receive a copy of Characteristics and Risks of Standardized Options. The structures illustrated are shown at indicative marks and do not reflect commissions, financing, assignment risk, or the bid-offer spread incurred in execution. Multi-leg strategies entail multiple commissions and may be closed at a loss prior to expiration. Probability of profit is derived from an option-implied distribution adjusted for the stated conviction and is not a forecast.</p>
-        <div style={{ marginTop: "12mm" }}><Wordmark /></div>
+        <div className="signoff"><Wordmark /></div>
         <div className="copy">Copyright 2026 JonesTrading Institutional Services LLC. All rights reserved.</div>
         <Foot n={3} />
       </div>

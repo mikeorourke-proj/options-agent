@@ -197,6 +197,17 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- Print CSS hides chrome BY NAME. The earlier rule hid every non-.noteprint
+  child of .app, but .noteprint sits inside .main -- so .main was hidden and
+  the note went with it. The exported PDF was blank.
+- .wm absolute placement is scoped to .mast. Unscoped, the appendix
+  wordmark positioned against .page and printed on top of the footer.
+- State updates in StepNote are all functional. accept-all called accept()
+  in a loop, every iteration reading the same snapshot, so only the last
+  section stuck.
+- No price objective appears in the note. Targets invite anchoring; the
+  implied 1-sigma range is shown instead, labelled as the market's measure
+  of a normal move rather than an objective.
 - Diagnostics are wrapped and never assume a payload shape. parsed.themes
   is an ARRAY for extraction and an OBJECT for a draft; a log line that
   called .map on it discarded a complete, correctly-parsed note.

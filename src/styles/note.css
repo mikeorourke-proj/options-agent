@@ -15,11 +15,21 @@
 
 @page { size: A4; margin: 0; }
 @media print {
-  body { margin: 0; background: #fff; }
-  .app > *:not(.noteprint) { display: none !important; }
-  .noteprint { display: block !important; }
-  .page { page-break-after: always; box-shadow: none; margin: 0; }
-  .page:last-child { page-break-after: auto; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  /* Hide the chrome by name. The previous rule hid every non-.noteprint
+     child of .app — but .noteprint sits inside .main, so .main was hidden
+     and the note went with it. The PDF came out blank. */
+  .topbar, .steps, .intentbar, .logbar, .actionbar, .clusterbar, .card { display: none !important; }
+  .app, .main {
+    display: block !important; margin: 0 !important; padding: 0 !important;
+    max-width: none !important; width: auto !important; background: #fff !important;
+  }
+  .noteprint { display: block !important; background: #fff !important; padding: 0 !important; }
+  .page {
+    page-break-after: always; break-after: page;
+    box-shadow: none !important; margin: 0 !important; width: 210mm; min-height: 296mm;
+  }
+  .page:last-child { page-break-after: auto; break-after: auto; }
 }
 
 .noteprint { background: #E9ECF0; padding: 8mm 0; }
@@ -33,7 +43,10 @@
 
 /* ── masthead ──────────────────────────────────────────────────── */
 .mast { position: relative; height: 16mm; }
-.wm { font-family: "Liberation Serif", "Times New Roman", Georgia, serif; font-size: 20pt; letter-spacing: -.2pt; position: absolute; left: 0; bottom: 1mm; }
+/* Absolute placement belongs to the masthead only. Unscoped, the appendix
+   wordmark positioned against .page and landed on top of the footer. */
+.wm { font-family: "Liberation Serif", "Times New Roman", Georgia, serif; font-size: 20pt; letter-spacing: -.2pt; display: inline-block; position: relative; }
+.mast .wm { position: absolute; left: 0; bottom: 1mm; }
 .wm .a { color: var(--n-gray); } .wm .b { color: var(--n-blue); }
 .wm .dot-i { position: relative; display: inline-block; }
 .wm .mark { position: absolute; left: -.02em; bottom: .86em; width: .55em; height: .55em; border: .075em solid var(--n-blue); }
@@ -125,10 +138,12 @@ table.x .c { text-align: center; }
 .key div b { display: inline-block; width: 12mm; }
 .key .A { color: var(--n-green); } .key .B { color: var(--n-blue); } .key .C { color: var(--n-amber); } .key .X { color: var(--n-red); }
 
+.appx { padding-bottom: 6mm; }
 .appx h1 { color: var(--n-blue); font-size: 10.5pt; margin: 4mm 0 3mm; }
 .appx h2 { font-size: 7.4pt; margin: 3mm 0 1.4mm; }
 .appx p { font-size: 6.9pt; line-height: 1.42; text-align: justify; margin: 0 0 2mm; }
-.appx .copy { color: var(--n-blue); font-weight: 700; font-size: 6.6pt; margin-top: 3mm; }
+.appx .signoff { margin-top: 8mm; font-size: 0; }
+.appx .copy { color: var(--n-blue); font-weight: 700; font-size: 6.6pt; margin-top: 2.5mm; }
 
 /* Accept controls — screen only, never printed. */
 .para { position: relative; }

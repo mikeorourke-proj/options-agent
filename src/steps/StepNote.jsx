@@ -24,18 +24,28 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
   const note = useMemo(() => composeNote({ parsed, picks, menus, settings: s }),
                        [parsed, picks, menus, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector, s.prose]);
 
-  const set = (k, v) => setNoteState({ ...s, [k]: v });
+  const set = (k, v) => setNoteState(prev => ({ ...prev, [k]: v }));
   const setProse = (k, v) => {
-    const p = { ...s.prose };
-    if (k === "summary" || k === "execution") p[k] = v; else p.themes = { ...p.themes, [k]: v };
-    setNoteState({ ...s, prose: p });
+    setNoteState(prev => {
+      const p = { ...prev.prose };
+      if (k === "summary" || k === "execution") p[k] = v; else p.themes = { ...p.themes, [k]: v };
+      return { ...prev, prose: p };
+    });
     RunLog.info("ui", "prose.edit", { field: k, chars: v.length });
   };
   const accept = (k, on = true) => {
-    const a = { ...(s.accepted || {}) };
-    if (on) a[k] = true; else delete a[k];
-    setNoteState({ ...s, accepted: a });
+    setNoteState(prev => {
+      const a = { ...(prev.accepted || {}) };
+      if (on) a[k] = true; else delete a[k];
+      return { ...prev, accepted: a };
+    });
     RunLog.info("ui", "prose.accept", { field: k, accepted: on });
+  };
+  /* One update, not one per section: calling accept() in a loop had every
+     iteration reading the same snapshot, so only the last stuck. */
+  const acceptAll = keys => {
+    setNoteState(prev => ({ ...prev, accepted: Object.fromEntries(keys.map(k => [k, true])) }));
+    RunLog.info("ui", "prose.acceptAll", { n: keys.length });
   };
   const sectionKeys = ["summary", ...note.themes.map(t => t.id), "execution"];
   const acceptedCount = sectionKeys.filter(k => s.accepted?.[k]).length;
@@ -66,10 +76,10 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
         if (!hit) unmatched.push(th.subject);
       }
       if (unmatched.length) RunLog.warn("ui", "draft.unmatched.themes", { unmatched, returned: Object.keys(p.themes || {}) });
-      setNoteState({ ...s, prose: { summary: p.summary || "", themes, execution: p.execution || "" },
+      setNoteState(prev => ({ ...prev, prose: { summary: p.summary || "", themes, execution: p.execution || "" },
                      accepted: {},                       // nothing accepted until read
                      partial: p.partial || null,
-                     draftedBy: res.model, draftedAt: new Date().toISOString() });
+                     draftedBy: res.model, draftedAt: new Date().toISOString() }));
       setVoice(res.voice && Object.keys(res.voice).length ? res.voice : null);
       t.end({ model: res.model, voiceHits: res.voice ? Object.keys(res.voice).length : 0 });
     } catch (e) { t.fail(e); setErr(e.message); }
@@ -134,7 +144,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
             Print / Save as PDF
           </button>
           <button className="ghost" disabled={!hasProse || allAccepted}
-                  onClick={() => { sectionKeys.forEach(k => accept(k)); RunLog.info("ui", "prose.acceptAll", { n: sectionKeys.length }); }}>
+                  onClick={() => acceptAll(sectionKeys)}>
             Accept all
           </button>
           {s.draftedBy && <span style={{ fontSize: 11.5, color: "var(--muted)", fontFamily: "var(--mono)" }}>
