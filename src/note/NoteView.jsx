@@ -75,15 +75,12 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <table className="etfr"><thead><tr>
               <th></th><th>entry</th><th>stop</th><th>risk</th><th>put wall</th><th>call wall</th>
             </tr></thead><tbody>
-              {etfRows.map(t => <>
+              {etfRows.map(t => (
                 <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
                   <td>{f(t.etf.plan?.entry)}</td><td className="r">{f(t.etf.plan?.stop)}</td>
                   <td>{f(t.etf.share?.riskPct, 1)}%</td>
                   <td className="g">{t.vol?.putWall ?? "—"}</td><td className="r">{t.vol?.callWall ?? "—"}</td></tr>
-                <tr key={t.id + "s"}><td className="sub" colSpan={6}>
-                  {t.etf.plan?.single ? "at last sale" : `scale ${f(t.etf.price)}→${t.etf.plan?.wall}`}
-                  &nbsp;·&nbsp; 1σ {f(t.etf.tgt?.dn, 0)}–{f(t.etf.tgt?.up, 0)}</td></tr>
-              </>)}
+              ))}
             </tbody></table>
 
             <div className="rh">Derivatives Expression</div>

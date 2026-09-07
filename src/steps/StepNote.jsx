@@ -3,6 +3,7 @@ import RunLog from "../lib/runlog.js";
 import { api } from "../lib/api.js";
 import { composeNote, draftContext } from "../lib/compose.js";
 import NoteView from "../note/NoteView.jsx";
+import { buildExplainer } from "../lib/explain.js";
 
 export default function StepNote({ parsed, picks, menus, noteState, setNoteState }) {
   const s = noteState;
@@ -86,9 +87,35 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     setBusy(false); setPhase(null);
   }
 
+  /* The browser names the PDF from document.title. Set it for the print
+     and put it back afterwards so the tab is unaffected. */
+  function fileStem() {
+    const d = new Date();
+    const stamp = `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}${d.getFullYear()}`;
+    const primary = note.etfOrder[0]?.label || note.themes[0]?.etf?.tk || "NOTE";
+    return `${stamp}-${primary}`;
+  }
+
   function print() {
-    RunLog.info("ui", "note.print", { title: note.meta.title, themes: note.themes.length });
+    const name = `${fileStem()}-Tactical Note \u2014 JonesTrading`;
+    const prev = document.title;
+    document.title = name;
+    RunLog.info("ui", "note.print", { filename: name, themes: note.themes.length });
     window.print();
+    setTimeout(() => { document.title = prev; }, 800);
+  }
+
+  /* Internal audit of every scoring and ordering decision. The note states
+     no criterion; this is where the criterion lives. */
+  function explainer() {
+    const html = buildExplainer({ note, menus });
+    const blob = new Blob([html], { type: "text/html" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${fileStem()}-Ranking explainer.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    RunLog.info("ui", "explainer.download", { kb: +(html.length / 1024).toFixed(1), themes: note.themes.length });
   }
 
   const hasProse = Boolean(s.prose?.summary);
@@ -142,6 +169,10 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
           <button className="ghost" disabled={!hasProse} onClick={print}
                   title={allAccepted ? "" : "Sections still unaccepted — they will print with a draft mark on screen only"}>
             Print / Save as PDF
+          </button>
+          <button className="ghost" disabled={note.themes.length === 0} onClick={explainer}
+                  title="Internal: every score, weight and ordering decision behind this note">
+            Ranking explainer
           </button>
           <button className="ghost" disabled={!hasProse || allAccepted}
                   onClick={() => acceptAll(sectionKeys)}>

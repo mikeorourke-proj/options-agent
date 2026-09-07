@@ -197,6 +197,14 @@ scrubbed from URLs, payloads, messages and upstream error text.
   retired -- every number it hardcoded is now in state.
 - Steps 3 (structure override) and 4 (scenarios) are not built; the tabs
   are disabled. Themes continues straight to Note.
+- explain.js produces a standalone internal HTML audit: the ordering with
+  gaps and tie-band decisions, then per expression the raw inputs, the
+  normalised component scores, the weights and the contributions, plus what
+  was rejected and why. The client note states no criterion; this is where
+  the criterion is written down, including the known biases and the fact
+  that every threshold is hand-set and unvalidated.
+- The printed filename is MMDDYYYY-TICKER-Tactical Note. Browsers name the
+  PDF from document.title, so it is set for the print and restored after.
 - Each exhibit is wrapped in .exhblk with break-inside: avoid, so a title,
   its table and its source line travel together and a table never splits
   mid-row. A four-structure note previously pushed the last option leg to
