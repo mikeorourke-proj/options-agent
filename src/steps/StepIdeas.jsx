@@ -5,7 +5,7 @@ import { searchUniverse, leveredFor, appropriateness } from "../data/etf-univers
 import { analyzeChain, realisedVol } from "../lib/vol.js";
 import { suggestStructures } from "../lib/strategy.js";
 import { evaluate } from "../lib/pricing.js";
-import { scalePlan, targets, scoreShares } from "../lib/shares.js";
+import { scalePlan, targets, scoreShares, NEAR_WALL } from "../lib/shares.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT } from "../lib/ordering.js";
 import { dte } from "../lib/vol.js";
 
@@ -323,17 +323,45 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
             <span className={`dirbadge ${m.direction}`}>{m.direction}</span>
             <span style={{ fontSize: 16, fontWeight: 600 }}>{m.subject}</span>
             <span className={`pill ${m.basis === "stated" ? "a" : "c"}`}>{m.basis}</span>
-            {(parsed.attributionFlags || []).some(f => f.startsWith(m.id + ".")) &&
-              <span className="pill x" title="A field in this theme reads like it attributes a view to someone. Check before publishing.">check attribution</span>}
+            {(() => {
+              const hits = (parsed.attributionFlags || []).filter(f => f.startsWith(m.id + "."));
+              if (!hits.length) return null;
+              /* Flags arrive as "<themeId>.<field>:<phrase>". Show both — the
+                 pill used to say only that something in the theme tripped it,
+                 which is not enough to decide whether it is a real
+                 attribution or the verb "reports" used about a data release. */
+              const detail = hits.map(f => f.slice(m.id.length + 1).replace(":", " — ")).join("; ");
+              return <span className="pill x" title={`Reads like it attributes a view to someone: ${detail}. Check before publishing.`}>check attribution</span>;
+            })()}
             <span className="spacer" />
             <label className="mini"><input type="radio" name="primary" checked={picks.primaryThemeId === m.id}
                    onChange={() => setPrimaryTheme(m.id)} /> primary</label>
             <label className="mini"><input type="checkbox" checked={picks.split.includes(m.id)}
                    onChange={() => toggleSplit(m.id)} /> own note</label>
-            <span className="legtoggle" title="ETF execution">
-              <button className={(m.execution || "scaled") === "scaled" ? "on" : ""} onClick={() => setPref(m.id, "execution", "scaled")}>scaled</button>
-              <button className={m.execution === "immediate" ? "on" : ""} onClick={() => setPref(m.id, "execution", "immediate")}>immediate</button>
-            </span>
+            {(() => {
+              /* scalePlan forces immediate when the last sale sits inside
+                 NEAR_WALL of the wall being faded — the call wall on a bearish
+                 leg, the put wall on a bullish one — because there is no room
+                 left to ladder. The toggle used to show the analyst's stored
+                 preference, so it read "scaled" while the plan underneath was
+                 immediate, with nothing on screen saying why. It now shows
+                 what the leg will actually do. */
+              const p = m.primary?.plan;
+              const forced = Boolean(p?.single) && m.execution !== "immediate";
+              const why = forced
+                ? `Last sale is ${p.distToWallPct.toFixed(1)}% from the ${m.direction === "bearish" ? "call" : "put"} wall at ${p.wall}, inside the ${NEAR_WALL * 100}% band — there is no room to ladder, so this leg goes on at current levels. Clicking scaled will not override it.`
+                : "ETF execution";
+              return (
+                <span className={`legtoggle ${forced ? "forced" : ""}`} title={why}>
+                  <button className={!forced && (m.execution || "scaled") === "scaled" ? "on" : ""}
+                          onClick={() => setPref(m.id, "execution", "scaled")}>scaled</button>
+                  <button className={forced || m.execution === "immediate" ? "on" : ""}
+                          onClick={() => setPref(m.id, "execution", "immediate")}>
+                    immediate{forced ? " · auto" : ""}
+                  </button>
+                </span>
+              );
+            })()}
             <span className="legtoggle" title="Stop out">
               <button className={(m.stopMode || "wall") === "wall" ? "on" : ""} onClick={() => setPref(m.id, "stopMode", "wall")}>stop: wall +1%</button>
               <button className={m.stopMode === "flat" ? "on sh" : ""} onClick={() => setPref(m.id, "stopMode", "flat")}>flat 5%</button>
@@ -350,16 +378,28 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
 
           {m.primary && (
             <>
+              {m.allExpr?.length > 1 && (
+                <div className="ranked">
+                  <b>All expressions ranked</b>
+                  {m.allExpr.map((e, i) => (
+                    <span key={e.label} className={i === 0 ? "win" : ""}>
+                      {i + 1}. {e.label} <em>{e.score.toFixed(2)}</em>
+                    </span>
+                  ))}
+                  <span className="dim">shares and options on one scale &mdash; view-conditional expectancy</span>
+                </div>
+              )}
+
               <div className="tier">
                 <span className="tierlab">Primary — ETF expression</span>
                 <ExprRow x={m.primary} kind="primary" themeId={m.id} on={on} toggle={toggle} liq={m.primary.liq}
-                         score={m.primary.shareScore?.score} />
+                         score={m.primary.shareScore?.score} walls={m.vol} />
                 {m.primary.plan && m.primary.shareScore && (
                   <div className="planrow">
                     <span>{m.primary.plan.single ? "immediate" : "scale"} <b>
-                      {m.primary.plan.single ? `at ${m.primary.price.toFixed(2)}`
+                      {m.primary.plan.single ? "at current levels"
                         : `${m.primary.price.toFixed(2)} → ${m.primary.plan.wall}`}</b></span>
-                    <span>entry <b>{m.primary.plan.entry.toFixed(2)}</b></span>
+                    {!m.primary.plan.single && <span>entry <b>{m.primary.plan.entry.toFixed(2)}</b></span>}
                     <span>target <b>{m.primary.tgt.struct}</b> ({m.primary.shareScore.rewardSigma}σ)</span>
                     <span>stop <b>{m.primary.plan.stop.toFixed(2)}</b></span>
                     <span>risk <b>{m.primary.shareScore.riskPct}%</b></span>
@@ -367,6 +407,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                     <span>P(tgt) <b>{m.primary.shareScore.pTarget}%</b></span>
                     <span>EV <b style={{ color: m.primary.shareScore.expectancy >= 0 ? "var(--green)" : "var(--red)" }}>
                       {m.primary.shareScore.expectancy}%</b></span>
+                    {m.primary.plan.reason && <span className="planwhy">{m.primary.plan.reason}</span>}
                   </div>
                 )}
               </div>
@@ -471,18 +512,6 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                 </span>
               </div>
 
-              {m.allExpr?.length > 1 && (
-                <div className="ranked">
-                  <b>All expressions ranked</b>
-                  {m.allExpr.map((e, i) => (
-                    <span key={e.label} className={i === 0 ? "win" : ""}>
-                      {i + 1}. {e.label} <em>{e.score.toFixed(2)}</em>
-                    </span>
-                  ))}
-                  <span className="dim">shares and options on one scale &mdash; view-conditional expectancy</span>
-                </div>
-              )}
-
               {m.vol?.ok && (
                 <div className="volrow">
                   IV30 <b>{m.vol.iv30}%</b> · RV30 <b>{m.vol.rv30 ?? "—"}%</b> ·
@@ -514,7 +543,7 @@ function clusters(menus) {
   }));
 }
 
-function ExprRow({ x, kind, themeId, on, toggle, liq, extra, score }) {
+function ExprRow({ x, kind, themeId, on, toggle, liq, extra, score, walls }) {
   const k = `${themeId}|${kind}|${x.t}`;
   return (
     <label className={`expr ${on(k) ? "sel" : ""}`}>
@@ -531,6 +560,12 @@ function ExprRow({ x, kind, themeId, on, toggle, liq, extra, score }) {
           <span>px <b>${(x.price || 0).toFixed(2)}</b></span>
           <span>$ADV <b>{fmtB(x.dollarADV)}</b></span>
           {x.fit != null && <span>fit <b>{x.fit.toFixed(2)}</b></span>}
+          {/* Walls come from the chain, and the chain is fetched for the
+              primary only — one heavy call per theme. A row without them has
+              not been priced, so nothing is shown rather than a dash that
+              could read as "no wall found". */}
+          {walls?.putWall != null && <span>put wall <b>{walls.putWall}</b></span>}
+          {walls?.callWall != null && <span>call wall <b>{walls.callWall}</b></span>}
           {extra}
         </div>
         {x.fitWhy && <div className="fitwhy">{x.fitWhy}</div>}

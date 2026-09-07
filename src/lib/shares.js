@@ -22,8 +22,10 @@ export const STOP_FLAT = 0.05;   // alternative: flat 5% from the entry
 const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
 
 /* Five equal-distance executions from the last sale into the wall being
-   faded, weighted toward the wall. Inside 2%, or when the analyst asks
-   for immediate, the position goes on at the last sale. */
+   faded, weighted toward the wall — the call wall on a bearish leg, the
+   put wall on a bullish one. Inside NEAR_WALL of that wall there is no room
+   left to ladder, so proximity forces immediate regardless of what the
+   analyst selected, and the position goes on at current levels. */
 export function scalePlan(spot, v, direction, { mode = "wall", execution = "scaled" } = {}) {
   const bear = direction === "bearish";
   const wall = bear ? v.callWall : v.putWall;
@@ -32,7 +34,18 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
   const sgn  = bear ? 1 : -1;
   const dist = Math.abs(wall - spot) / spot;
   const stopWall = wall * (1 + sgn * STOP_WALL);
-  const single = execution === "immediate" || dist < NEAR_WALL;
+  /* Inside NEAR_WALL there is no room to ladder, so proximity forces
+     immediate even when the analyst has asked for a scale. The wall in
+     question is the one being faded: the call wall on a bearish leg, the put
+     wall on a bullish one. */
+  const near   = dist < NEAR_WALL;
+  const single = execution === "immediate" || near;
+  const reason = !single ? null
+    : execution === "immediate" ? "analyst set immediate"
+    : `last sale is ${(dist * 100).toFixed(1)}% from the ${bear ? "call" : "put"} wall at ${wall}, inside the ${NEAR_WALL * 100}% band — no room to ladder`;
+  if (near && execution !== "immediate")
+    RunLog.info("calc", "execution.auto.immediate",
+                { ticker: v.ticker, direction, spot, wall, distPct: +(dist * 100).toFixed(2), band: NEAR_WALL * 100 });
 
   const rungs = single ? [{ px: spot, w: 1 }]
                        : WEIGHTS.map((w, k) => ({ px: spot + (wall - spot) * k / 4, w }));
@@ -41,9 +54,7 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
   const stop = mode === "wall" ? stopWall : stopFlat;
 
   return {
-    single, execution: single ? "immediate" : "scaled",
-    reason: single ? (execution === "immediate" ? "analyst set immediate"
-                                                : `within ${NEAR_WALL * 100}% of the wall`) : null,
+    single, execution: single ? "immediate" : "scaled", reason,
     wall, rungs, entry, stop, stopWall, stopFlat, mode,
     entryImprovementPct: ((entry - spot) / spot) * 100 * sgn,   // positive = better than spot
     riskPct: (Math.abs(stop - entry) / entry) * 100,

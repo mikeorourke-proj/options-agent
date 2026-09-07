@@ -22,6 +22,19 @@ Broadcom's earnings release after the market close today was the day's key event
 Google is being supplanted as Broadcom's largest XPU customer by two companies that remain cash flow negative. When you add Nvidia's combined exposure to SpaceX and OpenAI, the fates of the largest semiconductor companies in the world are irrevocably tied to financially insecure AI enterprises that are in the midst of a fierce LLM token price war. One can understand if P/E multiples are constrained at least until those enterprises receive an influx of cash.`,
 };
 
+const PDF_MAX = 4 * 1024 * 1024;   // Netlify caps a function request at 6MB; base64 adds a third
+
+/* readAsDataURL rather than building the string from the byte array: a 4MB
+   file is 4 million arguments to String.fromCharCode and blows the stack. */
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = () => rej(new Error("the file could not be read"));
+    r.readAsDataURL(file);
+  });
+}
+
 export default function StepSource({ parsed, setParsed, onNext }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -29,16 +42,52 @@ export default function StepSource({ parsed, setParsed, onNext }) {
   const [phase, setPhase] = useState(null);
   const [err, setErr] = useState(null);
   const [fileName, setFileName] = useState(null);
+  const [reading, setReading] = useState(false);
+  const [transcribed, setTranscribed] = useState(null);
+
+  function loadSample(key) {
+    setText(SAMPLES[key]); setFileName(null); setTranscribed(null); setErr(null);
+  }
 
   async function onFile(f) {
     if (!f) return;
-    setErr(null); setFileName(f.name);
-    if (f.type === "application/pdf") {
-      setErr("PDF upload lands in the next build — for now copy the text across.");
-      setFileName(null); return;
+    setErr(null);
+    const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+    const kb = +(f.size / 1024).toFixed(1);
+
+    if (!isPdf) {
+      setFileName(f.name); setTranscribed(null);
+      setText(await f.text());
+      RunLog.info("ui", "source.file", { name: f.name, kb });
+      return;
     }
-    setText(await f.text());
-    RunLog.info("ui", "source.file", { name: f.name, kb: +(f.size / 1024).toFixed(1) });
+
+    if (f.size > PDF_MAX) {
+      setErr(`${f.name} is ${(f.size / 1048576).toFixed(1)} MB. The upload ceiling is 4 MB — print a shorter range or paste the text.`);
+      return;
+    }
+
+    setFileName(f.name); setTranscribed(null); setReading(true);
+    const t = RunLog.timer("ui", "source.pdf", { name: f.name, kb });
+    try {
+      const b64 = await toBase64(f);
+      const res = await api.transcribe(
+        { name: f.name, b64 },
+        (status, polls, secs) => setPhase(`${status === "running" ? "reading" : "queued"} · ${secs}s`)
+      );
+      const out = res?.parsed?.text;
+      if (!out) throw new Error(res?.parseError || res?.error || "no text came back");
+      setText(out);
+      setTranscribed({ name: f.name, chars: out.length });
+      RunLog.fact("sourceText", `${out.length} chars from ${f.name}`,
+                  { src: "think/transcribe", model: res.model });
+      t.end({ chars: out.length, model: res.model, tokens: res.usage });
+    } catch (e) {
+      t.fail(e);
+      setErr(`Could not read ${f.name}. ${e.message}`);
+      setFileName(null);
+    }
+    setReading(false); setPhase(null);
   }
 
   async function extract() {
@@ -83,17 +132,32 @@ export default function StepSource({ parsed, setParsed, onNext }) {
         <textarea value={text} onChange={e => setText(e.target.value)} style={{ minHeight: 210 }}
           placeholder="Paste the note or story here…" />
 
+        {transcribed && (
+          <div className="note" style={{ marginTop: 10 }}>
+            <b>Read from {transcribed.name}</b> — {transcribed.chars.toLocaleString()} characters, now
+            editable above. Check it before extracting, and check the quotation marks in particular:
+            a quoted sentence is treated as someone else's view rather than yours, so a pair lost in
+            the PDF would hand the parser an argument you were rebutting.
+          </div>
+        )}
+
         <div className="row" style={{ marginTop: 8 }}>
-          <label className="ghost" style={{ cursor: "pointer" }}>
-            Upload .txt / .md
-            <input type="file" accept=".txt,.md,.markdown" style={{ display: "none" }}
-                   onChange={e => onFile(e.target.files?.[0])} />
+          <label className="ghost" style={{ cursor: reading ? "default" : "pointer", opacity: reading ? .55 : 1 }}>
+            {reading ? <><span className="spin" />&nbsp; {phase || "Reading PDF…"}</> : "Upload .pdf / .txt / .md"}
+            <input type="file" accept=".pdf,.txt,.md,.markdown" style={{ display: "none" }} disabled={reading}
+                   onChange={e => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
           </label>
-          {fileName && <span style={{ fontSize: 12, color: "var(--muted)" }}>{fileName}</span>}
+          {fileName && !reading && <span style={{ fontSize: 12, color: "var(--muted)" }}>{fileName}</span>}
           <span className="spacer" />
-          <button className="ghost" onClick={() => setText(SAMPLES.debasement)}>Example: debasement</button>
-          <button className="ghost" onClick={() => setText(SAMPLES.semis)}>Example: semis</button>
+          <button className="ghost" disabled={reading} onClick={() => loadSample("debasement")}>Example: debasement</button>
+          <button className="ghost" disabled={reading} onClick={() => loadSample("semis")}>Example: semis</button>
         </div>
+        {reading && (
+          <p className="hint" style={{ marginTop: 6 }}>
+            The PDF is transcribed rather than summarised, so a Closing Print takes about as long as
+            the extraction does.
+          </p>
+        )}
       </div>
 
       <div className="card">
@@ -107,7 +171,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
           placeholder="e.g. This pushes the neoclouds to the back of OpenAI's compute queue — bearish that group even though the story never mentions them." />
 
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="primary" disabled={busy || text.trim().length < 120} onClick={extract}>
+          <button className="primary" disabled={busy || reading || text.trim().length < 120} onClick={extract}>
             {busy ? <><span className="spin" />&nbsp; {phase || "Sending…"}</> : "Extract themes →"}
           </button>
           {busy && <span style={{ fontSize: 12, color: "var(--muted)" }}>Opus takes 25-40s on a full note.</span>}

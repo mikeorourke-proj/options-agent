@@ -158,17 +158,19 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             const sl = Math.min(t.etf.price, p.wall), sh = Math.max(t.etf.price, p.wall);
             return <div className="row" key={t.id}>
               <span className="tk">{t.etf.tk}</span><div className="ax" />
-              <div className="band" style={{ left: Xmm(sl), width: `calc(${(sh - sl) / (b - a)} * (100% - 30mm))` }} />
+            {/* An immediate leg has no band to draw and no weighted average
+                distinct from spot — drawing both put a ladder on the chart
+                that the position does not have. */}
+            {!p.single && <div className="band" style={{ left: Xmm(sl), width: `calc(${(sh - sl) / (b - a)} * (100% - 30mm))` }} />}
               {!p.single && p.rungs.map((r, i) => <div className="rung" key={i} style={{ left: Xmm(r.px) }} />)}
               <div className="wall p" style={{ left: Xmm(lo) }} /><span className="lab p" style={{ left: Xmm(lo) }}>{lo}</span>
               <div className="wall c" style={{ left: Xmm(hi) }} /><span className="lab c" style={{ left: Xmm(hi) }}>{hi}</span>
               <span className="lab s" style={{ left: Xmm(t.etf.price) }}>{f(t.etf.price)}</span>
-              <div className="avg" style={{ left: Xmm(p.entry) }} /><span className="avgl" style={{ left: Xmm(p.entry) }}>avg {f(p.entry, 0)}</span>
-              
+              {!p.single && <><div className="avg" style={{ left: Xmm(p.entry) }} /><span className="avgl" style={{ left: Xmm(p.entry) }}>avg {f(p.entry, 0)}</span></>}
             </div>;
           })}
         </div>
-        <div className="src">Walls in green/red; ticks are the five scale executions; navy line is the weighted average. Price-triggered — an unfilled rung is an unbuilt position.</div>
+        <div className="src">Walls in green/red. On a scaled leg the ticks are the five executions and the navy line is the weighted average; price-triggered, so an unfilled rung is an unbuilt position. An immediate leg shows spot against the walls only.</div>
         </div>
 
         <div className="exhblk"><div className="exh">Exhibit 4: ETF Expression</div>
@@ -176,10 +178,10 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>
-            <td className="c">{f(p?.entry)} ({pct(p?.entryImprovementPct)})</td>
+            <td className="c">{p?.single ? "current levels" : `${f(p?.entry)} (${pct(p?.entryImprovementPct)})`}</td>
             <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}</td><td className="c">{f(p?.stop)}</td><td className="c">{f(s?.riskPct, 1)}%</td></tr>; })}
         </tbody></table>
-        <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution.<br />
+        <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution, or from current levels on an immediate leg.<br />
           Implied 1σ is the option-implied range over the holding period — the market's own measure of a normal move, not a price objective.</div>
 
         </div>
@@ -230,9 +232,9 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         </div>
         <div className="key"><b className="h">Key — Execution Mode</b>
           <div><b>Scaled</b>five executions at equal price intervals from the last sale to the wall, weighted 10 / 15 / 20 / 25 / 30</div>
-          <div><b>Immediate</b>the full position at the last sale — used inside 2% of the wall, when time-sensitive, and for every option leg</div>
+          <div><b>Immediate</b>the full position at current levels, with no ladder — used inside 2% of the wall, when time-sensitive, and for every option leg</div>
           <div><b>Stop out</b>a close 1% beyond the wall the position was scaled into; alternative, a flat 5% from the weighted entry</div>
-          <div><b>Risk</b>distance from the weighted average execution to the stop — not from the last sale</div>
+          <div><b>Risk</b>distance to the stop from the weighted average execution, or from current levels on an immediate leg</div>
         </div>
         <h1>IMPORTANT DISCLOSURES APPENDIX</h1>
         <h2>Disclaimer:</h2>

@@ -50,6 +50,13 @@ export const api = {
       body: JSON.stringify({ task, text, today: new Date().toISOString().slice(0, 10), ...extra }),
     }),
 
+  /* A PDF becomes text before it becomes themes. It is deliberately not fed
+     to the extractor as a document block: enforce() finds quoted spans by
+     scanning the source text it was sent, so with no text the quoted-evidence
+     guard would pass everything and say nothing. Transcribing first keeps the
+     guard armed and puts what the model read in front of the analyst. */
+  transcribe: (pdf, onTick) => api.thinkLong("transcribe", "", { pdf }, onTick),
+
   /* Theme extraction runs in the background: Opus takes 25-35s on a full
      note and Netlify kills synchronous functions at 26s. Fire, then poll. */
   async thinkLong(task, text, extra = {}, onTick) {

@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { getStore } from "@netlify/blobs";
 import { srvLog } from "./_runlog.mjs";
-import { SYSTEM_PROMPTS, MODELS, MAX_TOKENS, enforce, checkVoice } from "./_prompts.mjs";
+import { SYSTEM_PROMPTS, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate } from "./_prompts.mjs";
 
 const API = "https://api.anthropic.com/v1/messages";
 
@@ -21,21 +21,29 @@ export default async (request) => {
 
   let payload = {};
   try { payload = await request.json(); } catch {}
-  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today } = payload;
+  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdf } = payload;
   if (!jobId) { L.error("no jobId", new Error("missing jobId")); return; }
 
   const put = (doc) => store.setJSON(jobId, { ...doc, jobId, task, at: new Date().toISOString() });
 
   try {
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
-    if (!text || text.length < 60) throw new Error("source text too short");
-    if (text.length > 200000) throw new Error("source text too long");
+    if (task === "transcribe") {
+      /* Base64 inflates by a third and Netlify caps a function request at 6 MB,
+         so the client's 4 MB file ceiling lands here at roughly 5.6 MB. */
+      if (!pdf?.b64) throw new Error("no PDF supplied");
+      if (pdf.b64.length > 5_800_000) throw new Error("PDF too large — the ceiling is 4 MB");
+    } else {
+      if (!text || text.length < 60) throw new Error("source text too short");
+      if (text.length > 200000) throw new Error("source text too long");
+    }
 
     await put({ status: "running", log: L.log });
     const MODEL = MODELS[task] || MODELS.themes;
     const system = SYSTEM_PROMPTS[task] || SYSTEM_PROMPTS.themes;
     const user = task === "edit" ? text
       : task === "draft" ? `NOTE MODEL:\n${text}`
+      : task === "transcribe" ? "Transcribe this document."
       : [
       `Today is ${today || new Date().toISOString().slice(0, 10)}.`,
       ``,
@@ -50,7 +58,16 @@ export default async (request) => {
       text,
     ].join("\n");
 
-    L.info("prompt", { task, model: MODEL, chars: text.length, vocabTerms: vocab.length, hasNote: Boolean(note) });
+    /* A PDF goes up as a document block alongside the instruction. Everything
+       else is a plain string. */
+    const content = task === "transcribe"
+      ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf.b64 } },
+         { type: "text", text: user }]
+      : user;
+
+    L.info("prompt", task === "transcribe"
+      ? { task, model: MODEL, file: pdf.name, b64KB: Math.round(pdf.b64.length / 1024) }
+      : { task, model: MODEL, chars: text.length, vocabTerms: vocab.length, hasNote: Boolean(note) });
     const t0 = Date.now();
 
     const r = await fetch(API, {
@@ -60,7 +77,7 @@ export default async (request) => {
         model: MODEL,
         max_tokens: MAX_TOKENS[task] || 8000,
         system,
-        messages: [{ role: "user", content: user }],
+        messages: [{ role: "user", content }],
       }),
     });
 
@@ -111,6 +128,33 @@ export default async (request) => {
       } else {
         parseError = truncated ? `Output hit the ${MAX_TOKENS[task]}-token cap.` : "draft returned no recognisable sections";
       }
+    } else if (task === "transcribe") {
+      /* Delimited, not JSON — the same reason the draft is: transcribed prose
+         is full of quotation marks and apostrophes and cannot survive being
+         wrapped in a JSON string. */
+      const m = raw.match(/^###\s*TEXT\s*$\n([\s\S]*)/im);
+      const out = (m ? m[1] : raw)
+        .replace(/^\s*```[a-z]*\s*$/gim, "")   // a fence the prompt did not ask for
+        .trim();
+      if (out.length < 200) {
+        parseError = truncated
+          ? `Output hit the ${MAX_TOKENS.transcribe}-token cap.`
+          : "the PDF returned no readable text — it is probably a scan with no text layer";
+      } else {
+        if (!m) L.warn("transcribe.no.marker", { head: raw.slice(0, 140) });
+        parsed = { text: out };
+        /* Quote count is provenance, not decoration. The quoted-span guard
+           downstream is only as good as the marks that survived this step,
+           so a run that reads zero is worth seeing in the log. */
+        L.info("transcribe", {
+          file: pdf?.name,
+          chars: out.length,
+          words: out.split(/\s+/).filter(Boolean).length,
+          paras: out.split(/\n\s*\n/).filter(p => p.trim()).length,
+          quoteMarks: (out.match(/["\u201C\u201D]/g) || []).length,
+          truncated,
+        });
+      }
     } else {
       try { parsed = JSON.parse(cleaned); }
       catch (e) {
@@ -120,7 +164,8 @@ export default async (request) => {
       }
     }
 
-    const checks = parsed && task !== "draft" ? enforce(parsed, { vocab, anchors, sourceText: text })
+    const checks = parsed && (task === "themes" || task === "thesis")
+                 ? enforce(parsed, { vocab, anchors, sourceText: text })
                  : { dropped: [], quoteHits: [], attrib: [], badAnchors: [] };
     // Draft: run the voice checks on every paragraph and report them back.
     let voice = null;
@@ -128,6 +173,12 @@ export default async (request) => {
       voice = {};
       const paras = { summary: parsed.summary, execution: parsed.execution, ...(parsed.themes || {}) };
       for (const [k, v] of Object.entries(paras)) { const h = checkVoice(v); if (h.length) voice[k] = h; }
+      /* Whether "scale" is a violation depends on the leg, so this check needs
+         the model the draft was written from, not just the paragraph. */
+      try {
+        const ctx = JSON.parse(text);
+        for (const [k, h] of Object.entries(checkImmediate(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
+      } catch (e) { L.warn("immediate.check.skipped", { message: e.message }); }
       if (Object.keys(voice).length) L.warn("voice.violation", voice);
     }
     if (checks.dropped.length)   L.warn("vocab.violation", { dropped: checks.dropped });

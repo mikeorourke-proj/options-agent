@@ -3,17 +3,18 @@
    drift apart. */
 
 export const MODELS = {
-  themes: "claude-opus-5",
-  thesis: "claude-opus-5",
-  edit:   "claude-opus-5",
-  draft:  "claude-opus-5",
+  themes:     "claude-opus-5",
+  thesis:     "claude-opus-5",
+  edit:       "claude-opus-5",
+  draft:      "claude-opus-5",
+  transcribe: "claude-opus-5",
 };
 
 /* Budgets cover thinking blocks as well as visible output. A draft is only
    ~700 words, but two runs burned all 5,000 tokens on reasoning and were
    cut off before emitting a single text block — the failure looked like a
    parse error when nothing had been written at all. */
-export const MAX_TOKENS = { themes: 12000, thesis: 12000, edit: 8000, draft: 16000 };
+export const MAX_TOKENS = { themes: 12000, thesis: 12000, edit: 8000, draft: 16000, transcribe: 16000 };
 
 const THEMES_SYSTEM = `You extract tradeable themes from an institutional strategist's market commentary.
 
@@ -144,21 +145,74 @@ VOICE — every rule is checked mechanically after you write:
    Describe the walls as structure, the implied range as the market's measure of a normal
    move, and the stop as what ends the trade.
 6. NUMBERS AS GIVEN. Quote the figures from the model verbatim. Cite the walls, the scale
-   band, the weighted average, the target, the stop, the risk, the option debit and POP. Do not
-   add figures the model does not contain.
-7. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
+   band and weighted average where the model supplies them, the stop, the risk, the option
+   debit and POP. Do not add figures the model does not contain.
+7. EXECUTION MODE. Every ETF leg is either scaled or immediate, and the model says which.
+   A SCALED leg carries a scale band and a weighted average execution; describe the ladder and
+   cite both. An IMMEDIATE leg carries neither, and its entry field reads "current levels".
+   Write it that way — "we would be short IBIT at current levels". Never give an immediate leg
+   an entry price, a scale band, a ladder, a tranche, or an entry improvement. There is no
+   ladder to describe and the last sale is stale by the time the note is read. Do not infer a
+   band from the walls.
+8. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
-8. EXECUTION paragraph explains the scale mechanics for the scaled legs, the immediate legs,
-   the price-triggered nature of the ladder, the stop, and that option legs price off the
-   current quote. Reference the execute window and hold window as given.
-9. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
+9. EXECUTION paragraph explains the scale mechanics for the scaled legs, states that the
+   immediate legs go on at current levels with no ladder to wait for, and covers the
+   price-triggered nature of the ladder, the stop, and that option legs price off the current
+   quote. Reference the execute window and hold window as given.
+10. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
    questions. British spelling of "realised"; otherwise American.`;
 
+/* Transcription exists so that a PDF still produces a SOURCE TEXT the rest of
+   the pipeline can police. Handing the PDF straight to the extractor as a
+   document block would leave sourceText empty, and enforce() finds quoted
+   spans by scanning sourceText — the quoted-evidence rejection would pass
+   everything, silently, with no error. So the PDF becomes text first, the
+   analyst reads that text, and extraction runs on it unchanged.
+
+   That makes fidelity the whole job here. A paraphrase that drops a pair of
+   quotation marks turns material the author is REBUTTING into material the
+   author is asserting, which is the direction inversion this tool is built
+   to prevent. */
+const TRANSCRIBE_SYSTEM = `You transcribe a PDF of market commentary into plain text. You are a
+transcriber. You are not an editor, a summariser, or a proofreader.
+
+Return exactly this, with nothing before or after it — no preamble, no commentary, no markdown fences:
+
+### TEXT
+<the transcribed text>
+
+RULES
+
+1. VERBATIM. Reproduce the author's sentences exactly as written. Do not summarise, paraphrase,
+   condense, reorder, correct, or improve anything. If something reads like a typo, keep the typo.
+
+2. QUOTATION MARKS ARE LOAD-BEARING. Reproduce every quotation mark exactly where it appears and
+   in the form it appears, straight or curly. Later stages treat a quoted sentence as a third
+   party's view rather than the author's, so a dropped or invented quotation mark reverses the
+   meaning of the piece. Never add quotation marks around a sentence that has none.
+
+3. Keep the piece's own title as the first line. Separate paragraphs with a blank line.
+
+4. Rejoin text the layout broke: words split across a line by a hyphen become one word, and lines
+   that continue the same sentence become one continuous line. A paragraph should be one block of
+   running text.
+
+5. OMIT page furniture — running headers and footers, page numbers, the firm's address block,
+   legal disclaimers, distribution boilerplate, contact details, and any "past performance"
+   language. None of it is the argument.
+
+6. OMIT tables, charts, exhibits and their captions. Do not carry a number from an exhibit into
+   the prose. Leave the prose exactly as it stands.
+
+7. If the document contains no readable text, return the marker and nothing after it.`;
+
 export const SYSTEM_PROMPTS = {
-  draft:  DRAFT_SYSTEM,
-  themes: THEMES_SYSTEM,
-  thesis: THEMES_SYSTEM,
-  edit:   EDIT_SYSTEM,
+  draft:      DRAFT_SYSTEM,
+  themes:     THEMES_SYSTEM,
+  thesis:     THEMES_SYSTEM,
+  edit:       EDIT_SYSTEM,
+  transcribe: TRANSCRIBE_SYSTEM,
 };
 
 /* Voice checks on a draft. Each returns the offending phrase so the UI can
@@ -180,6 +234,38 @@ export function checkVoice(text) {
   for (const c of VOICE_CHECKS) {
     const m = String(text || "").match(c.re);
     if (m) hits.push({ id: c.id, msg: c.msg, phrase: m[0] });
+  }
+  return hits;
+}
+
+/* Contextual check: an immediate leg must not acquire a ladder in the prose.
+   The generic VOICE_CHECKS cannot see this — "scale" is correct language on a
+   scaled leg and wrong on an immediate one, so the test needs the model the
+   draft was written from. `ctx` is the draftContext JSON. */
+const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|rungs|improvement)\b/i;
+
+export function checkImmediate(paras, ctx) {
+  const hits = {};
+  const imm = (ctx?.themes || []).filter(t => t?.etf?.execution === "immediate");
+  if (!imm.length) return hits;
+
+  for (const th of imm) {
+    const add = (k, phrase, msg) => { (hits[k] ||= []).push({ id: "immediate", msg, phrase }); };
+
+    // The theme's own paragraph: no scale language at all.
+    const own = paras[th.subject];
+    const m = own && own.match(LADDER);
+    if (m) add(th.subject, m[0], `${th.etf.ticker} is immediate — no ladder to describe`);
+
+    /* Shared paragraphs legitimately discuss the scaled legs, so only a
+       sentence naming this ticker can offend. */
+    for (const k of ["summary", "execution"]) {
+      for (const sent of String(paras[k] || "").split(/(?<=[.!?])\s+/)) {
+        if (!sent.includes(th.etf.ticker)) continue;
+        const s = sent.match(LADDER);
+        if (s) add(k, s[0], `${th.etf.ticker} is immediate — no ladder to describe`);
+      }
+    }
   }
   return hits;
 }
@@ -214,7 +300,13 @@ export function enforce(parsed, { vocab = [], anchors = [], sourceText = "" } = 
       quoteHits.push(th.id); th.evidence = ""; th.basis = "extended";
     }
     for (const f of ["rationale", "evidence"]) {
-      if (th[f] && ATTRIB.test(th[f])) attrib.push(`${th.id}.${f}`);
+      /* Report the phrase, not just the field. A warning reading
+         "bullish-dollar.rationale" cannot be triaged from the log — there is
+         no way to tell a real attribution from the verb "reports" used about
+         economic data without re-running the extraction. checkVoice already
+         returns its match; this now does too. */
+      const m = th[f] && th[f].match(ATTRIB);
+      if (m) attrib.push(`${th.id}.${f}:${m[0]}`);
     }
   }
   return { dropped, quoteHits, attrib, badAnchors };

@@ -273,6 +273,16 @@ button.ghost {
 }
 .planrow > span { display: inline-block; margin-right: 14px; white-space: nowrap; }
 .planrow b { color: var(--ink); font-weight: 700; margin-left: 3px; }
+/* The reason a leg is immediate needs to wrap, unlike the numeric cells. */
+.planrow > span.planwhy {
+  display: block; white-space: normal; margin: 3px 0 0; font-family: var(--sans);
+  font-size: 10.5px; font-style: italic; color: var(--amber);
+}
+
+/* A forced execution mode is not the analyst's choice, so the active button
+   is outlined rather than filled — it reads as "this is what will happen",
+   not "you picked this". */
+.legtoggle.forced button.on { box-shadow: inset 0 0 0 1px var(--amber); }
 
 .ranked {
   margin-top: 11px; padding: 8px 11px; background: var(--bg);

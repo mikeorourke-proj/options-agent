@@ -192,6 +192,44 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- Execution mode is RESOLVED, not just preferred. scalePlan forces immediate
+  when the last sale sits inside NEAR_WALL (2%) of the wall being faded --
+  the call wall on a bearish leg, the put wall on a bullish one -- because
+  there is no room left to ladder. That rule always existed but fired
+  invisibly: the toggle showed the analyst's stored preference, so it read
+  "scaled" while the plan underneath was immediate and nothing on screen
+  said why. The toggle now shows what the leg will actually do, marks it
+  "immediate · auto" with an amber outline when proximity forced it, states
+  the distance and the wall in the plan row, and logs calc/execution.auto.
+  immediate with spot, wall and distance. Clicking "scaled" does not
+  override it, and the tooltip says so.
+- An IMMEDIATE leg enters at "current levels" and carries no entry price.
+  draftContext used to send scaleFrom/scaleTo/targetExecution/improvement
+  regardless of mode, and the model quoted them exactly as rule 6 tells it
+  to: "short IBIT immediately at 45.23, the ladder spanning 45.23 to 48.00
+  with entry improvement of 0.0" -- a ladder on a position that has none.
+  Those fields are now withheld when the leg is immediate, the entry field
+  reads "current levels", and draft rule 7 states both modes. The last sale
+  is the wrong number to print in any case: it is stale by the time the note
+  is read and no ladder makes it a commitment. Exhibit 3 no longer draws a
+  band or an average marker for an immediate leg, Exhibit 4 shows "current
+  levels" in place of the last sale, and checkImmediate() flags ladder words
+  in an immediate theme's paragraph, or in any summary/execution sentence
+  naming that ticker. It needs the draft context, not just the paragraph,
+  because "scale" is correct language on a scaled leg.
+- PDF upload is live. A PDF is NOT handed to the extractor as a document
+  block, which is the obvious implementation and the wrong one: enforce()
+  finds quoted spans by scanning the source text the client sent, so with
+  no source text the quoted-evidence rejection returns an empty list and
+  passes everything. It fails open and logs nothing. Instead the file goes
+  up as base64 to a "transcribe" task, comes back as plain text, and lands
+  in the textarea; extraction then runs on that text unchanged, with the
+  guard armed and with the analyst able to read what the model read.
+  Transcription is verbatim by instruction, quotation marks especially --
+  a lost pair converts material the author is rebutting into material the
+  author is asserting. The run log records the surviving quote-mark count.
+  Ceiling is 4 MB: Netlify caps a function request at 6 MB and base64 adds
+  a third. A scan with no text layer fails with that stated as the reason.
 - Step 5 (Note) is live: compose from state, draft on a button, edit
   in place, print to PDF via the browser. The Python mock renderer is
   retired -- every number it hardcoded is now in state.

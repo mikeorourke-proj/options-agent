@@ -22,8 +22,16 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     /* eslint-disable-next-line */
   }, []);
 
-  const note = useMemo(() => composeNote({ parsed, picks, menus, settings: s }),
-                       [parsed, picks, menus, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector, s.prose]);
+  /* Prose is a passthrough in composeNote — it is attached to the model, it
+     does not feed the ordering or the economics. Keeping s.prose in this
+     dependency list re-derived the entire model on every keystroke: one run
+     logged 66 recomposes and 132 ordering decisions while a paragraph was
+     being edited, which is 45% of the run log and none of it a change. The
+     model memoises on real inputs; prose is attached after. */
+  const model = useMemo(() => composeNote({ parsed, picks, menus, settings: s }),
+                        [parsed, picks, menus, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector]);
+  const note = useMemo(() => ({ ...model, prose: s.prose || { summary: "", themes: {}, execution: "" } }),
+                       [model, s.prose]);
 
   const set = (k, v) => setNoteState(prev => ({ ...prev, [k]: v }));
   const setProse = (k, v) => {
