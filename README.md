@@ -192,6 +192,21 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- composeNote re-runs only on what it computes from. Everything the analyst
+  types -- title, subtitle, both windows, sector line, prose -- is
+  passthrough, assembled into meta AFTER the orderings and the economics,
+  and is now laid over a memoised model rather than sitting in its
+  dependency list. 0.15.2 fixed the prose half and left the settings half,
+  so a keystroke in the subtitle still re-ran both orderings and the theme
+  mapping: one run logged 38 recomposes in 33 seconds of typing. The
+  fallbacks live once, in analystMeta().
+- Draft latency is climbing: 4,358 output tokens and 54s on v0.15.0, 11,548
+  and 120s on v0.16.0, for prose the same length either way. The extra is
+  thinking, and the draft prompt got more prescriptive in between. The poll
+  deadline went 3 min -> 4 min and the timeout error now carries the jobId,
+  since the job keeps running and the blob holds the answer -- only the
+  client gives up. Worth watching; if it keeps growing the prompt is the
+  place to look, not the deadline.
 - PROOFREAD is a step, because native spellcheck cannot guard a printed
   document. Chrome marks a misspelling only while its field is focused and
   never paints the mark on the printed page, so "Draaaining" went through a

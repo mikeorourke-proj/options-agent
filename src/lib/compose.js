@@ -12,6 +12,21 @@ import { leveredFor } from "../data/etf-universe.js";
 const fmt = (n, d = 2) => n == null ? "—" : Number(n).toFixed(d);
 const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
 
+/* The five fields the analyst types. Every one is passthrough: none reaches
+   an ordering, a price or a plan, and meta is assembled after all of that is
+   done. They live here so the fallbacks have a single home, and so StepNote
+   can lay them over a memoised model instead of re-deriving the note on
+   every keystroke. */
+export function analystMeta(settings, parsed) {
+  return {
+    title: settings.title || parsed?.sourceTitle || "Tactical Note",
+    subtitle: settings.subtitle || "",
+    executeWindow: settings.executeWindow || "5 to 10 days",
+    holdWindow: settings.holdWindow || "4 to 6 weeks",
+    sector: settings.sector || "Cross-Asset / Macro",
+  };
+}
+
 export function composeNote({ parsed, picks, menus, settings = {} }) {
   const chosen = Object.values(picks.sel || {});
   const srcRank = Object.fromEntries((parsed.themes || []).map((t, i) => [t.id, i]));
@@ -66,13 +81,9 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
   const dirs = [...new Set(themes.map(t => t.direction))];
   const meta = {
     date: settings.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-    title: settings.title || parsed.sourceTitle || "Tactical Note",
-    subtitle: settings.subtitle || "",
+    ...analystMeta(settings, parsed),
     direction: dirs.length === 1 ? dirs[0] : "mixed",
     subjects: orderedThemes.map(t => t.subject),
-    executeWindow: settings.executeWindow || "5 to 10 days",
-    holdWindow: settings.holdWindow || "4 to 6 weeks",
-    sector: settings.sector || "Cross-Asset / Macro",
     analyst: settings.analyst || { name: "Mike O'Rourke, CMT", title: "Chief Market Strategist",
                                    email: "morourke@jonestrading.com", phone: "203.413.5020" },
     model: parsed.model,

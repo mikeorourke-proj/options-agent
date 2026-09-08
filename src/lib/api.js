@@ -57,22 +57,15 @@ export const api = {
      guard armed and puts what the model read in front of the analyst. */
   transcribe: (pdf, onTick) => api.thinkLong("transcribe", "", { pdf }, onTick),
 
-  /* Theme extraction runs in the background: Opus takes 25-35s on a full
-     note and Netlify kills synchronous functions at 26s. Fire, then poll. */
-  async thinkLong(task, text, extra = {}, onTick) {
-    const jobId = (crypto.randomUUID?.() || String(Math.random()).slice(2)) + "-" + Date.now();
-    const t = RunLog.timer("llm", `${task}.job`, { jobId, chars: text.length });
-
-    await fetch("/.netlify/functions/think-background", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId, task, text, today: new Date().toISOString().slice(0, 10), ...extra }),
-    });
-    RunLog.info("llm", "job.queued", { jobId });
-
-    const deadline = Date.now() + 180000;   // 3 minutes
+  /* Poll an existing job. Split out of thinkLong because a client timeout
+     does not stop the work: the background function runs to 15 minutes and
+     the blob is never deleted, so the answer is usually sitting there a
+     minute after the UI gave up. Callers keep the jobId and come back. */
+  async pollJob(task, jobId, onTick, limitMs = 240000) {
+    const t = RunLog.timer("llm", `${task}.poll`, { jobId });
+    const started = Date.now();
     let wait = 1200, polls = 0;
-    while (Date.now() < deadline) {
+    while (Date.now() - started < limitMs) {
       await new Promise(r => setTimeout(r, wait));
       wait = Math.min(wait * 1.15, 4000);
       polls++;
@@ -80,7 +73,7 @@ export const api = {
       try { doc = await (await fetch(`/.netlify/functions/think-status?id=${jobId}`)).json(); }
       catch { continue; }
 
-      onTick?.(doc.status, polls, Math.round((Date.now() - (deadline - 180000)) / 1000));
+      onTick?.(doc.status, polls, Math.round((Date.now() - started) / 1000));
 
       if (doc.status === "done") {
         if (doc.log) RunLog.absorb(doc.log);
@@ -94,8 +87,33 @@ export const api = {
         throw new Error(doc.error || "job failed");
       }
     }
-    t.fail(new Error("timed out after 3 minutes"));
-    throw new Error("Extraction timed out after 3 minutes.");
+    /* The jobId travels on the error. Without it the wait is unrecoverable
+       even though the result exists. */
+    const late = new Error(`still running after ${Math.round(limitMs / 60000)} minutes`);
+    late.jobId = jobId;
+    late.task = task;
+    t.fail(late);
+    throw late;
+  },
+
+  /* Theme extraction runs in the background: Opus takes 25-35s on a full
+     note and Netlify kills synchronous functions at 26s. Fire, then poll.
+
+     The draft has grown — 4,358 output tokens and 54s on v0.15.0, 11,548 and
+     120s on v0.16.0 for prose the same length — so the window is four
+     minutes, not three. */
+  async thinkLong(task, text, extra = {}, onTick) {
+    const jobId = (crypto.randomUUID?.() || String(Math.random()).slice(2)) + "-" + Date.now();
+    RunLog.info("llm", `${task}.job.start`, { jobId, chars: text.length });
+
+    await fetch("/.netlify/functions/think-background", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId, task, text, today: new Date().toISOString().slice(0, 10), ...extra }),
+    });
+    RunLog.info("llm", "job.queued", { jobId });
+
+    return api.pollJob(task, jobId, onTick);
   },
 };
 

@@ -44,6 +44,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
   const [fileName, setFileName] = useState(null);
   const [reading, setReading] = useState(false);
   const [transcribed, setTranscribed] = useState(null);
+  const [stalled, setStalled] = useState(null);
 
   function loadSample(key) {
     setText(SAMPLES[key]); setFileName(null); setTranscribed(null); setErr(null);
@@ -67,25 +68,56 @@ export default function StepSource({ parsed, setParsed, onNext }) {
       return;
     }
 
-    setFileName(f.name); setTranscribed(null); setReading(true);
+    setFileName(f.name); setTranscribed(null); setStalled(null); setReading(true);
     const t = RunLog.timer("ui", "source.pdf", { name: f.name, kb });
     try {
       const b64 = await toBase64(f);
-      const res = await api.transcribe(
-        { name: f.name, b64 },
-        (status, polls, secs) => setPhase(`${status === "running" ? "reading" : "queued"} · ${secs}s`)
-      );
-      const out = res?.parsed?.text;
-      if (!out) throw new Error(res?.parseError || res?.error || "no text came back");
-      setText(out);
-      setTranscribed({ name: f.name, chars: out.length });
-      RunLog.fact("sourceText", `${out.length} chars from ${f.name}`,
-                  { src: "think/transcribe", model: res.model });
-      t.end({ chars: out.length, model: res.model, tokens: res.usage });
+      const res = await api.transcribe({ name: f.name, b64 }, tick);
+      applyTranscript(res, f.name);
+      t.end({ chars: res.parsed.text.length, model: res.model, tokens: res.usage });
     } catch (e) {
       t.fail(e);
-      setErr(`Could not read ${f.name}. ${e.message}`);
-      setFileName(null);
+      /* A timeout is not a failure of the job, only of the wait. The
+         background function runs to 15 minutes and the blob is never
+         deleted, so the transcript is usually there shortly after. Keep the
+         jobId and offer to look again rather than making the analyst
+         re-upload and pay for the read twice. */
+      if (e.jobId) {
+        setStalled({ jobId: e.jobId, name: f.name });
+        setErr(`${f.name} is taking longer than four minutes. The read is still running — check again below rather than re-uploading.`);
+      } else {
+        setErr(`Could not read ${f.name}. ${e.message}`);
+        setFileName(null);
+      }
+    }
+    setReading(false); setPhase(null);
+  }
+
+  const tick = (status, polls, secs) => setPhase(`${status === "running" ? "reading" : "queued"} · ${secs}s`);
+
+  function applyTranscript(res, name) {
+    const out = res?.parsed?.text;
+    if (!out) throw new Error(res?.parseError || res?.error || "no text came back");
+    setText(out);
+    setTranscribed({ name, chars: out.length });
+    setStalled(null); setErr(null);
+    RunLog.fact("sourceText", `${out.length} chars from ${name}`,
+                { src: "think/transcribe", model: res.model });
+  }
+
+  async function checkAgain() {
+    if (!stalled) return;
+    setReading(true); setErr(null);
+    const t = RunLog.timer("ui", "source.pdf.resume", { jobId: stalled.jobId, name: stalled.name });
+    try {
+      const res = await api.pollJob("transcribe", stalled.jobId, tick, 120000);
+      applyTranscript(res, stalled.name);
+      t.end({ chars: res.parsed.text.length, model: res.model });
+    } catch (e) {
+      t.fail(e);
+      setErr(e.jobId
+        ? `${stalled.name} is still running. Check again, or paste the text instead.`
+        : `Could not read ${stalled.name}. ${e.message}`);
     }
     setReading(false); setPhase(null);
   }
@@ -138,6 +170,15 @@ export default function StepSource({ parsed, setParsed, onNext }) {
             editable above. Check it before extracting, and check the quotation marks in particular:
             a quoted sentence is treated as someone else's view rather than yours, so a pair lost in
             the PDF would hand the parser an argument you were rebutting.
+          </div>
+        )}
+
+        {stalled && !reading && (
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="primary" onClick={checkAgain}>Check again for {stalled.name}</button>
+            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
+              The read is still running on the server — nothing is re-sent and nothing is charged twice.
+            </span>
           </div>
         )}
 

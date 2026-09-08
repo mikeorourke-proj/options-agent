@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import { api } from "../lib/api.js";
-import { composeNote, draftContext } from "../lib/compose.js";
+import { composeNote, draftContext, analystMeta } from "../lib/compose.js";
 import NoteView from "../note/NoteView.jsx";
 import { buildExplainer } from "../lib/explain.js";
 
@@ -24,16 +24,22 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     /* eslint-disable-next-line */
   }, []);
 
-  /* Prose is a passthrough in composeNote — it is attached to the model, it
-     does not feed the ordering or the economics. Keeping s.prose in this
-     dependency list re-derived the entire model on every keystroke: one run
-     logged 66 recomposes and 132 ordering decisions while a paragraph was
-     being edited, which is 45% of the run log and none of it a change. The
-     model memoises on real inputs; prose is attached after. */
+  /* composeNote re-runs only when something it actually computes from
+     changes. Everything the analyst types is passthrough and is laid over
+     the result afterwards.
+
+     0.15.2 fixed the prose half of this and left the settings half: title,
+     subtitle, the two windows and the sector line stayed in the dependency
+     list, so a keystroke in any of them still re-ran both orderings and the
+     whole theme mapping. One run logged 38 recomposes in 33 seconds of
+     typing a subtitle. */
   const model = useMemo(() => composeNote({ parsed, picks, menus, settings: s }),
-                        [parsed, picks, menus, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector]);
-  const note = useMemo(() => ({ ...model, prose: s.prose || { summary: "", themes: {}, execution: "" } }),
-                       [model, s.prose]);
+                        [parsed, picks, menus]);
+  const note = useMemo(() => ({
+    ...model,
+    meta: { ...model.meta, ...analystMeta(s, parsed) },
+    prose: s.prose || { summary: "", themes: {}, execution: "" },
+  }), [model, parsed, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector, s.prose]);
 
   const set = (k, v) => setNoteState(prev => ({ ...prev, [k]: v }));
   const setProse = (k, v) => {
@@ -294,7 +300,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
             {note.etfOrder.length} ETF · {note.optOrder.length} derivatives
           </span>
         </div>
-        {busy && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Opus drafts in 20–60 seconds.</div>}
+        {busy && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Opus drafts in 1–2 minutes. Proofreading takes under 10 seconds.</div>}
         {s.partial && <div className="note" style={{ marginTop: 10 }}>
           The draft was cut short — <b>{s.partial.join(" and ")}</b> {s.partial.length > 1 ? "are" : "is"} empty.
           Re-draft, or write {s.partial.length > 1 ? "them" : "it"} yourself.
