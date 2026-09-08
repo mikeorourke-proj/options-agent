@@ -192,6 +192,15 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- WHY A LEG IS SINGLE LIVES IN ONE PLACE: plan.reason, written by scalePlan,
+  which is the only thing that knows whether it was proximity to the wall or
+  the absence of a chain. StepIdeas used to rebuild the proximity sentence in
+  its tooltip, and the first wall-less plan crashed the whole step --
+  distToWallPct is null with no wall, and null.toFixed throws inside a render
+  map, so the entire Themes view went blank. The stop-mode toggle also had to
+  learn about it: with no chain, "wall +1%" is not a choice the analyst has,
+  so it is disabled and flat shows as auto.
+
 - GRADE X BLOCKS THE OPTIONS, NOT THE TRADE. The key has always said "no
   usable chain -- shares only", but the shares leg was built INSIDE the
   `if (liq !== "X")` gate, so plan, tgt and shareScore were all skipped, the

@@ -5,9 +5,11 @@ import { searchUniverse, leveredFor, appropriateness } from "../data/etf-univers
 import { analyzeChain, realisedVol } from "../lib/vol.js";
 import { suggestStructures } from "../lib/strategy.js";
 import { evaluate } from "../lib/pricing.js";
-import { scalePlan, targets, scoreShares, NEAR_WALL } from "../lib/shares.js";
+import { scalePlan, targets, scoreShares } from "../lib/shares.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT } from "../lib/ordering.js";
 import { dte } from "../lib/vol.js";
+
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
 
 const fmtB  = n => n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(0)}M` : n ? `$${n.toFixed(0)}` : "—";
 const fmtV  = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${((n || 0) / 1e3).toFixed(0)}K`;
@@ -369,8 +371,14 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                  what the leg will actually do. */
               const p = m.primary?.plan;
               const forced = Boolean(p?.single) && m.execution !== "immediate";
+              /* The reason comes from scalePlan, which is the only thing that
+                 knows WHY a leg is single — proximity to the wall, or no wall
+                 at all because there is no chain. This used to rebuild the
+                 proximity sentence here, which crashed the whole step the
+                 first time a wall-less plan arrived: distToWallPct is null
+                 when there is no wall, and null.toFixed throws. One source. */
               const why = forced
-                ? `Last sale is ${p.distToWallPct.toFixed(1)}% from the ${m.direction === "bearish" ? "call" : "put"} wall at ${p.wall}, inside the ${NEAR_WALL * 100}% band — there is no room to ladder, so this leg goes on at current levels. Clicking scaled will not override it.`
+                ? `${cap(p.reason || "this leg goes on at current levels")}. Clicking scaled will not override it.`
                 : "ETF execution";
               return (
                 <span className={`legtoggle ${forced ? "forced" : ""}`} title={why}>
@@ -383,10 +391,20 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                 </span>
               );
             })()}
-            <span className="legtoggle" title="Stop out">
-              <button className={(m.stopMode || "wall") === "wall" ? "on" : ""} onClick={() => setPref(m.id, "stopMode", "wall")}>stop: wall +1%</button>
-              <button className={m.stopMode === "flat" ? "on sh" : ""} onClick={() => setPref(m.id, "stopMode", "flat")}>flat 5%</button>
-            </span>
+            {(() => {
+              /* With no chain there is no wall to stop beyond, so the wall
+                 option is not a choice the analyst has here. */
+              const noWall = Boolean(m.primary?.plan?.noWall);
+              return (
+                <span className={`legtoggle ${noWall ? "forced" : ""}`}
+                      title={noWall ? "No option chain on this vehicle, so there is no wall to stop beyond — the flat stop is the only one available." : "Stop out"}>
+                  <button disabled={noWall} className={!noWall && (m.stopMode || "wall") === "wall" ? "on" : ""}
+                          onClick={() => setPref(m.id, "stopMode", "wall")}>stop: wall +1%</button>
+                  <button className={noWall || m.stopMode === "flat" ? "on sh" : ""}
+                          onClick={() => setPref(m.id, "stopMode", "flat")}>flat 5%{noWall ? " · auto" : ""}</button>
+                </span>
+              );
+            })()}
             {m.combinedFrom && <button className="ib-btn" onClick={() => splitCluster(m.id)}>split</button>}
           </div>
 
@@ -431,7 +449,8 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                       {m.primary.plan.single ? "at current levels"
                         : `${m.primary.price.toFixed(2)} → ${m.primary.plan.wall}`}</b></span>
                     {!m.primary.plan.single && <span>entry <b>{m.primary.plan.entry.toFixed(2)}</b></span>}
-                    <span>target <b>{m.primary.tgt.struct}</b> ({m.primary.shareScore.rewardSigma}σ)</span>
+                    {/* A wall target is a round strike; a sigma target is a raw float. */}
+                    <span>target <b>{m.primary.tgt.struct?.toFixed(2)}</b> ({m.primary.shareScore.rewardSigma}σ{m.primary.tgt.volFrom === "realised" ? ", realised" : ""})</span>
                     <span>stop <b>{m.primary.plan.stop.toFixed(2)}</b></span>
                     <span>risk <b>{m.primary.shareScore.riskPct}%</b></span>
                     <span>R:R <b>{m.primary.shareScore.rr}</b></span>
@@ -545,7 +564,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
 
               {m.vol?.ok && (
                 <div className="volrow">
-                  IV30 <b>{m.vol.iv30}%</b> · RV30 <b>{m.vol.rv30 ?? "—"}%</b> ·
+                  IV30 <b>{m.vol.iv30 ?? "—"}%</b> · RV30 <b>{m.vol.rv30 ?? "—"}%</b> ·
                   25Δ RR <b>{m.vol.rr25 ?? "—"}</b> · term <b>{m.vol.termSlope ?? "—"}</b> ·
                   walls <b>{m.vol.putWall ?? "—"} / {m.vol.callWall ?? "—"}</b> ·
                   max pain <b>{m.vol.maxPain ?? "—"}</b>
