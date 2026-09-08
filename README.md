@@ -192,6 +192,21 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- A PDF CANNOT travel in the background function's invocation payload, and
+  this cost three sessions of misdiagnosis. Background functions are invoked
+  asynchronously and that invoke's body limit is far below the 6 MB a
+  synchronous function accepts; a 1 MB PDF is 1.37 MB once base64'd into
+  JSON, so Netlify rejected the invoke, the function never ran, the blob was
+  never written, and the client polled "pending" until it gave up. It looked
+  like a slow model. It was a rejected HTTP request.
+  The bytes now go to pdf-stash, an ordinary synchronous function, as raw
+  bytes -- no client-side base64, a third less over the wire, no FileReader.
+  The job receives a key: 1,397,675 bytes of payload became 153. The stash
+  is cleared in a finally, whether the read succeeded or not.
+- thinkLong CHECKS THE INVOCATION RESPONSE. It used to discard it and log
+  "queued" regardless, which is why a rejected invoke and an accepted one
+  were indistinguishable. A background function answers 202; anything else
+  throws immediately with the status and body.
 - Transcription runs on Sonnet, not Opus. It is the one task with no
   reasoning in it -- copy the words out, in order, changing nothing -- and
   Opus spent over four minutes on a 1 MB news-article PDF without returning.

@@ -22,18 +22,10 @@ Broadcom's earnings release after the market close today was the day's key event
 Google is being supplanted as Broadcom's largest XPU customer by two companies that remain cash flow negative. When you add Nvidia's combined exposure to SpaceX and OpenAI, the fates of the largest semiconductor companies in the world are irrevocably tied to financially insecure AI enterprises that are in the midst of a fierce LLM token price war. One can understand if P/E multiples are constrained at least until those enterprises receive an influx of cash.`,
 };
 
-const PDF_MAX = 4 * 1024 * 1024;   // Netlify caps a function request at 6MB; base64 adds a third
-
-/* readAsDataURL rather than building the string from the byte array: a 4MB
-   file is 4 million arguments to String.fromCharCode and blows the stack. */
-function toBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(String(r.result).split(",")[1]);
-    r.onerror = () => rej(new Error("the file could not be read"));
-    r.readAsDataURL(file);
-  });
-}
+/* The file is uploaded to pdf-stash, an ordinary synchronous function, and
+   only its key is passed to the background job. Synchronous functions accept
+   6 MB and the raw bytes go up unencoded, so 4 MB leaves ample room. */
+const PDF_MAX = 4 * 1024 * 1024;
 
 export default function StepSource({ parsed, setParsed, onNext }) {
   const [text, setText] = useState("");
@@ -71,8 +63,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
     setFileName(f.name); setTranscribed(null); setStalled(null); setReading(true);
     const t = RunLog.timer("ui", "source.pdf", { name: f.name, kb });
     try {
-      const b64 = await toBase64(f);
-      const res = await api.transcribe({ name: f.name, b64 }, tick);
+      const res = await api.transcribe(f, tick);
       applyTranscript(res, f.name);
       t.end({ chars: res.parsed.text.length, model: res.model, tokens: res.usage });
     } catch (e) {

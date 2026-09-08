@@ -21,18 +21,24 @@ export default async (request) => {
 
   let payload = {};
   try { payload = await request.json(); } catch {}
-  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdf } = payload;
+  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdfKey, pdfName } = payload;
   if (!jobId) { L.error("no jobId", new Error("missing jobId")); return; }
 
   const put = (doc) => store.setJSON(jobId, { ...doc, jobId, task, at: new Date().toISOString() });
+  let pdfB64 = null;
 
   try {
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
     if (task === "transcribe") {
-      /* Base64 inflates by a third and Netlify caps a function request at 6 MB,
-         so the client's 4 MB file ceiling lands here at roughly 5.6 MB. */
-      if (!pdf?.b64) throw new Error("no PDF supplied");
-      if (pdf.b64.length > 5_800_000) throw new Error("PDF too large — the ceiling is 4 MB");
+      /* The PDF arrives by reference. It cannot arrive by value: this
+         function is invoked asynchronously and that invoke's body limit is
+         far below the 6 MB a synchronous function accepts, so a 1 MB PDF
+         base64'd into the payload was rejected before any of this ran.
+         pdf-stash puts the bytes in Blobs; only the key travels. */
+      if (!pdfKey) throw new Error("no PDF key supplied");
+      pdfB64 = await getStore("pdf-uploads").get(pdfKey, { type: "text" });
+      if (!pdfB64) throw new Error("the uploaded PDF was not found under its key");
+      L.info("pdf.loaded", { key: pdfKey, name: pdfName, b64KB: Math.round(pdfB64.length / 1024) });
     } else {
       if (!text || text.length < 60) throw new Error("source text too short");
       if (text.length > 200000) throw new Error("source text too long");
@@ -62,12 +68,12 @@ export default async (request) => {
     /* A PDF goes up as a document block alongside the instruction. Everything
        else is a plain string. */
     const content = task === "transcribe"
-      ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf.b64 } },
+      ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfB64 } },
          { type: "text", text: user }]
       : user;
 
     L.info("prompt", task === "transcribe"
-      ? { task, model: MODEL, file: pdf.name, b64KB: Math.round(pdf.b64.length / 1024) }
+      ? { task, model: MODEL, file: pdfName, b64KB: Math.round(pdfB64.length / 1024) }
       : { task, model: MODEL, chars: text.length, vocabTerms: vocab.length, hasNote: Boolean(note) });
     const t0 = Date.now();
 
@@ -148,7 +154,7 @@ export default async (request) => {
            downstream is only as good as the marks that survived this step,
            so a run that reads zero is worth seeing in the log. */
         L.info("transcribe", {
-          file: pdf?.name,
+          file: pdfName,
           chars: out.length,
           words: out.split(/\s+/).filter(Boolean).length,
           paras: out.split(/\n\s*\n/).filter(p => p.trim()).length,
@@ -222,5 +228,9 @@ export default async (request) => {
   } catch (e) {
     L.error("unhandled", e);
     try { await put({ status: "failed", error: e.message, log: L.log }); } catch {}
+  } finally {
+    /* The stash is a hand-off, not storage. Clear it whether the read
+       succeeded or not so a megabyte per upload does not accumulate. */
+    if (pdfKey) { try { await getStore("pdf-uploads").delete(pdfKey); } catch {} }
   }
 };

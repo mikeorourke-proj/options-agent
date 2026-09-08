@@ -54,8 +54,28 @@ export const api = {
      to the extractor as a document block: enforce() finds quoted spans by
      scanning the source text it was sent, so with no text the quoted-evidence
      guard would pass everything and say nothing. Transcribing first keeps the
-     guard armed and puts what the model read in front of the analyst. */
-  transcribe: (pdf, onTick) => api.thinkLong("transcribe", "", { pdf }, onTick),
+     guard armed and puts what the model read in front of the analyst.
+
+     The bytes go to Blobs through pdf-stash first. They cannot ride in the
+     background function's invocation payload — that invoke is asynchronous
+     and its body limit is far below the 6 MB a synchronous function takes,
+     so 1.37 MB of base64 was silently rejected. The job gets a key. */
+  async transcribe(file, onTick) {
+    const key = (crypto.randomUUID?.() || String(Math.random()).slice(2)) + "-" + Date.now();
+    const t = RunLog.timer("llm", "pdf.stash", { key, kb: +(file.size / 1024).toFixed(1) });
+    const r = await fetch(`/.netlify/functions/pdf-stash?id=${key}`, {
+      method: "POST", headers: { "Content-Type": "application/pdf" }, body: file,
+    });
+    if (!r.ok) {
+      const body = (await r.text().catch(() => "")).slice(0, 300);
+      const e = new Error(`the upload was refused — HTTP ${r.status}${body ? `: ${body}` : ""}`);
+      t.fail(e); throw e;
+    }
+    const info = await r.json().catch(() => ({}));
+    t.end({ b64KB: info.b64KB });
+
+    return api.thinkLong("transcribe", "", { pdfKey: key, pdfName: file.name }, onTick);
+  },
 
   /* Poll an existing job. Split out of thinkLong because a client timeout
      does not stop the work: the background function runs to 15 minutes and
@@ -118,12 +138,22 @@ export const api = {
     const jobId = (crypto.randomUUID?.() || String(Math.random()).slice(2)) + "-" + Date.now();
     RunLog.info("llm", `${task}.job.start`, { jobId, chars: text.length });
 
-    await fetch("/.netlify/functions/think-background", {
+    /* The response was thrown away here, and that is why a 1.37 MB transcribe
+       payload looked like a slow model for three sessions: Netlify rejected
+       the invoke, the function never ran, and the client logged "queued" and
+       polled a blob that would never be written. A background function
+       answers 202; anything else means it did not start. */
+    const r = await fetch("/.netlify/functions/think-background", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jobId, task, text, today: new Date().toISOString().slice(0, 10), ...extra }),
     });
-    RunLog.info("llm", "job.queued", { jobId });
+    if (!r.ok) {
+      const body = (await r.text().catch(() => "")).slice(0, 300);
+      RunLog.warn("llm", "job.rejected", { jobId, status: r.status, body });
+      throw new Error(`the job was not accepted — HTTP ${r.status}${body ? `: ${body}` : ""}`);
+    }
+    RunLog.info("llm", "job.queued", { jobId, status: r.status });
 
     return api.pollJob(task, jobId, onTick);
   },
