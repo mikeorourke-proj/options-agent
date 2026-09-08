@@ -120,7 +120,9 @@ const RunLog = (() => {
       push("debug", ch, msg + ".start", data);
       return {
         end(extra) { return push("info", ch, msg, { ms: Date.now() - started, ...(extra || {}) }); },
-        fail(err)  { return push("error", ch, msg + ".fail", { ms: Date.now() - started }, err); },
+        /* extra so a failure can carry diagnosis, not just a duration —
+           a stuck poll needs its last-seen status in the log. */
+        fail(err, extra) { return push("error", ch, msg + ".fail", { ms: Date.now() - started, ...(extra || {}) }, err); },
       };
     },
 

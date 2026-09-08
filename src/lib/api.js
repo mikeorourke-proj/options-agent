@@ -64,7 +64,7 @@ export const api = {
   async pollJob(task, jobId, onTick, limitMs = 240000) {
     const t = RunLog.timer("llm", `${task}.poll`, { jobId });
     const started = Date.now();
-    let wait = 1200, polls = 0;
+    let wait = 1200, polls = 0, seen = null;
     while (Date.now() - started < limitMs) {
       await new Promise(r => setTimeout(r, wait));
       wait = Math.min(wait * 1.15, 4000);
@@ -73,6 +73,15 @@ export const api = {
       try { doc = await (await fetch(`/.netlify/functions/think-status?id=${jobId}`)).json(); }
       catch { continue; }
 
+      /* Every status change, once. Without this a job that never starts and
+         a job that starts and runs long look identical from the log: both
+         are a job.queued followed by silence. "pending" means the blob has
+         no document, so the background function has not reached its first
+         write; "running" means it has and the model is working. */
+      if (doc.status !== seen) {
+        RunLog.info("llm", "job.status", { jobId, from: seen, to: doc.status, atSec: Math.round((Date.now() - started) / 1000), polls });
+        seen = doc.status;
+      }
       onTick?.(doc.status, polls, Math.round((Date.now() - started) / 1000));
 
       if (doc.status === "done") {
@@ -88,11 +97,14 @@ export const api = {
       }
     }
     /* The jobId travels on the error. Without it the wait is unrecoverable
-       even though the result exists. */
-    const late = new Error(`still running after ${Math.round(limitMs / 60000)} minutes`);
+       even though the result usually exists a minute or two later. */
+    const late = new Error(seen === "running"
+      ? `still running after ${Math.round(limitMs / 60000)} minutes`
+      : `never started — the job was still ${seen || "pending"} after ${Math.round(limitMs / 60000)} minutes`);
     late.jobId = jobId;
     late.task = task;
-    t.fail(late);
+    late.lastStatus = seen;
+    t.fail(late, { lastStatus: seen, polls });
     throw late;
   },
 

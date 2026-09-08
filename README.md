@@ -192,6 +192,24 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- Transcription runs on Sonnet, not Opus. It is the one task with no
+  reasoning in it -- copy the words out, in order, changing nothing -- and
+  Opus spent over four minutes on a 1 MB news-article PDF without returning.
+  Every PDF page reaches the model as an image as well as text, so a printed
+  web page is many image-heavy pages. One line in MODELS to revert.
+- A stuck job used to be a black box: job.queued followed by silence looked
+  the same whether the background function never started or started and ran
+  long. pollJob now logs every status transition once (pending -> running ->
+  done) and puts lastStatus on both the timeout error and the log line, so
+  the next stuck run says which of the two it was. "pending" means the blob
+  has no document and the function has not reached its first write;
+  "running" means the model has the request.
+- A client timeout is not a job failure. The background function runs to 15
+  minutes and nothing deletes the blob, so the answer is usually there
+  shortly after the UI gives up. The jobId travels on the error and the
+  banner carries a Check again button -- inside the banner, not below the
+  textarea, where the first version of it went unnoticed. The banner reads
+  "Still reading", not "Extraction failed", when the job is alive.
 - composeNote re-runs only on what it computes from. Everything the analyst
   types -- title, subtitle, both windows, sector line, prose -- is
   passthrough, assembled into meta AFTER the orderings and the economics,

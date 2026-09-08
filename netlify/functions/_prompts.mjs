@@ -2,12 +2,19 @@
    tasks) and think-background.mjs (theme extraction) so the two cannot
    drift apart. */
 
+/* Transcription is the one task with no reasoning in it — copy the words out,
+   in order, changing nothing. Opus spent more than four minutes on a 1 MB
+   news-article PDF and never came back inside the client's window, because
+   every PDF page reaches the model as an image as well as text and a printed
+   web page is many image-heavy pages. Sonnet does verbatim copying just as
+   well and materially faster. Revert this one line to claude-opus-5 if the
+   transcripts come back worse. */
 export const MODELS = {
   themes:     "claude-opus-5",
   thesis:     "claude-opus-5",
   edit:       "claude-opus-5",
   draft:      "claude-opus-5",
-  transcribe: "claude-opus-5",
+  transcribe: "claude-sonnet-5",
   spell:      "claude-opus-5",
 };
 

@@ -84,7 +84,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
          re-upload and pay for the read twice. */
       if (e.jobId) {
         setStalled({ jobId: e.jobId, name: f.name });
-        setErr(`${f.name} is taking longer than four minutes. The read is still running — check again below rather than re-uploading.`);
+        setErr(`${f.name} has not come back in four minutes. ${e.lastStatus === "running" ? "The model is still working on it" : "The job never reached the model"} — the read continues on the server for up to 15 minutes.`);
       } else {
         setErr(`Could not read ${f.name}. ${e.message}`);
         setFileName(null);
@@ -159,7 +159,20 @@ export default function StepSource({ parsed, setParsed, onNext }) {
           <b> you </b>conclude — material inside quotation marks is treated as context, never as evidence.
         </p>
 
-        {err && <div className="err-banner"><b>Extraction failed.</b> {err}</div>}
+        {err && (
+          <div className={stalled ? "note" : "err-banner"}>
+            <b>{stalled ? "Still reading." : "Extraction failed."}</b> {err}
+            {stalled && !reading && (
+              <div className="row" style={{ marginTop: 8 }}>
+                <button className="primary" onClick={checkAgain}>Check again</button>
+                <span style={{ fontSize: 11.5 }}>
+                  Nothing is re-sent and nothing is charged twice — this only looks for the finished read.
+                </span>
+              </div>
+            )}
+            {stalled && reading && <div style={{ marginTop: 6, fontSize: 12 }}><span className="spin" />&nbsp; {phase || "checking…"}</div>}
+          </div>
+        )}
 
         <textarea spellCheck="true" value={text} onChange={e => setText(e.target.value)} style={{ minHeight: 210 }}
           placeholder="Paste the note or story here…" />
@@ -170,15 +183,6 @@ export default function StepSource({ parsed, setParsed, onNext }) {
             editable above. Check it before extracting, and check the quotation marks in particular:
             a quoted sentence is treated as someone else's view rather than yours, so a pair lost in
             the PDF would hand the parser an argument you were rebutting.
-          </div>
-        )}
-
-        {stalled && !reading && (
-          <div className="row" style={{ marginTop: 8 }}>
-            <button className="primary" onClick={checkAgain}>Check again for {stalled.name}</button>
-            <span style={{ fontSize: 11.5, color: "var(--muted)" }}>
-              The read is still running on the server — nothing is re-sent and nothing is charged twice.
-            </span>
           </div>
         )}
 
