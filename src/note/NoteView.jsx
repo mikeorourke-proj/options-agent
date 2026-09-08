@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import "../styles/note.css";
 
 const f = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toFixed(d);
@@ -45,9 +46,45 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                           .filter(x => x.t && x.o);
   const subjLine = meta.subjects.join("  ·  ");
 
+  /* Page 1 is a fixed sheet: the analyst block, the disclaimer and the footer
+     are absolutely positioned at fixed offsets from the bottom, so the two
+     columns above them do not push anything down — they just grow over the
+     top of it. Nothing on screen says so, and the overlap only becomes
+     obvious in the PDF.
+     After the fonts went up a step this stopped being theoretical, so the
+     column height is measured against the space actually available and the
+     analyst is told before printing rather than after. */
+  const colsRef = useRef(null);
+  const [overflow, setOverflow] = useState(null);
+  useEffect(() => {
+    const el = colsRef.current;
+    if (!el) return;
+    const check = () => {
+      const page = el.closest(".page");
+      if (!page) return;
+      const mmPerPx = 297 / page.getBoundingClientRect().height;
+      const used = (el.getBoundingClientRect().bottom - page.getBoundingClientRect().top) * mmPerPx;
+      const limit = 297 - 34 - 2;          // analyst block sits at bottom: 34mm, plus 2mm of air
+      setOverflow(used > limit ? +(used - limit).toFixed(1) : null);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [prose, etfRows.length, optRows.length]);
+
   return (
     <div className="noteprint">
       {/* ═══ PAGE 1 ═══ */}
+      {/* Screen only — a warning about the page must never be on the page. */}
+      {overflow != null && (
+        <div className="overflowwarn">
+          <b>Page 1 is over by about {overflow}mm.</b> The two columns have grown past the analyst
+          block, which is pinned to the bottom of the sheet and will be printed over. Shorten a
+          paragraph, or drop a theme, before saving the PDF.
+        </div>
+      )}
+
       <div className="page">
         <div className="mast">
           <Wordmark />
@@ -60,7 +97,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <span className="sec">{meta.sector}</span></div>
         </div>
 
-        <div className="cols">
+        <div className="cols" ref={colsRef}>
           <div className="col-l">
             <div className="headline">{meta.subtitle}</div>
             <Para lead="Summary:" k="summary" text={prose.summary} onChange={onProse && (v => onProse("summary", v))}

@@ -45,7 +45,7 @@
   width: 210mm; min-height: 297mm; margin: 0 auto 8mm; background: #fff;
   padding: 11mm 14.8mm 16mm; box-sizing: border-box; position: relative;
   font-family: Arial, "Liberation Sans", Helvetica, sans-serif; color: var(--n-ink);
-  font-size: 8.4pt; line-height: 1.36; box-shadow: 0 1mm 4mm rgba(0,0,0,.12);
+  font-size: 8.9pt; line-height: 1.36; box-shadow: 0 1mm 4mm rgba(0,0,0,.12);
 }
 .page * { box-sizing: border-box; }
 
@@ -53,20 +53,20 @@
 .mast { position: relative; height: 16mm; }
 /* Absolute placement belongs to the masthead only. Unscoped, the appendix
    wordmark positioned against .page and landed on top of the footer. */
-.wm { font-family: "Liberation Serif", "Times New Roman", Georgia, serif; font-size: 20pt; letter-spacing: -.2pt; display: inline-block; position: relative; }
+.wm { font-family: "Liberation Serif", "Times New Roman", Georgia, serif; font-size: 20.5pt; letter-spacing: -.2pt; display: inline-block; position: relative; }
 .mast .wm { position: absolute; left: 0; bottom: 1mm; }
 .wm .a { color: var(--n-gray); } .wm .b { color: var(--n-blue); }
 .wm .dot-i { position: relative; display: inline-block; }
 .wm .mark { position: absolute; left: -.02em; bottom: .86em; width: .55em; height: .55em; border: .075em solid var(--n-blue); }
 .wm .mark::after { content: ""; position: absolute; left: -.075em; bottom: -.075em; width: .24em; height: .24em; background: #fff; }
 .mast .kind { position: absolute; right: 0; top: 0; text-align: right; line-height: 1.5; }
-.mast .kind .k1 { font-size: 7.4pt; color: var(--n-muted); }
-.mast .kind .k2 { font-size: 6.8pt; color: var(--n-blue); }
-.mast .kind .k3 { font-size: 6.6pt; color: var(--n-muted); }
+.mast .kind .k1 { font-size: 7.9pt; color: var(--n-muted); }
+.mast .kind .k2 { font-size: 7.3pt; color: var(--n-blue); }
+.mast .kind .k3 { font-size: 7.1pt; color: var(--n-muted); }
 
 .band { background: var(--n-band); color: #fff; padding: 3.2mm 4mm 2.8mm; margin-top: 2mm; }
-.band .t { font-size: 10.5pt; font-weight: 700; margin-bottom: 1.6mm; }
-.band .row { font-size: 6.8pt; }
+.band .t { font-size: 11.0pt; font-weight: 700; margin-bottom: 1.6mm; }
+.band .row { font-size: 7.3pt; }
 .band .row b { font-weight: 700; margin-right: 4mm; }
 .band .row span { margin-right: 5mm; }
 .band .row .sec { float: right; font-weight: 700; }
@@ -77,7 +77,7 @@
 .col-l { float: left; width: 106mm; }
 .col-r { float: right; width: 67mm; }
 
-.headline { color: var(--n-blue); font-size: 10.6pt; font-weight: 700; line-height: 1.25; margin: 0 0 3mm; }
+.headline { color: var(--n-blue); font-size: 11.1pt; font-weight: 700; line-height: 1.25; margin: 0 0 3mm; }
 .para { text-align: justify; margin: 0 0 2.6mm; }
 .para .lead { color: var(--n-blue); font-weight: 700; }
 .para .body[contenteditable="true"]:focus { outline: 1pt dashed var(--n-blue); outline-offset: 1mm; background: #FBFDFF; }
@@ -85,71 +85,71 @@
 
 /* rail — one step larger throughout (+0.5pt); the column is a fixed
    67mm, so this is the largest step that does not wrap the ETF table. */
-.rh { font-size: 7.3pt; font-weight: 700; border-bottom: .3mm solid #0276CD; padding-bottom: .8mm; margin: 3.4mm 0 1.8mm; }
-.rail table { width: 100%; border-collapse: collapse; font-size: 6.4pt; }
-.rail table.etfr { font-size: 6.1pt; }
+.rh { font-size: 7.8pt; font-weight: 700; border-bottom: .3mm solid #0276CD; padding-bottom: .8mm; margin: 3.4mm 0 1.8mm; }
+.rail table { width: 100%; border-collapse: collapse; font-size: 6.9pt; }
+.rail table.etfr { font-size: 6.6pt; }
 .rail table.etfr th, .rail table.etfr td { padding-left: .5mm; }
 .rail td, .rail th { padding: .35mm 0; vertical-align: baseline; }
-.rail th { font-weight: 700; color: var(--n-muted); font-size: 5.9pt; text-align: right; }
+.rail th { font-weight: 700; color: var(--n-muted); font-size: 6.4pt; text-align: right; }
 .rail th:first-child, .rail td:first-child { text-align: left; }
 .rail td { text-align: right; }
 .rail td:first-child { font-weight: 700; }
-.rail td.sub { text-align: left; color: var(--n-muted); font-size: 5.7pt; padding-bottom: 1.4mm; }
+.rail td.sub { text-align: left; color: var(--n-muted); font-size: 6.2pt; padding-bottom: 1.4mm; }
 .rail .dn { color: var(--n-red); } .rail .up { color: var(--n-green); }
 .rail .g { color: var(--n-green); } .rail .r { color: var(--n-red); } .rail .am { color: var(--n-amber); }
-.rail .note { font-style: italic; color: var(--n-light); font-size: 5.8pt; }
+.rail .note { font-style: italic; color: var(--n-light); font-size: 6.3pt; }
 .risk { margin: 0 0 1.4mm; }
-.risk b { font-size: 6.5pt; }
-.risk b::before { content: "\25A0  "; color: var(--n-red); font-size: 5.5pt; }
-.risk div { font-size: 6.1pt; color: var(--n-muted); margin-left: 3.5mm; }
+.risk b { font-size: 7.0pt; }
+.risk b::before { content: "\25A0  "; color: var(--n-red); font-size: 6.0pt; }
+.risk div { font-size: 6.6pt; color: var(--n-muted); margin-left: 3.5mm; }
 
-.analyst { position: absolute; right: 14.8mm; bottom: 34mm; width: 67mm; border-top: .2mm solid var(--n-hair); padding-top: 1.8mm; font-size: 6.6pt; line-height: 1.5; }
-.analyst b { font-size: 7.2pt; }
+.analyst { position: absolute; right: 14.8mm; bottom: 34mm; width: 67mm; border-top: .2mm solid var(--n-hair); padding-top: 1.8mm; font-size: 7.1pt; line-height: 1.5; }
+.analyst b { font-size: 7.7pt; }
 .analyst .em { color: var(--n-blue); }
 
 .disc { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 17mm; border-top: .35mm solid var(--n-blue); padding-top: 1.6mm; font-size: 6.2pt; line-height: 1.32; text-align: justify; }
-.foot { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 8mm; border-top: .3mm solid var(--n-blue); padding-top: 1.4mm; font-size: 6.8pt; }
+.foot { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 8mm; border-top: .3mm solid var(--n-blue); padding-top: 1.4mm; font-size: 7.3pt; }
 .foot b { color: var(--n-blue); }
 .foot span { float: right; }
 
 /* ── page 2+ ───────────────────────────────────────────────────── */
-.rhead { font-size: 6.8pt; border-bottom: .3mm solid var(--n-blue); padding-bottom: 1.4mm; margin-bottom: 4mm; }
+.rhead { font-size: 7.3pt; border-bottom: .3mm solid var(--n-blue); padding-bottom: 1.4mm; margin-bottom: 4mm; }
 .rhead span { float: right; }
-.exh { color: var(--n-navy); font-size: 7.4pt; font-weight: 700; margin: 3.4mm 0 1.6mm; }
+.exh { color: var(--n-navy); font-size: 7.9pt; font-weight: 700; margin: 3.4mm 0 1.6mm; }
 .exh.first { margin-top: 0; }
-.sub { color: var(--n-blue); font-size: 6pt; font-weight: 700; margin: 1.2mm 0 1mm; }
+.sub { color: var(--n-blue); font-size: 6.5pt; font-weight: 700; margin: 1.2mm 0 1mm; }
 /* Keep an exhibit whole: title, table and source travel together, and a
    table never splits mid-row. Without this a four-structure note pushed
    the last leg onto a fresh sheet with a duplicated header. */
 .exhblk { break-inside: avoid; page-break-inside: avoid; }
-table.x { width: 100%; border-collapse: collapse; font-size: 6.1pt; break-inside: avoid; page-break-inside: avoid; }
+table.x { width: 100%; border-collapse: collapse; font-size: 6.6pt; break-inside: avoid; page-break-inside: avoid; }
 table.x tr { break-inside: avoid; page-break-inside: avoid; }
-table.x th { background: var(--n-navy); color: #fff; font-weight: 700; font-size: 5.9pt; padding: 1mm 1.2mm; text-align: left; }
+table.x th { background: var(--n-navy); color: #fff; font-weight: 700; font-size: 6.4pt; padding: 1mm 1.2mm; text-align: left; }
 table.x td { padding: .9mm 1.2mm; border-bottom: .1mm solid var(--n-hair); }
 table.x tr:nth-child(odd) td { background: var(--n-alt); }
 table.x tr:last-child td { border-bottom: .25mm solid var(--n-navy); }
 table.x td:first-child { font-weight: 700; }
 table.x .c { text-align: center; }
-.src { font-style: italic; color: var(--n-muted); font-size: 5.6pt; margin: 1mm 0 0; line-height: 1.35; }
+.src { font-style: italic; color: var(--n-muted); font-size: 6.1pt; margin: 1mm 0 0; line-height: 1.35; }
 
 /* positioning map */
-.pm { font-size: 5.6pt; }
+.pm { font-size: 6.1pt; }
 .pm .row { position: relative; height: 8mm; }
-.pm .tk { position: absolute; left: 0; top: 2.2mm; font-weight: 700; font-size: 6.2pt; }
+.pm .tk { position: absolute; left: 0; top: 2.2mm; font-weight: 700; font-size: 6.7pt; }
 .pm .ax { position: absolute; left: 14mm; right: 16mm; top: 3.6mm; height: .15mm; background: var(--n-hair); }
 .pm .band { position: absolute; top: 2.9mm; height: 1.5mm; background: #CFE3F5; margin: 0; padding: 0; }
 .pm .rung { position: absolute; top: 2.7mm; height: 1.9mm; width: .25mm; background: #7FA8CE; }
 .pm .wall { position: absolute; top: 2mm; height: 3.3mm; width: .3mm; }
 .pm .wall.p { background: var(--n-green); } .pm .wall.c { background: var(--n-red); }
-.pm .lab { position: absolute; top: 0; transform: translateX(-50%); font-size: 5.2pt; }
+.pm .lab { position: absolute; top: 0; transform: translateX(-50%); font-size: 5.7pt; }
 .pm .lab.p { color: var(--n-green); } .pm .lab.c { color: var(--n-red); } .pm .lab.s { color: #444C57; }
 .pm .avg { position: absolute; top: 1.9mm; height: 3.6mm; width: .35mm; background: var(--n-navy); }
-.pm .avgl { position: absolute; top: 5.7mm; transform: translateX(-50%); color: var(--n-navy); font-weight: 700; font-size: 5.2pt; }
+.pm .avgl { position: absolute; top: 5.7mm; transform: translateX(-50%); color: var(--n-navy); font-weight: 700; font-size: 5.7pt; }
 .pm .tgt { position: absolute; right: 0; top: 2.2mm; color: var(--n-blue); }
 
 /* keys */
-.key { margin-top: 3mm; font-size: 6pt; }
-.key b.h { display: block; color: var(--n-navy); font-size: 6.4pt; margin-bottom: 1mm; }
+.key { margin-top: 3mm; font-size: 6.5pt; }
+.key b.h { display: block; color: var(--n-navy); font-size: 6.9pt; margin-bottom: 1mm; }
 .key div { margin-bottom: .6mm; color: var(--n-muted); }
 .key div b { display: inline-block; width: 12mm; }
 .key .A { color: var(--n-green); } .key .B { color: var(--n-blue); } .key .C { color: var(--n-amber); } .key .X { color: var(--n-red); }
@@ -167,7 +167,7 @@ table.x .c { text-align: center; }
 .para .acc {
   display: inline-block; margin-left: 2mm; vertical-align: 1pt;
   border: .2mm solid var(--n-hair); background: #fff; color: var(--n-muted);
-  border-radius: 1mm; padding: .3mm 1.6mm; font-size: 5.6pt; cursor: pointer;
+  border-radius: 1mm; padding: .3mm 1.6mm; font-size: 6.1pt; cursor: pointer;
   font-family: Arial, sans-serif;
 }
 .para .acc:hover { border-color: var(--n-blue); color: var(--n-blue); }
@@ -176,3 +176,13 @@ table.x .c { text-align: center; }
   .para .acc { display: none !important; }
   .para.unaccepted { border-left: none; padding-left: 0; margin-left: 0; }
 }
+
+/* Overflow warning — screen only, and explicitly not printed: a note about
+   the page must never appear on the page. */
+.overflowwarn {
+  max-width: 210mm; margin: 0 auto 3mm; padding: 3mm 4mm; border-radius: 1mm;
+  background: rgba(192,0,0,.07); border: .3mm solid rgba(192,0,0,.3);
+  color: #8A1010; font: 9.5pt/1.45 Arial, sans-serif;
+}
+.overflowwarn b { color: #6E0C0C; }
+@media print { .overflowwarn { display: none !important; } }

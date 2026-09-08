@@ -192,6 +192,20 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- Note fonts are one step (+0.5pt) larger throughout EXCEPT the page-1
+  disclaimer (.disc) and the whole disclosures appendix (.appx*), which stay
+  where they were. Body is 8.4 -> 8.9pt, so the same prose takes about 6%
+  more vertical space.
+  That matters because page 1 is a FIXED sheet: the analyst block (bottom
+  34mm), the disclaimer and the footer are absolutely positioned, so the two
+  columns above them do not push anything down -- they grow over the top of
+  it, and the overlap only shows up in the PDF. NoteView now measures the
+  column against the space actually available and warns on screen, with the
+  overage in mm, before the analyst prints. The warning is display:none in
+  @media print: a note about the page must never appear on the page.
+  If a note trips it regularly, the lever is the word bands in draft rule 2,
+  not the font size.
+
 - rv30 needs 31 bars, and a fund that launched five weeks ago has 23 -- so
   the strict 30-day number is null for exactly the vehicles the shares-only
   fallback exists to rescue. NCLD produced a plan and then scored null,
