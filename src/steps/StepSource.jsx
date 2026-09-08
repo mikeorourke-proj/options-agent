@@ -37,6 +37,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
   const [reading, setReading] = useState(false);
   const [transcribed, setTranscribed] = useState(null);
   const [stalled, setStalled] = useState(null);
+  const [contra, setContra] = useState(false);
 
   function loadSample(key) {
     setText(SAMPLES[key]); setFileName(null); setTranscribed(null); setErr(null);
@@ -115,11 +116,11 @@ export default function StepSource({ parsed, setParsed, onNext }) {
 
   async function extract() {
     setBusy(true); setErr(null);
-    const t = RunLog.timer("ui", "themes.extract", { chars: text.length, hasNote: Boolean(note.trim()) });
+    const t = RunLog.timer("ui", "themes.extract", { chars: text.length, hasNote: Boolean(note.trim()), contra });
     try {
       const res = await api.thinkLong(
         "themes", text,
-        { vocab: TAG_VOCAB, anchors: ANCHOR_VOCAB, note: note.trim() || undefined },
+        { vocab: TAG_VOCAB, anchors: ANCHOR_VOCAB, note: note.trim() || undefined, contra },
         (status, polls, secs) => setPhase(`${status === "running" ? "reading" : "queued"} · ${secs}s`)
       );
       if (res.truncated && !res.parsed)
@@ -133,7 +134,7 @@ export default function StepSource({ parsed, setParsed, onNext }) {
       if (res.attributionFlags?.length)
         RunLog.warn("ui", "possible attribution in output", res.attributionFlags);
 
-      setParsed({ ...res.parsed, sourceText: text, analystNote: note, model: res.model,
+      setParsed({ ...res.parsed, sourceText: text, analystNote: note, model: res.model, contra,
                   attributionFlags: res.attributionFlags || [], quotedRejected: res.quotedEvidenceRejected || [] });
       t.end({ themes: res.parsed.themes.length, model: res.model, tokens: res.usage });
       onNext();
@@ -144,10 +145,23 @@ export default function StepSource({ parsed, setParsed, onNext }) {
   return (
     <>
       <div className="card">
-        <h2>Source</h2>
-        <p className="hint">
-          Paste a Closing Print, a news story, or write the idea directly. The parser reads what
-          <b> you </b>conclude — material inside quotation marks is treated as context, never as evidence.
+        <div className="row">
+          <h2 style={{ margin: 0 }}>Source</h2>
+          <span className="spacer" />
+          {/* Fading a story is a different operation from agreeing with it, and
+              it is not a switch that can be thrown after the fact — see the
+              CONTRA block in the themes prompt. */}
+          <span className={`legtoggle ${contra ? "forced" : ""}`} title="Contra extracts the document's argument, then returns the trade on the other side of it.">
+            <button className={contra ? "" : "on"} onClick={() => setContra(false)}>as written</button>
+            <button className={contra ? "on" : ""} onClick={() => setContra(true)}>contra</button>
+          </span>
+        </div>
+        <p className="hint" style={{ marginTop: 6 }}>
+          {contra
+            ? <>The document is read as written, then every theme comes back on the <b>other side</b> of it.
+                Nothing is marked <i>stated</i>: the piece does not assert the view you are taking against it.</>
+            : <>Paste a Closing Print, a news story, or write the idea directly. The parser reads what
+                <b> you </b>conclude — material inside quotation marks is treated as context, never as evidence.</>}
         </p>
 
         {err && (

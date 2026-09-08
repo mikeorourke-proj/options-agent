@@ -369,9 +369,19 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
             {m.combinedFrom && <button className="ib-btn" onClick={() => splitCluster(m.id)}>split</button>}
           </div>
 
+          {/* On a contra run the evidence sentence is the claim being FADED,
+              not support for the position. Labelling it "evidence" would read
+              as the document backing a trade it in fact argues against. */}
           {m.evidence
-            ? <blockquote className="evid">{m.evidence}</blockquote>
-            : <div className="evid ext">Extended from your argument — no direct sentence supports this.</div>}
+            ? <>
+                {parsed.contra && <div className="evidlab">The claim being faded</div>}
+                <blockquote className={`evid ${parsed.contra ? "contra" : ""}`}>{m.evidence}</blockquote>
+              </>
+            : <div className="evid ext">
+                {parsed.contra
+                  ? "Fading the document's argument — no single sentence carries the claim."
+                  : "Extended from your argument — no direct sentence supports this."}
+              </div>}
           <div className="why" style={{ marginBottom: 10 }}>{m.rationale}</div>
 
           {m.none && <div className="note">No ETF in the universe cleanly expresses this theme. Consider single names, or add a fund to the table.</div>}

@@ -308,3 +308,8 @@ button.ghost {
 .noteorder { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
 .noteorder b { color: var(--ink); font-weight: 700; }
 .noteorder em { display: block; font-family: var(--sans); font-style: italic; font-size: 10.5px; margin-top: 2px; }
+
+/* Contra: the quoted sentence is the claim being faded, so it must not read
+   as support. Red rule and a label, against the neutral grey of evidence. */
+.evidlab { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--red); font-weight: 700; margin-bottom: 3px; }
+.evid.contra { border-left-color: var(--red); }

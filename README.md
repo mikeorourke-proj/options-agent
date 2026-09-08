@@ -192,6 +192,32 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- NEOCLOUD is its own anchor: NCLD (pur 0.95), with WGMI, BKCH and DTCR
+  carrying the anchor at 0.45/0.35/0.35 so they appear as considered-and-
+  rejected in Exhibit 1 rather than vanishing. NCLD carries "ai" as a TAG
+  but NOT as an anchor -- anchored on ai it outranked AIQ 0.689 to 0.603 on
+  purity, so a plain "bullish AI" theme would have expressed through a $56M
+  neocloud fund instead of the mega-cap vehicle. Purity is relative to the
+  theme; NCLD is only pure with respect to the operators.
+  The liq grades on all four are PRIORS, not probes. NCLD launched
+  6 August 2026 at roughly $56M and its chain may come back X from the live
+  gate, in which case the theme is shares-only -- the correct outcome.
+
+- CONTRA is a source-level toggle, not a post-hoc flip. Reversing a finished
+  theme leaves its evidence sentence arguing against its own direction --
+  the exact incoherence the direction rules exist to prevent -- and it would
+  pass every guard, because each field is individually well-formed. So the
+  CONTRA block is APPENDED to the themes prompt, never substituted: reading
+  the document correctly is a precondition for fading it, and an inverted
+  reading produces an inverted trade.
+  A contra theme is never "stated". The document does not assert the view
+  being taken against it. The prompt says so (C3) and enforce() holds it in
+  code, logging contra.basis.corrected when the model gets it wrong. The
+  evidence sentence is relabelled "the claim being faded" with a red rule,
+  because presenting it as evidence would read as the document supporting a
+  trade it argues against. The block reaches themes and thesis only -- never
+  the draft, the proofreader or the transcriber.
+
 - A PDF CANNOT travel in the background function's invocation payload, and
   this cost three sessions of misdiagnosis. Background functions are invoked
   asynchronously and that invoke's body limit is far below the 6 MB a

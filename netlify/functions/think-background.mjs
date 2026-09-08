@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { getStore } from "@netlify/blobs";
 import { srvLog } from "./_runlog.mjs";
-import { SYSTEM_PROMPTS, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate } from "./_prompts.mjs";
+import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate } from "./_prompts.mjs";
 
 const API = "https://api.anthropic.com/v1/messages";
 
@@ -21,7 +21,7 @@ export default async (request) => {
 
   let payload = {};
   try { payload = await request.json(); } catch {}
-  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdfKey, pdfName } = payload;
+  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdfKey, pdfName, contra = false } = payload;
   if (!jobId) { L.error("no jobId", new Error("missing jobId")); return; }
 
   const put = (doc) => store.setJSON(jobId, { ...doc, jobId, task, at: new Date().toISOString() });
@@ -46,7 +46,7 @@ export default async (request) => {
 
     await put({ status: "running", log: L.log });
     const MODEL = MODELS[task] || MODELS.themes;
-    const system = SYSTEM_PROMPTS[task] || SYSTEM_PROMPTS.themes;
+    const system = systemFor(task, { contra });
     const user = task === "edit" ? text
       : task === "draft" ? `NOTE MODEL:\n${text}`
       : task === "transcribe" ? "Transcribe this document."
@@ -74,7 +74,7 @@ export default async (request) => {
 
     L.info("prompt", task === "transcribe"
       ? { task, model: MODEL, file: pdfName, b64KB: Math.round(pdfB64.length / 1024) }
-      : { task, model: MODEL, chars: text.length, vocabTerms: vocab.length, hasNote: Boolean(note) });
+      : { task, model: MODEL, chars: text.length, vocabTerms: vocab.length, hasNote: Boolean(note), contra });
     const t0 = Date.now();
 
     const r = await fetch(API, {
@@ -172,7 +172,7 @@ export default async (request) => {
     }
 
     const checks = parsed && (task === "themes" || task === "thesis")
-                 ? enforce(parsed, { vocab, anchors, sourceText: text })
+                 ? enforce(parsed, { vocab, anchors, sourceText: text, contra })
                  : { dropped: [], quoteHits: [], attrib: [], badAnchors: [] };
     // Draft: run the voice checks on every paragraph and report them back.
     let voice = null;
@@ -191,6 +191,7 @@ export default async (request) => {
     if (parsed && task === "spell")
       L.info("spell", { findings: Array.isArray(parsed) ? parsed.length : "not an array",
                         words: Array.isArray(parsed) ? parsed.map(x => `${x.section}:${x.wrong}→${x.suggest}`) : undefined });
+    if (checks.restated?.length) L.warn("contra.basis.corrected", { themes: checks.restated });
     if (checks.dropped.length)   L.warn("vocab.violation", { dropped: checks.dropped });
     if (checks.quoteHits.length) L.warn("evidence.quoted", { themes: checks.quoteHits });
     if (checks.attrib.length)    L.warn("attribution.suspected", { fields: checks.attrib });

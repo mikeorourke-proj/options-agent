@@ -259,6 +259,56 @@ RULES
 
 6. Never report a number, date, price, strike or percentage.`;
 
+/* CONTRA. The analyst is fading the document rather than agreeing with it.
+
+   This is NOT a flip applied after extraction. Reversing a finished theme
+   leaves its evidence sentence arguing against its own direction, which is
+   the exact incoherence the direction rules exist to prevent, and it would
+   sail past every guard because each field is individually well-formed.
+   So the document is read correctly FIRST -- what does the author actually
+   conclude -- and the contra view is derived from that reading.
+
+   A contra theme is never "stated". The document does not assert it; the
+   analyst infers it. enforce() holds that invariant in code. */
+const CONTRA_BLOCK = `
+
+CONTRA MODE — THE ANALYST IS FADING THIS DOCUMENT
+
+The analyst disagrees with the document and wants the trade on the other side of it. This does
+not change how you READ the document. It changes which direction you return.
+
+C1. Read the document exactly as the rules above require, and work out what the author actually
+    concludes. Getting the author's direction right is the whole job — the contra view is
+    derived from it, so an inverted reading produces an inverted trade.
+
+C2. Return each theme with the direction OPPOSITE to the author's conclusion. If the author
+    concludes AI compute is scarce and the operators are undervalued, the theme is bearish
+    those operators.
+
+C3. BASIS IS ALWAYS "extended". Never "stated". The document does not state the contra view —
+    the analyst is inferring it against the document. This is not negotiable.
+
+C4. EVIDENCE is the claim BEING FADED: one verbatim sentence from the author's own unquoted
+    prose that makes the case you are taking the other side of. Same verbatim rule, same
+    prohibition on quoted material. Leave it empty if there is no such sentence.
+
+C5. RATIONALE argues the FADE, in the analyst's voice — why the document's case is wrong,
+    overextended, priced, or late. It must not restate the document's argument approvingly.
+    Do not name anyone; "consensus" and "positioning" in the abstract, as rule 3 requires.
+
+C6. RISKS are what would invalidate the FADE — which is broadly the document's case being
+    right. Name those.
+
+C7. The tradeable-subject rule still binds. Fading an argument about a theme still has to
+    become a direction on an asset that can be sold.`;
+
+/* The contra block is appended, never substituted: reading the document
+   correctly is a precondition for fading it. */
+export function systemFor(task, { contra = false } = {}) {
+  const base = SYSTEM_PROMPTS[task] || SYSTEM_PROMPTS.themes;
+  return contra && (task === "themes" || task === "thesis") ? base + CONTRA_BLOCK : base;
+}
+
 export const SYSTEM_PROMPTS = {
   draft:      DRAFT_SYSTEM,
   themes:     THEMES_SYSTEM,
@@ -336,9 +386,9 @@ export function checkImmediate(paras, ctx) {
    Quoted spans matter most: in this author's commentary the quoted view
    is usually the one being rebutted, so evidence drawn from inside
    quotation marks is both an attribution risk and an inversion risk. */
-export function enforce(parsed, { vocab = [], anchors = [], sourceText = "" } = {}) {
-  const dropped = [], quoteHits = [], attrib = [], badAnchors = [];
-  if (!parsed || !Array.isArray(parsed.themes)) return { dropped, quoteHits, attrib, badAnchors };
+export function enforce(parsed, { vocab = [], anchors = [], sourceText = "", contra = false } = {}) {
+  const dropped = [], quoteHits = [], attrib = [], badAnchors = [], restated = [];
+  if (!parsed || !Array.isArray(parsed.themes)) return { dropped, quoteHits, attrib, badAnchors, restated };
 
   const ok = new Set(vocab);
   const quoted = [...String(sourceText).matchAll(/[\u201C"']([^\u201D"']{25,})[\u201D"']/g)].map(m => m[1]);
@@ -359,6 +409,15 @@ export function enforce(parsed, { vocab = [], anchors = [], sourceText = "" } = 
     if (th.evidence && inQuote(th.evidence)) {
       quoteHits.push(th.id); th.evidence = ""; th.basis = "extended";
     }
+    /* A contra theme cannot be "stated": the document does not assert the
+       view being taken against it. The prompt says so (C3) and this is the
+       check that it held. Marked here rather than trusted, because a theme
+       wrongly labelled stated reads as the author's own conclusion
+       everywhere downstream. */
+    if (contra) {
+      th.contra = true;
+      if (th.basis === "stated") { restated.push(th.id); th.basis = "extended"; }
+    }
     for (const f of ["rationale", "evidence"]) {
       /* Report the phrase, not just the field. A warning reading
          "bullish-dollar.rationale" cannot be triaged from the log — there is
@@ -369,5 +428,5 @@ export function enforce(parsed, { vocab = [], anchors = [], sourceText = "" } = 
       if (m) attrib.push(`${th.id}.${f}:${m[0]}`);
     }
   }
-  return { dropped, quoteHits, attrib, badAnchors };
+  return { dropped, quoteHits, attrib, badAnchors, restated };
 }

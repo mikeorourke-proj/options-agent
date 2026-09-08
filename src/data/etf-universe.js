@@ -138,6 +138,30 @@ export const ETF_UNIVERSE = [
   { t:"CIBR", pur:0.9, drag:0.0, a:["cyber"], n:"First Trust Nasdaq Cybersecurity",cls:"Equity",    grp:"Sector",  liq:"C", tags:["cyber","software","tech"] },
   { t:"BUG", pur:0.85, drag:0.0, a:["cyber"],  n:"Global X Cybersecurity",          cls:"Equity",    grp:"Sector",  liq:"C", tags:["cyber","software"] },
   { t:"AIQ", pur:0.75, drag:0.0, a:["ai"],  n:"Global X Artificial Intelligence",cls:"Equity",    grp:"Sector",  liq:"C", tags:["ai","tech","datacenter"] },
+
+  /* ── Neoclouds ─────────────────────────────────────────────────────
+     The GPU-as-a-service and AI data-centre operators — the layer that
+     rents compute rather than making the chips or owning the land.
+     Anchored separately from "ai" on purpose: AIQ is mega-cap AI and
+     holds none of these names, so a theme on the operators must not
+     retrieve it. The three impure vehicles carry the anchor as well, so
+     they surface as considered-and-rejected in Exhibit 1 rather than
+     vanishing, and their purity says why.
+
+     NCLD carries "ai" as a TAG but not as an ANCHOR. Anchored on ai it
+     outranked AIQ 0.689 to 0.603 on purity, so a plain "bullish AI" theme
+     would have expressed through a $56M neocloud fund instead of the
+     mega-cap vehicle. Purity is relative to the theme, and NCLD is only
+     pure with respect to the operators.
+
+     Liquidity grades here are PRIORS, not probes. NCLD launched
+     6 August 2026 at roughly $56M; its chain is young and may well come
+     back X from the live gate, in which case the theme is shares-only.
+     That is the correct outcome, not a failure. */
+  { t:"NCLD", pur:0.95, drag:0.0, a:["neocloud"], n:"Roundhill Neocloud",             cls:"Equity", grp:"Sector", liq:"C", tags:["neocloud","ai","datacenter","gpu","power","highbeta"] },
+  { t:"WGMI", pur:0.45, drag:0.0, a:["neocloud","crypto"], n:"CoinShares Bitcoin Mining",  cls:"Equity", grp:"Sector", liq:"C", tags:["neocloud","bitcoin","miners","datacenter","highbeta","risk-appetite"] },
+  { t:"BKCH", pur:0.35, drag:0.0, a:["neocloud","crypto"], n:"Global X Blockchain",        cls:"Equity", grp:"Sector", liq:"C", tags:["neocloud","bitcoin","miners","crypto","highbeta"] },
+  { t:"DTCR", pur:0.35, drag:0.0, a:["neocloud","reits"], n:"Global X Data Center & Digital Infrastructure", cls:"Equity", grp:"Sector", liq:"C", tags:["neocloud","datacenter","reits","duration","rates"] },
   { t:"IGF", pur:0.7, drag:0.0, a:["power"],  n:"iShares Global Infrastructure",   cls:"Equity",    grp:"Sector",  liq:"C", tags:["infrastructure","power"] },
   { t:"GRID", pur:0.75, drag:0.0, a:["power"], n:"First Trust Clean Edge Grid",     cls:"Equity",    grp:"Sector",  liq:"C", tags:["power","grid","datacenter","ai-power"] },
   { t:"SARK", pur:0.85, drag:0.25, a:["growth"], n:"AXS Short Innovation Daily",      cls:"Equity",    grp:"Levered", liq:"C", lev:-1, ul:"ARKK", tags:["inverse","growth","hedge"] },
