@@ -84,9 +84,9 @@ async function buildMenu(theme, catalystDate, horizon) {
     ]);
     liq = grade(chain?.quality);
     RunLog.gate(`liquidity:${primary.t}`, liq !== "X", { grade: liq, ...chain?.quality });
+    const rv = realisedVol(bars?.bars || [], 30);
     if (liq !== "X") {
       vol = analyzeChain(primary.t, chain.contracts, primary.price);
-      const rv = realisedVol(bars?.bars || [], 30);
       vol.rv30 = rv;
       /* Candidates from the matrix, then priced against the real chain and
          ranked on view-conditional economics. Risk-neutral EV is zero for
@@ -121,6 +121,27 @@ async function buildMenu(theme, catalystDate, horizon) {
         considered: cands.length, priced: structures.length,
         ranked: structures.map(s2 => `${s2.id}:${s2.econ.score}`),
         shares: shareScore ? `${primary.t}:${shareScore.score}` : null,
+      });
+    } else {
+      /* Grade X blocks the OPTIONS, not the trade. The key has always said
+         "no usable chain — shares only", but the shares leg was built inside
+         this gate, so an X ticker produced no plan and dropped out of the
+         ETF table. NCLD won its theme on fit and then disappeared.
+         With no chain there are no walls and no implied vol, so the plan is
+         immediate with the flat stop and everything is measured off realised
+         vol instead. The leg carries volFrom "realised" so the note says so. */
+      vol = { ticker: primary.t, iv30: null, rv30: rv, putWall: null, callWall: null };
+      plan = scalePlan(primary.price, vol, theme.direction, { execution: "immediate", mode: "flat" });
+      tgt  = targets(primary.price, vol, theme.direction, hzDays);
+      shareScore = plan && tgt?.struct
+        ? scoreShares(plan, tgt, vol, { direction: theme.direction,
+                                        conviction: theme.conviction || "medium", liq, horizonDays: hzDays })
+        : null;
+      RunLog.info("ui", `shares.only.${primary.t}`, {
+        reason: "no usable option chain", rv30: rv,
+        planned: Boolean(plan), scored: Boolean(shareScore),
+        stop: plan?.stop != null ? +plan.stop.toFixed(2) : null,
+        target: tgt?.struct != null ? +tgt.struct.toFixed(2) : null,
       });
     }
   } catch (e) { RunLog.error("ui", `chain ${primary.t}`, e); }

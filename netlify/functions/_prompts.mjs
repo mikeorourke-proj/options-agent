@@ -165,6 +165,11 @@ VOICE — every rule is checked mechanically after you write:
    Call it the STOP-LOSS, not the stop: "The stop-loss at 48.48 ends the trade, 3.2% of risk."
    Give the structure its own sentence rather than trailing it off the stop with "with":
    "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
+   NO CHAIN. A leg carrying "noChain" has no tradeable option market, so it has no walls and no
+   implied range. Never mention a wall for it — there is not one. Say the position is shares
+   only, that the stop-loss is a flat percentage from entry because there is no wall to stop
+   beyond, and give the range as the model labels it in rangeBasis. Do not treat the absence of
+   a chain as a reason to soften the view; it is an execution fact, not an argument.
 8. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
 9. EXECUTION paragraph explains the scale mechanics for the scaled legs — each running from
@@ -306,8 +311,44 @@ C7. The tradeable-subject rule still binds. Fading an argument about a theme sti
    correctly is a precondition for fading it. */
 export function systemFor(task, { contra = false } = {}) {
   const base = SYSTEM_PROMPTS[task] || SYSTEM_PROMPTS.themes;
-  return contra && (task === "themes" || task === "thesis") ? base + CONTRA_BLOCK : base;
+  if (!contra) return base;
+  if (task === "themes" || task === "thesis") return base + CONTRA_BLOCK;
+  if (task === "draft") return base + CONTRA_DRAFT;
+  return base;
 }
+
+/* CONTRA DRAFT. The extractor already returned the faded directions; without
+   this the drafter wrote them up as ordinary bearish views and never engaged
+   with the document they were taken against, which is the whole point. */
+const CONTRA_DRAFT = `
+
+CONTRA NOTE — THIS NOTE FADES A DOCUMENT
+
+The model carries "contra": true. Every theme here is a position AGAINST a piece the desk has
+read. A reader who does not know the source must still understand what is being disputed.
+
+D1. THE SUMMARY NAMES THE CASE BEING FADED. Open by stating the argument on the other side — in
+    the abstract, as consensus or the prevailing view, never attributed to a person or a firm —
+    and then say plainly why the desk does not accept it. A summary that only asserts the
+    desk's direction has failed: the disagreement IS the thesis.
+
+D2. EACH THEME PARAGRAPH ENGAGES ITS OWN COUNTERPOINT. Where a theme carries an evidence
+    sentence, that sentence is the claim BEING FADED, not support. Say what the claim is, then
+    say what is wrong with it — priced, late, extrapolated from a peak, dependent on financing
+    that is itself the tell. Never restate the claim approvingly and move on.
+
+D3. DOUBT THE LOAD-BEARING ASSERTIONS. Pick the specific claims the document rests on and name
+    what would have to stay true for them to hold. Superlatives and never/always absolutes ("demand
+    may never be sated") are the ones to press hardest — say why the extreme framing is itself
+    the signal.
+
+D4. NO STRAW MAN. State the other side at its strongest before disputing it. A fade that
+    misrepresents the case it fades is worth nothing to a client who has read the source.
+
+D5. RISKS ARE THE DOCUMENT BEING RIGHT. Say so directly.
+
+D6. Everything else still binds: conditional tense, no price objectives, no names, no ranking
+    language, the execution rules, the word counts.`;
 
 export const SYSTEM_PROMPTS = {
   draft:      DRAFT_SYSTEM,

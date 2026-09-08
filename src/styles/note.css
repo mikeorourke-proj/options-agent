@@ -83,24 +83,25 @@
 .para .body[contenteditable="true"]:focus { outline: 1pt dashed var(--n-blue); outline-offset: 1mm; background: #FBFDFF; }
 .para .body:empty::before { content: "\2014 draft or type here \2014"; color: var(--n-light); font-style: italic; }
 
-/* rail */
-.rh { font-size: 6.8pt; font-weight: 700; border-bottom: .3mm solid #0276CD; padding-bottom: .8mm; margin: 3.4mm 0 1.8mm; }
-.rail table { width: 100%; border-collapse: collapse; font-size: 5.9pt; }
-.rail table.etfr { font-size: 5.6pt; }
+/* rail — one step larger throughout (+0.5pt); the column is a fixed
+   67mm, so this is the largest step that does not wrap the ETF table. */
+.rh { font-size: 7.3pt; font-weight: 700; border-bottom: .3mm solid #0276CD; padding-bottom: .8mm; margin: 3.4mm 0 1.8mm; }
+.rail table { width: 100%; border-collapse: collapse; font-size: 6.4pt; }
+.rail table.etfr { font-size: 6.1pt; }
 .rail table.etfr th, .rail table.etfr td { padding-left: .5mm; }
 .rail td, .rail th { padding: .35mm 0; vertical-align: baseline; }
-.rail th { font-weight: 700; color: var(--n-muted); font-size: 5.4pt; text-align: right; }
+.rail th { font-weight: 700; color: var(--n-muted); font-size: 5.9pt; text-align: right; }
 .rail th:first-child, .rail td:first-child { text-align: left; }
 .rail td { text-align: right; }
 .rail td:first-child { font-weight: 700; }
-.rail td.sub { text-align: left; color: var(--n-muted); font-size: 5.2pt; padding-bottom: 1.4mm; }
+.rail td.sub { text-align: left; color: var(--n-muted); font-size: 5.7pt; padding-bottom: 1.4mm; }
 .rail .dn { color: var(--n-red); } .rail .up { color: var(--n-green); }
 .rail .g { color: var(--n-green); } .rail .r { color: var(--n-red); } .rail .am { color: var(--n-amber); }
-.rail .note { font-style: italic; color: var(--n-light); font-size: 5.3pt; }
+.rail .note { font-style: italic; color: var(--n-light); font-size: 5.8pt; }
 .risk { margin: 0 0 1.4mm; }
-.risk b { font-size: 6pt; }
-.risk b::before { content: "\25A0  "; color: var(--n-red); font-size: 5pt; }
-.risk div { font-size: 5.6pt; color: var(--n-muted); margin-left: 3.5mm; }
+.risk b { font-size: 6.5pt; }
+.risk b::before { content: "\25A0  "; color: var(--n-red); font-size: 5.5pt; }
+.risk div { font-size: 6.1pt; color: var(--n-muted); margin-left: 3.5mm; }
 
 .analyst { position: absolute; right: 14.8mm; bottom: 34mm; width: 67mm; border-top: .2mm solid var(--n-hair); padding-top: 1.8mm; font-size: 6.6pt; line-height: 1.5; }
 .analyst b { font-size: 7.2pt; }

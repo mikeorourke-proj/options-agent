@@ -29,9 +29,33 @@ const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
 export function scalePlan(spot, v, direction, { mode = "wall", execution = "scaled" } = {}) {
   const bear = direction === "bearish";
   const wall = bear ? v.callWall : v.putWall;
-  if (!spot || !wall) return null;
-
   const sgn  = bear ? 1 : -1;
+  if (!spot) return null;
+
+  /* No usable option chain means no open-interest wall, and the whole scale
+     plan is anchored to one. The tool's own key says grade X is "shares
+     only" — but the shares leg used to be built inside the options gate, so
+     an X ticker produced no plan, no target, no expectancy, and dropped out
+     of the ETF table entirely. NCLD did exactly that: it won its theme on
+     fit 0.656 and then vanished from the note.
+     Without a wall there is nothing to ladder into and nothing to stop 1%
+     beyond, so the position goes on at current levels with the flat stop.
+     The leg is marked so the note can say the levels are not wall-derived. */
+  if (!wall) {
+    const entry = spot;
+    const stop  = entry * (1 + sgn * STOP_FLAT);
+    RunLog.info("calc", "plan.no.wall",
+                { ticker: v.ticker, direction, spot, stopMode: "flat", pct: STOP_FLAT * 100 });
+    return {
+      single: true, execution: "immediate", noWall: true, mode: "flat",
+      reason: "no usable option chain — no wall to scale into, so the position goes on at current levels",
+      wall: null, rungs: [{ px: spot, w: 1 }], entry, stop, stopWall: null, stopFlat: stop,
+      entryImprovementPct: 0,
+      riskPct: (Math.abs(stop - entry) / entry) * 100,
+      distToWallPct: null,
+    };
+  }
+
   const dist = Math.abs(wall - spot) / spot;
   const stopWall = wall * (1 + sgn * STOP_WALL);
   /* Inside NEAR_WALL there is no room to ladder, so proximity forces
@@ -65,10 +89,16 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
 /* Two derived levels, no invented ones: the opposite open-interest wall,
    and the option-implied one-sigma range over the horizon. */
 export function targets(spot, v, direction, horizonDays = 42) {
-  const struct = direction === "bearish" ? v.putWall : v.callWall;
-  const sd = (v.iv30 != null ? v.iv30 / 100 : null) * Math.sqrt(horizonDays / 365);
+  /* Implied vol where there is a chain, realised where there is not. With no
+     walls the structural target falls back to a one-sigma move, which is the
+     same quantity the note already prints as its range — no invented level,
+     just the one the tool already trusts. */
+  const vol = v.iv30 != null ? v.iv30 : v.rv30;
+  const sd = vol != null ? (vol / 100) * Math.sqrt(horizonDays / 365) : null;
+  const wallTgt = direction === "bearish" ? v.putWall : v.callWall;
+  const struct = wallTgt ?? (sd ? spot * (1 + (direction === "bearish" ? -1 : 1) * sd) : null);
   return {
-    struct,
+    struct, structFrom: wallTgt ? "wall" : "sigma", volFrom: v.iv30 != null ? "implied" : "realised",
     structPct: struct && spot ? ((struct - spot) / spot) * 100 : null,
     sd: sd ? sd * 100 : null,
     up: sd ? spot * (1 + sd) : null,
@@ -79,10 +109,11 @@ export function targets(spot, v, direction, horizonDays = 42) {
 /* Expectancy on the share leg, same components and weights as the option
    engine so the two are directly comparable. */
 export function scoreShares(plan, tgt, v, { direction, conviction = "medium", horizonDays = 42, liq = "A" }) {
-  if (!plan || !tgt?.struct || v.iv30 == null) return null;
+  const vol = v.iv30 ?? v.rv30;
+  if (!plan || !tgt?.struct || vol == null) return null;
 
   const bear = direction === "bearish";
-  const sd   = (v.iv30 / 100) * Math.sqrt(horizonDays / 365);
+  const sd   = (vol / 100) * Math.sqrt(horizonDays / 365);
   const mu   = (bear ? -1 : 1) * (DRIFT[conviction] ?? 0.6) * sd;
   const med  = plan.entry * Math.exp(mu);
 

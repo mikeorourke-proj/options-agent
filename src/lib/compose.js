@@ -9,7 +9,16 @@ import RunLog from "./runlog.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT } from "./ordering.js";
 import { leveredFor } from "../data/etf-universe.js";
 
-const fmt = (n, d = 2) => n == null ? "—" : Number(n).toFixed(d);
+/* Round numbers stay round in the prose. toFixed(2) turned a 600 strike into
+   "$600.00", which reads as false precision on a level that is exactly round.
+   Trailing zeros are dropped, so 600 prints as 600 and 421.29 is untouched.
+   Only the DRAFT context uses this — the exhibit tables keep fixed decimals,
+   because a column of numbers should align on the decimal point. */
+const fmt = (n, d = 2) => {
+  if (n == null) return "—";
+  const s = Number(n).toFixed(d);
+  return d > 0 && /\./.test(s) ? s.replace(/\.?0+$/, "") : s;
+};
 const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
 
 /* The five fields the analyst types. Every one is passthrough: none reaches
@@ -91,6 +100,7 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
 
   const note = {
     meta, themes: orderedThemes, etfOrder, optOrder,
+    contra: Boolean(parsed.contra),
     risks: parsed.risks || [],
     prose: settings.prose || { summary: "", themes: {}, execution: "" },
   };
@@ -104,6 +114,11 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
    rather than recomputing. */
 export function draftContext(note) {
   return {
+    /* The draft has to know it is a fade. Without this the extractor returned
+       bearish themes and the drafter wrote them up as ordinary bearish views,
+       never engaging with the document they were taken against — which is the
+       whole point of a contra note. */
+    contra: Boolean(note.contra),
     title: note.meta.title, subtitle: note.meta.subtitle, date: note.meta.date,
     executeWindow: note.meta.executeWindow, holdWindow: note.meta.holdWindow,
     risks: note.risks,
@@ -136,9 +151,15 @@ export function draftContext(note) {
              at +0.3%" is a target in the wrong direction. The implied range
              conveys scale without nominating a level. */
           impliedRange: t.etf.tgt ? `${fmt(t.etf.tgt.dn, 0)} to ${fmt(t.etf.tgt.up, 0)}` : null,
-          putWall: t.vol?.putWall, callWall: t.vol?.callWall,
+          rangeBasis: t.etf.tgt?.volFrom === "realised" ? "realised volatility" : "option-implied",
+          /* No chain means no walls. Sending nulls invited the model to write
+             "the put wall at —"; sending nothing means it cannot mention one,
+             and noChain tells it what to say instead. */
+          ...(t.etf.plan?.noWall
+            ? { noChain: true, stopBasis: "flat 5% from entry — there is no wall to stop beyond" }
+            : { putWall: t.vol?.putWall, callWall: t.vol?.callWall,
+                wallDistancePct: fmt(t.etf.plan?.distToWallPct, 1) }),
           stop: fmt(t.etf.plan?.stop), riskPct: fmt(t.etf.share?.riskPct, 1),
-          wallDistancePct: fmt(t.etf.plan?.distToWallPct, 1),
         };
       })(),
       vol: t.vol && { iv30: t.vol.iv30, rv30: t.vol.rv30, rr25: t.vol.rr25, term: t.vol.termSlope,

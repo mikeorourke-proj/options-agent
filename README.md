@@ -192,6 +192,29 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- GRADE X BLOCKS THE OPTIONS, NOT THE TRADE. The key has always said "no
+  usable chain -- shares only", but the shares leg was built INSIDE the
+  `if (liq !== "X")` gate, so plan, tgt and shareScore were all skipped, the
+  leg failed the `t.etf?.share` filter in etfOrder, and the vehicle vanished
+  from the ETF table. NCLD won its theme on fit 0.656, was ticked, and did
+  not appear in the note. With no chain there are no walls and no implied
+  vol, so scalePlan returns an immediate plan with the flat 5% stop, targets
+  falls back to a one-sigma move off realised vol, and scoreShares accepts
+  rv30 in place of iv30. The leg carries noWall/volFrom so the note says the
+  levels are realised rather than implied, marks them with a dagger in
+  Exhibit 4, and names the vehicle absent from the Exhibit 3 map.
+- CONTRA reaches the DRAFTER too, not just the extractor. Without it the
+  drafter received correctly faded bearish themes and wrote them up as
+  ordinary bearish views, never engaging with the document -- which is the
+  whole point of a contra note. CONTRA_DRAFT requires the summary to state
+  the case being faded before disputing it, each theme paragraph to engage
+  its own counterpoint (the evidence sentence is the claim being faded, not
+  support), and the load-bearing absolutes to be pressed rather than
+  restated. No straw man: state the other side at its strongest first.
+- Round numbers stay round in the PROSE. fmt() drops trailing zeros, so a
+  600 strike prints as $600 rather than $600.00. The exhibit tables keep
+  fixed decimals -- a column of numbers should align on the decimal point.
+
 - NEOCLOUD is its own anchor: NCLD (pur 0.95), with WGMI, BKCH and DTCR
   carrying the anchor at 0.45/0.35/0.35 so they appear as considered-and-
   rejected in Exhibit 1 rather than vanishing. NCLD carries "ai" as a TAG

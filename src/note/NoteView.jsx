@@ -174,7 +174,8 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             </div>;
           })}
         </div>
-        <div className="src">Walls in green/red. On a scaled leg the ticks are the five executions and the navy line is the weighted average; price-triggered, so an unfilled rung is an unbuilt position. An immediate leg shows spot against the walls only.</div>
+        <div className="src">Walls in green/red. On a scaled leg the ticks are the five executions and the navy line is the weighted average; price-triggered, so an unfilled rung is an unbuilt position. An immediate leg shows spot against the walls only.
+          {etfRows.some(t => t.etf.plan?.noWall) && <> {etfRows.filter(t => t.etf.plan?.noWall).map(t => t.etf.tk).join(", ")} {etfRows.filter(t => t.etf.plan?.noWall).length > 1 ? "are" : "is"} absent from this map: with no option chain there are no walls to plot against.</>}</div>
         </div>
 
         <div className="exhblk"><div className="exh">Exhibit 4: ETF Expression</div>
@@ -183,10 +184,15 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>
             <td className="c">{p?.single ? "current levels" : `${f(p?.entry)} (${pct(p?.entryImprovementPct)})`}</td>
-            <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}</td><td className="c">{f(p?.stop)}</td><td className="c">{f(s?.riskPct, 1)}%</td></tr>; })}
+            <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}{g?.volFrom === "realised" ? " \u2020" : ""}</td><td className="c">{f(p?.stop)}{p?.noWall ? " \u2020" : ""}</td><td className="c">{f(s?.riskPct, 1)}%</td></tr>; })}
         </tbody></table>
         <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution, or from current levels on an immediate leg.<br />
-          Implied 1σ is the option-implied range over the holding period — the market's own measure of a normal move, not a price objective.</div>
+          1σ is the range over the holding period — the market's own measure of a normal move, not a price objective.
+          {etfRows.some(t => t.etf.plan?.noWall) && <><br />
+            <b>†</b> No tradeable option chain on this vehicle, so it carries no open-interest walls: the range is
+            measured from realised rather than implied volatility, and the stop-loss is a flat 5% from entry
+            because there is no wall to stop beyond. Shares only — there is no derivatives alternative to run alongside.
+          </>}</div>
 
         </div>
         <div className="exhblk"><div className="exh">Exhibit 5: Derivatives Expression</div>
