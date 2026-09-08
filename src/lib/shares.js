@@ -99,6 +99,7 @@ export function targets(spot, v, direction, horizonDays = 42) {
   const struct = wallTgt ?? (sd ? spot * (1 + (direction === "bearish" ? -1 : 1) * sd) : null);
   return {
     struct, structFrom: wallTgt ? "wall" : "sigma", volFrom: v.iv30 != null ? "implied" : "realised",
+    volWindow: v.iv30 != null ? null : (v.rvWindow ?? 30),
     structPct: struct && spot ? ((struct - spot) / spot) * 100 : null,
     sd: sd ? sd * 100 : null,
     up: sd ? spot * (1 + sd) : null,

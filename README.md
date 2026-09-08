@@ -192,6 +192,19 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- rv30 needs 31 bars, and a fund that launched five weeks ago has 23 -- so
+  the strict 30-day number is null for exactly the vehicles the shares-only
+  fallback exists to rescue. NCLD produced a plan and then scored null,
+  because targets() had no volatility to build a sigma target from, and
+  dropped out of the ETF table a SECOND time. realisedVolAvailable() takes
+  the longest window the history supports (floor 10 sessions) and reports
+  which, so the note names it rather than implying a 30-day figure. It is
+  deliberately NOT a loosening of realisedVol: that function's 30-day number
+  is compared against IV30 in the structure notes, and quietly returning a
+  22-day figure there would make the two incomparable.
+  shares.only.<ticker> now logs bars, rv, rvWindow, and says outright when a
+  leg will not reach the ETF table.
+
 - WHY A LEG IS SINGLE LIVES IN ONE PLACE: plan.reason, written by scalePlan,
   which is the only thing that knows whether it was proximity to the wall or
   the absence of a chain. StepIdeas used to rebuild the proximity sentence in

@@ -190,8 +190,9 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           1σ is the range over the holding period — the market's own measure of a normal move, not a price objective.
           {etfRows.some(t => t.etf.plan?.noWall) && <><br />
             <b>†</b> No tradeable option chain on this vehicle, so it carries no open-interest walls: the range is
-            measured from realised rather than implied volatility, and the stop-loss is a flat 5% from entry
-            because there is no wall to stop beyond. Shares only — there is no derivatives alternative to run alongside.
+            measured from realised volatility over {etfRows.find(t => t.etf.plan?.noWall)?.etf?.tgt?.volWindow ?? 30} sessions
+            rather than from implied, and the stop-loss is a flat 5% from entry because there is no wall to stop
+            beyond. Shares only — there is no derivatives alternative to run alongside.
           </>}</div>
 
         </div>

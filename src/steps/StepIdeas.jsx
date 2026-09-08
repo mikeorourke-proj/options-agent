@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import { api, mapLimit } from "../lib/api.js";
 import { searchUniverse, leveredFor, appropriateness } from "../data/etf-universe.js";
-import { analyzeChain, realisedVol } from "../lib/vol.js";
+import { analyzeChain, realisedVol, realisedVolAvailable } from "../lib/vol.js";
 import { suggestStructures } from "../lib/strategy.js";
 import { evaluate } from "../lib/pricing.js";
 import { scalePlan, targets, scoreShares } from "../lib/shares.js";
@@ -132,7 +132,15 @@ async function buildMenu(theme, catalystDate, horizon) {
          With no chain there are no walls and no implied vol, so the plan is
          immediate with the flat stop and everything is measured off realised
          vol instead. The leg carries volFrom "realised" so the note says so. */
-      vol = { ticker: primary.t, iv30: null, rv30: rv, putWall: null, callWall: null };
+      /* rv30 needs 31 bars and a fund that launched five weeks ago has 23,
+         so the strict 30-day number is null for exactly the vehicles this
+         branch exists to rescue. Take the longest window the history
+         supports and carry it, so the note can name it rather than imply a
+         30-day figure it does not have. */
+      const rvA = realisedVolAvailable(bars?.bars || []);
+      vol = { ticker: primary.t, iv30: null, rv30: rvA?.rv ?? rv,
+              rvWindow: rvA?.window ?? (rv != null ? 30 : null),
+              putWall: null, callWall: null };
       plan = scalePlan(primary.price, vol, theme.direction, { execution: "immediate", mode: "flat" });
       tgt  = targets(primary.price, vol, theme.direction, hzDays);
       shareScore = plan && tgt?.struct
@@ -140,10 +148,12 @@ async function buildMenu(theme, catalystDate, horizon) {
                                         conviction: theme.conviction || "medium", liq, horizonDays: hzDays })
         : null;
       RunLog.info("ui", `shares.only.${primary.t}`, {
-        reason: "no usable option chain", rv30: rv,
+        reason: "no usable option chain",
+        bars: bars?.bars?.length ?? 0, rv: vol.rv30, rvWindow: vol.rvWindow,
         planned: Boolean(plan), scored: Boolean(shareScore),
         stop: plan?.stop != null ? +plan.stop.toFixed(2) : null,
         target: tgt?.struct != null ? +tgt.struct.toFixed(2) : null,
+        dropped: !shareScore ? "no expectancy — the leg will not reach the ETF table" : undefined,
       });
     }
   } catch (e) { RunLog.error("ui", `chain ${primary.t}`, e); }

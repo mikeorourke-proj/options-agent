@@ -151,7 +151,9 @@ export function draftContext(note) {
              at +0.3%" is a target in the wrong direction. The implied range
              conveys scale without nominating a level. */
           impliedRange: t.etf.tgt ? `${fmt(t.etf.tgt.dn, 0)} to ${fmt(t.etf.tgt.up, 0)}` : null,
-          rangeBasis: t.etf.tgt?.volFrom === "realised" ? "realised volatility" : "option-implied",
+          rangeBasis: t.etf.tgt?.volFrom === "realised"
+            ? `realised volatility over ${t.etf.tgt.volWindow} sessions${t.etf.tgt.volWindow < 30 ? " — all the history this fund has" : ""}`
+            : "option-implied",
           /* No chain means no walls. Sending nulls invited the model to write
              "the put wall at —"; sending nothing means it cannot mention one,
              and noChain tells it what to say instead. */

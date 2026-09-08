@@ -138,6 +138,22 @@ export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date())
 }
 
 /* Realised vol from daily closes, annualised. */
+/* The longest realised window the history actually supports, for vehicles
+   too young to have 30 sessions. Kept separate from realisedVol on purpose:
+   that function's 30-day number is compared against IV30 in the structure
+   notes, and quietly returning a 22-day figure there would make the two
+   incomparable. This one reports the window it used so the note can say so.
+
+   A fund that launched five weeks ago has neither an option chain nor 30
+   days of history, which is exactly the case the shares-only fallback
+   exists for — NCLD produced a plan and then scored null because rv30 was
+   null, and dropped out of the ETF table a second time. */
+export function realisedVolAvailable(bars = [], { max = 30, min = 10 } = {}) {
+  const window = Math.min(max, bars.length - 1);
+  if (window < min) return null;
+  return { rv: realisedVol(bars, window), window };
+}
+
 export function realisedVol(bars = [], window = 30) {
   if (bars.length < window + 1) return null;
   const px = bars.slice(-(window + 1)).map(b => b.c);
