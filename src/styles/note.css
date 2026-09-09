@@ -103,10 +103,13 @@
 .risk b::before { content: "\25A0  "; color: var(--n-red); font-size: 6.0pt; }
 .risk div { font-size: 6.6pt; color: var(--n-muted); margin-left: 3.5mm; }
 
-.analyst { position: absolute; right: 14.8mm; bottom: 34mm; width: 67mm; border-top: .2mm solid var(--n-hair); padding-top: 1.8mm; font-size: 7.1pt; line-height: 1.5; }
+/* Sign-off drops from 34mm to 20mm now that the page-1 disclosure block
+   between it and the footer is gone — 14mm back to the columns. */
+.analyst { position: absolute; right: 14.8mm; bottom: 20mm; width: 67mm; border-top: .2mm solid var(--n-hair); padding-top: 1.8mm; font-size: 7.1pt; line-height: 1.5; }
 .analyst b { font-size: 7.7pt; }
 .analyst .em { color: var(--n-blue); }
 
+/* Unused since the page-1 block was removed; kept for restoring it. */
 .disc { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 17mm; border-top: .35mm solid var(--n-blue); padding-top: 1.6mm; font-size: 6.2pt; line-height: 1.32; text-align: justify; }
 .foot { position: absolute; left: 14.8mm; right: 14.8mm; bottom: 8mm; border-top: .3mm solid var(--n-blue); padding-top: 1.4mm; font-size: 7.3pt; }
 .foot b { color: var(--n-blue); }

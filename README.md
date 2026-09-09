@@ -192,6 +192,38 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- DIRECTION, NOT POSITION. The view is stated as bearish or bullish, never
+  short or long: "we would be bearish GLD". The note carries a view the
+  client expresses; it does not put on a trade. The conditional is unchanged
+  -- rule 1 still bans "we are", and its check was extended to cover
+  bearish|bullish, because once "bearish" is the house word for the view,
+  "we are bearish" becomes the natural drift and rule 1 would quietly stop
+  being enforced.
+  VOICE_CHECKS.position is anchored on "we would" so it cannot touch "the
+  short strike on the 16 put wall" or "a naked short leg" -- those are leg
+  mechanics, not a statement of the view, and a blunt ban on the word would
+  have broken the option prose.
+
+- The page-1 disclosure block is REMOVED at the analyst's request; his
+  Closing Prints do not carry one. What it held was a POINTER -- the
+  conflict-of-interest line plus "see the Important Disclosures Appendix
+  starting on PAGE 3". The appendix is untouched and still ships on page 3,
+  so this removed the cover reference to the disclosures, not the
+  disclosures. Whether that reference is required is a COMPLIANCE question
+  and was not answered here.
+  The sign-off drops from bottom 34mm to 20mm, giving the columns 14mm back
+  (~3 lines at 8.9pt). PAGE1_LIMIT_MM in NoteView must stay in step with
+  .analyst in note.css; the restore instructions are in the JSX comment
+  where the block used to be.
+- The EXECUTION paragraph states the convention, not the itinerary: five
+  price-triggered executions at equal intervals from current levels to the
+  wall weighted 10/15/20/25/30, the stop a close 1% beyond that wall, option
+  legs off the current quote. It names no tickers and no prices -- the theme
+  paragraphs have already given every leg its numbers, and repeating them
+  walks the reader through the same figures twice. Band 80-130 -> 70-110
+  words. checkExecutionGeneric() counts tickers from the draft context, so
+  it cannot fire on an ordinary capitalised word.
+
 - Note fonts are one step (+0.5pt) larger throughout EXCEPT the page-1
   disclaimer (.disc) and the whole disclosures appendix (.appx*), which stay
   where they were. Body is 8.4 -> 8.9pt, so the same prose takes about 6%
@@ -205,6 +237,11 @@ scrubbed from URLs, payloads, messages and upstream error text.
   @media print: a note about the page must never appear on the page.
   If a note trips it regularly, the lever is the word bands in draft rule 2,
   not the font size.
+  It also LOGS -- page1.fits / page1.overflow with usedMm, limitMm and
+  overMm. The banner alone left the run log unable to say whether a session
+  overflowed, which is the same blindness that made the PDF invocation
+  failure take three sessions to find. Logged on change only, because a
+  ResizeObserver fires on every keystroke.
 
 - rv30 needs 31 bars, and a fund that launched five weeks ago has 23 -- so
   the strict 30-day number is null for exactly the vehicles the shares-only

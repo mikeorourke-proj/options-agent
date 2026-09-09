@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import RunLog from "../lib/runlog.js";
 import "../styles/note.css";
 
 const f = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toFixed(d);
+
+/* How far down the sheet the two columns may run. The sign-off is pinned at
+   bottom 20mm and nothing pushes it, so anything past this is printed over.
+   Keep in step with .analyst in note.css. */
+const PAGE1_LIMIT_MM = 297 - 20 - 2;
 const pct = (n, d = 1) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(d)}%`;
 const Arrow = ({ d }) => <span className={d === "bearish" ? "dn" : "up"}>{d === "bearish" ? "▼" : "▲"}</span>;
 
@@ -56,16 +62,36 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
      analyst is told before printing rather than after. */
   const colsRef = useRef(null);
   const [overflow, setOverflow] = useState(null);
+  /* The banner is on screen; the log is where this project is actually
+     diagnosed. Without an entry, a session that overflowed and one that fit
+     look identical afterwards — which is the same blindness that made the
+     PDF invocation failure take three sessions to find.
+     Logged on CHANGE only: a ResizeObserver fires on every keystroke, and
+     the run log's signal-to-noise is worth more than the extra samples. */
+  const lastFit = useRef(undefined);
   useEffect(() => {
     const el = colsRef.current;
     if (!el) return;
     const check = () => {
       const page = el.closest(".page");
       if (!page) return;
-      const mmPerPx = 297 / page.getBoundingClientRect().height;
-      const used = (el.getBoundingClientRect().bottom - page.getBoundingClientRect().top) * mmPerPx;
-      const limit = 297 - 34 - 2;          // analyst block sits at bottom: 34mm, plus 2mm of air
-      setOverflow(used > limit ? +(used - limit).toFixed(1) : null);
+      const box = page.getBoundingClientRect();
+      if (!box.height) return;
+      const mmPerPx = 297 / box.height;
+      const used = (el.getBoundingClientRect().bottom - box.top) * mmPerPx;
+      const limit = PAGE1_LIMIT_MM;
+      const over = used > limit ? +(used - limit).toFixed(1) : null;
+      setOverflow(over);
+
+      const fits = over == null;
+      if (lastFit.current !== fits) {
+        lastFit.current = fits;
+        const meta = { usedMm: +used.toFixed(1), limitMm: limit, overMm: over,
+                       themes: etfRows.length, bodyPt: 8.9 };
+        if (fits) RunLog.info("ui", "page1.fits", meta);
+        else RunLog.warn("ui", "page1.overflow", { ...meta,
+               note: "the columns run past the analyst block, which is pinned to the sheet and will be printed over" });
+      }
     };
     check();
     const ro = new ResizeObserver(check);
@@ -158,11 +184,19 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
 
         <div className="analyst"><b>{meta.analyst.name}</b><br />{meta.analyst.title}<br />
           <span className="em">{meta.analyst.email}</span><br />{meta.analyst.phone}</div>
-        <div className="disc"><b>Disclosures, Certification and Other Information:</b> Jones is a service offered by JonesTrading
-          Institutional Services LLC. JonesTrading Institutional Services LLC does and seeks to do business with companies
-          covered in its research reports. As a result, investors should be aware that the firm may have a conflict of interest
-          that could affect the objectivity of this report. Please see the <b>Important Disclosures Appendix</b> starting on
-          <b style={{ color: "var(--n-blue)" }}> PAGE 3</b>.</div>
+        {/* The page-1 disclosure block was removed at the analyst's request:
+            his Closing Prints do not carry one, and it was taking 17mm off a
+            sheet the prose had already overrun.
+
+            What it contained was a POINTER — the conflict-of-interest line
+            plus "see the Important Disclosures Appendix starting on PAGE 3".
+            The appendix itself is untouched and still ships on page 3, so
+            this removes the cover reference to the disclosures, not the
+            disclosures. Whether the reference is required is a compliance
+            question, not a formatting one.
+
+            To restore: put this block back and return .analyst to bottom 34mm
+            and PAGE1_LIMIT_MM to 261. */}
         <Foot n={1} />
       </div>
 

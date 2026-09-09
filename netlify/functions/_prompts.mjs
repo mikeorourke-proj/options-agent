@@ -132,14 +132,18 @@ its own line, in this order, and nothing before the first header or after the la
 (repeat a THEME section for every theme in the model, in the order given)
 
 ### EXECUTION
-<one paragraph, 80-130 words>
+<one paragraph, 70-110 words>
 
 Word limits are enforced. Do not exceed them. No headings inside sections, no bullet points,
 no markdown emphasis, no closing remarks.
 
 VOICE — every rule is checked mechanically after you write:
-1. CONDITIONAL. "We would be short GLD", "we would scale". Never "we are", "we recommend",
+1. CONDITIONAL. "We would be bearish GLD", "we would scale". Never "we are", "we recommend",
    "we like", "buy", "sell" as imperatives. The desk proposes; it does not report a position.
+1a. DIRECTION, NOT POSITION. State the view as BEARISH or BULLISH, never as short or long:
+   "we would be bearish GLD", not "we would be short GLD". The note carries a view the client
+   expresses; it does not put on a trade. This governs the position statement only — "the short
+   strike on the 16 put wall" and "a naked short leg" are leg mechanics and stay as they are.
 2. ETF FIRST, DERIVATIVE ALONGSIDE. Each theme paragraph opens with the ETF expression, then
    presents the derivatives alternative with its cost and constraint stated plainly. Both appear.
    Neither is argued out of the note.
@@ -159,9 +163,9 @@ VOICE — every rule is checked mechanically after you write:
    Neither carries a starting price: the last sale is stale by the time the note is read, so
    both open at "current levels". Never write an entry price, and never mention entry
    improvement — the model no longer contains either.
-     SCALED — "We would be short IBIT, scaling from current levels to 48.00 targeting a
+     SCALED — "We would be bearish IBIT, scaling from current levels to 48.00 targeting a
      weighted average execution of 46.96." Cite scaleTo and targetExecution, nothing before them.
-     IMMEDIATE — "We would be short IBIT at current levels." No band, no ladder, no tranche.
+     IMMEDIATE — "We would be bearish IBIT at current levels." No band, no ladder, no tranche.
    Call it the STOP-LOSS, not the stop: "The stop-loss at 48.48 ends the trade, 3.2% of risk."
    Give the structure its own sentence rather than trailing it off the stop with "with":
    "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
@@ -172,11 +176,21 @@ VOICE — every rule is checked mechanically after you write:
    a chain as a reason to soften the view; it is an execution fact, not an argument.
 8. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
-9. EXECUTION paragraph explains the scale mechanics for the scaled legs — each running from
-   current levels to its wall, never from a price — states that the immediate legs go on at
-   current levels with no ladder to wait for, and covers the price-triggered nature of the
-   ladder, the stop-loss, and that option legs price off the current quote. Reference the
-   execute window and hold window as given.
+9. EXECUTION paragraph is GENERIC. It states the method, not the itinerary. The theme
+   paragraphs have already given every leg its own numbers; repeating them here walks the
+   reader through the same figures a second time and buys nothing.
+     Describe the CONVENTION: a scaled leg is worked as five price-triggered executions at
+     equal intervals from current levels to the open-interest wall, weighted 10 / 15 / 20 /
+     25 / 30 toward the wall, so the weighted average is only achieved if the market trades
+     up into the band and unfilled size stays unfilled; an immediate leg goes on in full at
+     current levels with no ladder to wait for; the stop-loss is a close 1% beyond the wall
+     the position was scaled into, price-triggered, and it ends the trade rather than
+     qualifying the view; option legs price off the current quote at execution, not off the
+     debits printed here.
+     NAME NO TICKERS AND NO PRICES in this paragraph. Say "the scaled legs" and "the
+     immediate leg", not which ones they are. State only which conventions are in play — if
+     every leg is scaled, say so and drop the immediate sentence, and the reverse.
+   Reference the execute window and hold window as given.
 10. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
    questions. British spelling of "realised"; otherwise American.`;
 
@@ -362,7 +376,10 @@ export const SYSTEM_PROMPTS = {
 /* Voice checks on a draft. Each returns the offending phrase so the UI can
    point at it. These are the rules the prompt states, enforced. */
 export const VOICE_CHECKS = [
-  { id: "declarative", re: /\b(we are (short|long|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
+  /* bearish|bullish added alongside short|long: now that the house wording
+     for the view IS "bearish", "we are bearish" becomes the natural drift,
+     and rule 1's "never we are" would quietly stop being enforced. */
+  { id: "declarative", re: /\b(we are (short|long|bearish|bullish|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
     msg: "declarative voice — use 'we would'" },
   { id: "ranking", re: /\b(best|preferred|lead trade|strongest|superior|top pick|ranks?|outranks?|better than|worse than)\b/i,
     msg: "ranking language" },
@@ -377,6 +394,11 @@ export const VOICE_CHECKS = [
     msg: "price objective — the note carries none" },
   { id: "stopword", re: /\bstops? at\b/i,
     msg: "house wording is 'stop-loss'" },
+  /* Direction, not position. Deliberately anchored on "we would" so it cannot
+     touch "the short strike on the 16 put wall" or "a naked short leg", which
+     are leg mechanics rather than a statement of the view. */
+  { id: "position", re: /\bwe would\s+(?:be\s+|go\s+)?(short|long)\b/i,
+    msg: "state the view as bearish or bullish, not short or long" },
   { id: "filler", re: /\b(it is worth noting|needless to say|importantly|interestingly)\b/i,
     msg: "filler" },
 ];
@@ -394,6 +416,22 @@ export function checkVoice(text) {
    scaled leg and wrong on an immediate one, so the test needs the model the
    draft was written from. `ctx` is the draftContext JSON. */
 const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|rungs|improvement)\b/i;
+
+/* The execution paragraph is meant to state the method, not walk the legs.
+   "Name no tickers" is exactly the kind of instruction a model half-keeps, so
+   it is counted rather than trusted. Tickers come from the model the draft
+   was written from, so this cannot fire on an ordinary capitalised word. */
+export function checkExecutionGeneric(paras, ctx) {
+  const hits = [];
+  const body = paras?.execution;
+  if (!body) return hits;
+  for (const th of ctx?.themes || []) {
+    const tk = th?.etf?.ticker;
+    if (tk && new RegExp(`\\b${tk}\\b`).test(body))
+      hits.push({ id: "generic", msg: "execution paragraph names a leg — state the convention, not each ticker", phrase: tk });
+  }
+  return hits;
+}
 
 export function checkImmediate(paras, ctx) {
   const hits = {};
