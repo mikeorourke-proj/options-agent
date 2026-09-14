@@ -192,6 +192,21 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- The page-1 overflow check no longer logs before the draft lands. An empty
+  note always fits, so it was recording "page1.fits 214.2mm" on mount --
+  which is the RAIL's height, not the prose column's -- and the real reading
+  arrived nineteen seconds later at 275.6mm. Gated on prose being present.
+  The overage is now reported in LINES as well as millimetres, with a word
+  count to cut: 0.6mm is meaningless to act on, "about 1 line, cut ~9 words"
+  is not. One body line at 8.9pt / 1.36 leading is 4.27mm.
+  NOTE: do not trust hand-rolled geometry here. Two attempts to estimate
+  page fill from characters-per-line have contradicted the measured values,
+  the second by 89mm. The runtime measurement is the instrument.
+- Three themes at 8.9pt now fills page 1 almost exactly: 275.6mm against a
+  275mm limit on 14 Sep. The font bump took the sheet to its edge, so the
+  word bands in draft rule 2 are the lever if this recurs, and a four-theme
+  note will overflow substantially.
+
 - checkImmediate ALLOWS the sanctioned phrase "no room to scale". Draft rule
   7 REQUIRES that construction on an immediate leg, and the LADDER pattern
   flags the word "scale" inside it -- so the drafter wrote exactly what the

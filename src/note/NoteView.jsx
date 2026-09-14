@@ -8,6 +8,9 @@ const f = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toFixed(d);
    bottom 20mm and nothing pushes it, so anything past this is printed over.
    Keep in step with .analyst in note.css. */
 const PAGE1_LIMIT_MM = 297 - 20 - 2;
+/* One body line: 8.9pt at 1.36 leading. Used to turn an overage in
+   millimetres into something an analyst can act on. */
+const LINE_MM = 8.9 * 1.36 * 25.4 / 72;
 const pct = (n, d = 1) => n == null ? "—" : `${n >= 0 ? "+" : ""}${Number(n).toFixed(d)}%`;
 const Arrow = ({ d }) => <span className={d === "bearish" ? "dn" : "up"}>{d === "bearish" ? "▼" : "▲"}</span>;
 
@@ -83,10 +86,19 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
       const over = used > limit ? +(used - limit).toFixed(1) : null;
       setOverflow(over);
 
+      /* An empty note always fits, so measuring before the draft lands
+         produces a "fits" at 214mm that means nothing — and the real reading
+         arrives nineteen seconds later at 275.6mm. Say nothing until there
+         is prose on the page. */
+      const hasProse = Boolean(prose?.summary);
       const fits = over == null;
-      if (lastFit.current !== fits) {
+      if (hasProse && lastFit.current !== fits) {
         lastFit.current = fits;
+        /* Millimetres are precise and useless to act on. A body line at
+           8.9pt with 1.36 leading is about 4.3mm, so the overage in LINES is
+           what tells the analyst how much to cut. */
         const meta = { usedMm: +used.toFixed(1), limitMm: limit, overMm: over,
+                       overLines: over == null ? null : Math.max(1, Math.ceil(over / LINE_MM)),
                        themes: etfRows.length, bodyPt: 8.9 };
         if (fits) RunLog.info("ui", "page1.fits", meta);
         else RunLog.warn("ui", "page1.overflow", { ...meta,
@@ -105,9 +117,11 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
       {/* Screen only — a warning about the page must never be on the page. */}
       {overflow != null && (
         <div className="overflowwarn">
-          <b>Page 1 is over by about {overflow}mm.</b> The two columns have grown past the analyst
-          block, which is pinned to the bottom of the sheet and will be printed over. Shorten a
-          paragraph, or drop a theme, before saving the PDF.
+          <b>Page 1 is over by about {Math.max(1, Math.ceil(overflow / LINE_MM))} line
+          {Math.ceil(overflow / LINE_MM) > 1 ? "s" : ""} ({overflow}mm).</b> The two columns have
+          grown past the analyst block, which is pinned to the bottom of the sheet and will be
+          printed over. Cut roughly {Math.max(8, Math.ceil(overflow / LINE_MM) * 9)} words, or drop
+          a theme, before saving the PDF.
         </div>
       )}
 
