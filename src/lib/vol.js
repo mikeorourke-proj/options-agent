@@ -108,15 +108,25 @@ export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date())
     }
     out.netGex = Math.round(gex);
 
-    const pick = (obj, keep) => {
+    /* Ranked, not just the maximum. The two filters below overlap by 4% of
+       spot, so any strike between 0.98x and 1.02x is eligible to be BOTH
+       walls — and whenever the dominant open interest sits near spot, both
+       selectors land on it. SLV printed 60/60 that way, which left the
+       bearish target 0.3% from spot and scored the leg at an expectancy of
+       0.04. The ladder of strikes behind the top one is what lets targets()
+       step past a degenerate wall. */
+    const rank = (obj, keep) => {
       const ent = Object.entries(obj).map(([k, v]) => [Number(k), v]).filter(([k]) => keep(k));
-      if (!ent.length) return [null, 0, 0];
+      if (!ent.length) return [];
       const total = ent.reduce((s, [, v]) => s + v, 0);
-      const [k, v] = ent.reduce((a, b) => b[1] > a[1] ? b : a);
-      return [k, v, total ? +(v / total * 100).toFixed(1) : 0];
+      return ent.sort((a, b) => b[1] - a[1])
+                .map(([strike, oi]) => ({ strike, oi, conc: total ? +(oi / total * 100).toFixed(1) : 0 }));
     };
-    [out.callWall, out.callWallOI, out.callWallConc] = pick(callOI, k => k >= spot * 0.98);
-    [out.putWall,  out.putWallOI,  out.putWallConc]  = pick(putOI,  k => k <= spot * 1.02);
+    out.callWalls = rank(callOI, k => k >= spot * 0.98);
+    out.putWalls  = rank(putOI,  k => k <= spot * 1.02);
+    const top = (arr) => arr.length ? [arr[0].strike, arr[0].oi, arr[0].conc] : [null, 0, 0];
+    [out.callWall, out.callWallOI, out.callWallConc] = top(out.callWalls);
+    [out.putWall,  out.putWallOI,  out.putWallConc]  = top(out.putWalls);
 
     // max pain: strike minimising total intrinsic paid out
     const strikes = [...new Set([...Object.keys(callOI), ...Object.keys(putOI)].map(Number))]

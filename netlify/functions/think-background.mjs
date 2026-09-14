@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { getStore } from "@netlify/blobs";
 import { srvLog } from "./_runlog.mjs";
-import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate, checkExecutionGeneric } from "./_prompts.mjs";
+import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate, checkExecutionGeneric, checkThemeOpening } from "./_prompts.mjs";
 
 const API = "https://api.anthropic.com/v1/messages";
 
@@ -187,6 +187,7 @@ export default async (request) => {
         for (const [k, h] of Object.entries(checkImmediate(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
         const gen = checkExecutionGeneric(paras, ctx);
         if (gen.length) voice.execution = [...(voice.execution || []), ...gen];
+        for (const [k, h] of Object.entries(checkThemeOpening(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
       } catch (e) { L.warn("immediate.check.skipped", { message: e.message }); }
       if (Object.keys(voice).length) L.warn("voice.violation", voice);
     }

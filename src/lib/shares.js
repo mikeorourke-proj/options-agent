@@ -28,9 +28,11 @@ const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
    analyst selected, and the position goes on at current levels. */
 export function scalePlan(spot, v, direction, { mode = "wall", execution = "scaled" } = {}) {
   const bear = direction === "bearish";
-  const wall = bear ? v.callWall : v.putWall;
   const sgn  = bear ? 1 : -1;
   if (!spot) return null;
+  /* The wall actually usable as resistance, not merely the biggest strike —
+     a wall spot has already traded through is not something to scale into. */
+  const [wall, wallFrom] = entryWall(spot, v, direction);
 
   /* No usable option chain means no open-interest wall, and the whole scale
      plan is anchored to one. The tool's own key says grade X is "shares
@@ -78,7 +80,7 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
   const stop = mode === "wall" ? stopWall : stopFlat;
 
   return {
-    single, execution: single ? "immediate" : "scaled", reason,
+    single, execution: single ? "immediate" : "scaled", reason, wallFrom,
     wall, rungs, entry, stop, stopWall, stopFlat, mode,
     entryImprovementPct: ((entry - spot) / spot) * 100 * sgn,   // positive = better than spot
     riskPct: (Math.abs(stop - entry) / entry) * 100,
@@ -88,6 +90,87 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
 
 /* Two derived levels, no invented ones: the opposite open-interest wall,
    and the option-implied one-sigma range over the horizon. */
+/* How far the target wall must sit from spot to be a target at all. Inside
+   this there is no trade to measure — the reward rounds to nothing and the
+   leg scores near zero however good the idea is. */
+export const MIN_TARGET_TRAVEL = 0.01;
+
+/* The wall the position exits into: the put wall on a bearish leg, the call
+   wall on a bullish one.
+
+   Two ways the top wall is unusable, both of which SLV hit at once. It can be
+   the SAME strike as the entry wall — the two selectors in analyzeChain
+   overlap by 4% of spot, so a dominant strike near spot is eligible to be
+   both. And it can sit inside MIN_TARGET_TRAVEL of spot, leaving nothing to
+   travel. Either way the leg scores near zero for a reason that has nothing
+   to do with the idea: SLV at 60/60 came out at an expectancy of 0.04 on a
+   44.5%-vol name whose own implied range was 51 to 69.
+
+   So step down the OI ladder to the next wall that is genuinely beyond spot,
+   and if none qualifies, return null and let the caller fall back to the
+   one-sigma target. The walls PRINTED in the note are untouched — this
+   governs the target, which is never published. */
+/* One rule, applied to both walls. A wall is only usable if it lies at least
+   MIN_TARGET_TRAVEL beyond spot in the direction it is meant to serve —
+   above for the entry wall on a bearish leg, below for the exit wall — and
+   is not the strike already doing the other job.
+
+   `above` = the wall must sit above spot. */
+function usableWall(spot, ladder, { above, exclude }) {
+  if (!spot || !ladder?.length) return [null, null];
+  const ok = ladder.filter(w => {
+    if (w.strike == null || w.strike === exclude) return false;
+    const travel = (w.strike - spot) / spot;
+    return above ? travel >= MIN_TARGET_TRAVEL : travel <= -MIN_TARGET_TRAVEL;
+  });
+  return ok.length ? [ok[0].strike, ladder[0]] : [null, ladder[0]];
+}
+
+const asLadder = (list, single) => list || (single != null ? [{ strike: single }] : []);
+
+/* The wall the position is SCALED INTO and stopped beyond: the call wall on a
+   bearish leg, the put wall on a bullish one.
+
+   It has the same failure as the exit wall and it bit on the same leg. SLV's
+   call wall printed at 60 while spot was 60.18 — price was already THROUGH
+   the resistance, so the ladder had nowhere to run and the stop sat 1% above
+   a level that had just failed, 0.7% from spot on a name that moves 12% in a
+   month. Stepping to the next call wall up is the mirror of the exit rule,
+   and it is market structure rather than an arbitrary volatility floor. */
+export function entryWall(spot, v, direction) {
+  const bear = direction === "bearish";
+  const ladder = asLadder(bear ? v.callWalls : v.putWalls, bear ? v.callWall : v.putWall);
+  const [chosen, top] = usableWall(spot, ladder, { above: bear, exclude: null });
+  if (chosen == null) return [null, "none"];
+  const stepped = top && chosen !== top.strike;
+  if (stepped)
+    RunLog.info("calc", "entry.wall.stepped", {
+      ticker: v.ticker, direction, spot, skipped: top.strike,
+      why: (bear ? top.strike <= spot : top.strike >= spot)
+             ? "spot is already through it — no longer resistance"
+             : `only ${Math.abs((top.strike - spot) / spot * 100).toFixed(1)}% from spot`,
+      used: chosen, distPct: +Math.abs((chosen - spot) / spot * 100).toFixed(1),
+    });
+  return [chosen, stepped ? "wall.next" : "wall"];
+}
+
+export function exitWall(spot, v, direction) {
+  const bear = direction === "bearish";
+  const [entryTk] = entryWall(spot, v, direction);
+  const ladder = asLadder(bear ? v.putWalls : v.callWalls, bear ? v.putWall : v.callWall);
+  const [chosen, top] = usableWall(spot, ladder, { above: !bear, exclude: entryTk });
+  if (chosen == null) return [null, "sigma"];
+  const stepped = top && chosen !== top.strike;
+  if (stepped)
+    RunLog.info("calc", "target.wall.stepped", {
+      ticker: v.ticker, direction, spot, skipped: top.strike,
+      why: top.strike === entryTk ? "same strike as the entry wall"
+         : `only ${Math.abs((top.strike - spot) / spot * 100).toFixed(1)}% from spot`,
+      used: chosen, travelPct: +((chosen - spot) / spot * 100).toFixed(1),
+    });
+  return [chosen, stepped ? "wall.next" : "wall"];
+}
+
 export function targets(spot, v, direction, horizonDays = 42) {
   /* Implied vol where there is a chain, realised where there is not. With no
      walls the structural target falls back to a one-sigma move, which is the
@@ -95,10 +178,10 @@ export function targets(spot, v, direction, horizonDays = 42) {
      just the one the tool already trusts. */
   const vol = v.iv30 != null ? v.iv30 : v.rv30;
   const sd = vol != null ? (vol / 100) * Math.sqrt(horizonDays / 365) : null;
-  const wallTgt = direction === "bearish" ? v.putWall : v.callWall;
+  const [wallTgt, tgtFrom] = exitWall(spot, v, direction);
   const struct = wallTgt ?? (sd ? spot * (1 + (direction === "bearish" ? -1 : 1) * sd) : null);
   return {
-    struct, structFrom: wallTgt ? "wall" : "sigma", volFrom: v.iv30 != null ? "implied" : "realised",
+    struct, structFrom: wallTgt ? tgtFrom : "sigma", volFrom: v.iv30 != null ? "implied" : "realised",
     volWindow: v.iv30 != null ? null : (v.rvWindow ?? 30),
     structPct: struct && spot ? ((struct - spot) / spot) * 100 : null,
     sd: sd ? sd * 100 : null,

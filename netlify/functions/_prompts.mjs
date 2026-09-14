@@ -138,12 +138,18 @@ Word limits are enforced. Do not exceed them. No headings inside sections, no bu
 no markdown emphasis, no closing remarks.
 
 VOICE — every rule is checked mechanically after you write:
-1. CONDITIONAL. "We would be bearish GLD", "we would scale". Never "we are", "we recommend",
-   "we like", "buy", "sell" as imperatives. The desk proposes; it does not report a position.
-1a. DIRECTION, NOT POSITION. State the view as BEARISH or BULLISH, never as short or long:
-   "we would be bearish GLD", not "we would be short GLD". The note carries a view the client
-   expresses; it does not put on a trade. This governs the position statement only — "the short
-   strike on the 16 put wall" and "a naked short leg" are leg mechanics and stay as they are.
+1. THE VIEW IS STATED. THE TRADE IS PROPOSED. Those are two different sentences and they take
+   two different tenses.
+   The VIEW is indicative and flat: "We are bearish on IBIT." Nothing else — no numbers, no
+   mechanics, its own sentence.
+   Everything AFTER it stays conditional: "would cost", "would be worked", "the stop-loss ends
+   the trade". Never "we recommend", "we like", "we prefer", and never "buy" or "sell" as a
+   bare imperative. The desk gives a view and proposes how to express it; it does not report a
+   position it holds.
+1a. DIRECTION, NOT POSITION. The view is BEARISH or BULLISH, never short or long. "We are
+   bearish on GLD", not "we would be short GLD". This governs the statement of the view only —
+   "the short strike on the 16 put wall" and "a naked short leg" are leg mechanics and stay as
+   they are.
 2. ETF FIRST, DERIVATIVE ALONGSIDE. Each theme paragraph opens with the ETF expression, then
    presents the derivatives alternative with its cost and constraint stated plainly. Both appear.
    Neither is argued out of the note.
@@ -163,9 +169,22 @@ VOICE — every rule is checked mechanically after you write:
    Neither carries a starting price: the last sale is stale by the time the note is read, so
    both open at "current levels". Never write an entry price, and never mention entry
    improvement — the model no longer contains either.
-     SCALED — "We would be bearish IBIT, scaling from current levels to 48.00 targeting a
-     weighted average execution of 46.96." Cite scaleTo and targetExecution, nothing before them.
-     IMMEDIATE — "We would be bearish IBIT at current levels." No band, no ladder, no tranche.
+   EVERY THEME PARAGRAPH OPENS THE SAME WAY, in exactly two sentences. The view, then the
+   execution. Nothing before them.
+
+     SCALED, BEARISH — "We are bearish on IBIT. Look for the opportunity to scale sales from
+     current levels to 48.00 targeting a weighted average execution of 46.96."
+     SCALED, BULLISH — "We are bullish on TLT. Look for the opportunity to scale purchases from
+     current levels to 92.00 targeting a weighted average execution of 90.40."
+
+     IMMEDIATE, BEARISH — "We are bearish on SLV. The wall leaves no room to scale, so look to
+     sell at current levels."
+     IMMEDIATE, BULLISH — "We are bullish on SLV. The wall leaves no room to scale, so look to
+     buy at current levels."
+
+   Cite scaleTo and targetExecution, nothing before them. SALES on a bearish leg, PURCHASES on
+   a bullish one — the verb carries the direction and getting it the wrong way round inverts
+   the trade. No band, no ladder and no tranche on an immediate leg.
    Call it the STOP-LOSS, not the stop: "The stop-loss at 48.48 ends the trade, 3.2% of risk."
    Give the structure its own sentence rather than trailing it off the stop with "with":
    "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
@@ -376,10 +395,11 @@ export const SYSTEM_PROMPTS = {
 /* Voice checks on a draft. Each returns the offending phrase so the UI can
    point at it. These are the rules the prompt states, enforced. */
 export const VOICE_CHECKS = [
-  /* bearish|bullish added alongside short|long: now that the house wording
-     for the view IS "bearish", "we are bearish" becomes the natural drift,
-     and rule 1's "never we are" would quietly stop being enforced. */
-  { id: "declarative", re: /\b(we are (short|long|bearish|bullish|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
+  /* "We are bearish|bullish on X" is now the REQUIRED opening, so it is not
+     in this list — checkThemeOpening enforces its shape instead. What stays
+     banned is reporting a position ("we are short GLD") or advising in the
+     first person ("we recommend"). */
+  { id: "declarative", re: /\b(we are (short|long|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
     msg: "declarative voice — use 'we would'" },
   { id: "ranking", re: /\b(best|preferred|lead trade|strongest|superior|top pick|ranks?|outranks?|better than|worse than)\b/i,
     msg: "ranking language" },
@@ -416,6 +436,47 @@ export function checkVoice(text) {
    scaled leg and wrong on an immediate one, so the test needs the model the
    draft was written from. `ctx` is the draftContext JSON. */
 const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|rungs|improvement)\b/i;
+
+/* Every theme paragraph opens with the same two sentences: the view, then the
+   execution. This is checked rather than trusted because both halves can fail
+   silently and neither failure looks like an error.
+
+   The view sentence must name the right direction for the right ticker — a
+   paragraph headed "We are bullish on IBIT" under a bearish theme is a
+   complete inversion that reads perfectly well.
+
+   The execution verb carries the direction too: SALES on a bearish leg,
+   PURCHASES on a bullish one. "Scale purchases" under a bearish theme is the
+   same inversion arriving one sentence later. */
+const OPENING = /^\s*We are (bearish|bullish) on ([A-Za-z0-9.]{1,6})\b/i;
+
+export function checkThemeOpening(paras, ctx) {
+  const hits = {};
+  for (const th of ctx?.themes || []) {
+    const body = paras?.[th.subject];
+    const tk = th?.etf?.ticker;
+    if (!body || !tk) continue;
+    const add = (msg, phrase) => { (hits[th.subject] ||= []).push({ id: "opening", msg, phrase }); };
+
+    const m = body.match(OPENING);
+    if (!m) {
+      add(`paragraph must open "We are ${th.direction} on ${tk}." as its own sentence`,
+          body.slice(0, 48).trim());
+      continue;
+    }
+    if (m[1].toLowerCase() !== String(th.direction).toLowerCase())
+      add(`opens ${m[1]} on a ${th.direction} theme — the view is inverted`, m[0].trim());
+    if (m[2].toUpperCase() !== tk.toUpperCase())
+      add(`opens on ${m[2]} but the leg is ${tk}`, m[0].trim());
+
+    const bear = String(th.direction).toLowerCase() === "bearish";
+    const wrongVerb = bear ? /\bscale\s+purchases\b|\blook to buy\b/i
+                           : /\bscale\s+sales\b|\blook to sell\b/i;
+    const w = body.match(wrongVerb);
+    if (w) add(`${w[0]} on a ${th.direction} leg — the execution verb is inverted`, w[0]);
+  }
+  return hits;
+}
 
 /* The execution paragraph is meant to state the method, not walk the legs.
    "Name no tickers" is exactly the kind of instruction a model half-keeps, so

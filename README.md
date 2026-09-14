@@ -192,6 +192,76 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- SCORING FIXTURES EXIST: `npm test` (13 cases), `npm run test:record` to
+  re-baseline. They are GOLDEN-MASTER, not assertions of correctness --
+  several recorded values are known to be wrong. The harness exists so that
+  when the redesign moves a number, the movement is listed and has to be
+  justified, rather than a regression hiding inside an improvement. Pure
+  functions only, no network, about a second to run.
+  Coverage includes every published leg from the 8 and 9 Sep notes plus the
+  cases that have bitten: colliding walls, a breached entry wall, grade X
+  with no chain and 23 sessions of history, a target inside the noise, and
+  proximity-forced immediate execution.
+  It also covers BULLISH, which eleven consecutive bearish notes have never
+  exercised in production -- including the mirror of the silver case.
+  Verified to detect change: moving MIN_TARGET_TRAVEL from 1% to 2% flagged
+  3 cases with 12 field-level diffs.
+
+- THE SAME STEPPING RULE NOW GOVERNS BOTH WALLS. v0.20.1 applied it to the
+  exit wall only; the entry wall has the identical defect arriving from the
+  other side, and it bit on the same leg. SLV's call wall printed at 60 with
+  spot at 60.18 -- price was already THROUGH the resistance, so the ladder
+  had nowhere to run and the stop sat 1% above a level that had just failed,
+  0.7% from spot on a name that moves 12% in a month.
+  usableWall() is now one function serving both: a wall must lie at least
+  MIN_TARGET_TRAVEL beyond spot in the direction it serves, and must not be
+  the strike already doing the other job. entryWall() steps up on a bearish
+  leg, exitWall() steps down, both logged with why.
+  SLV entry wall 60 -> 63, stop 60.60 -> 63.63; IBIT and GLD untouched.
+- That makes a VOLATILITY FLOOR on the stop unnecessary. Stepping to the next
+  real wall lands in the same place the 0.5-sigma floor did -- SLV touch
+  probability 74% -> 37% against the floor's 35% -- but derives the level
+  from market structure rather than an arbitrary sigma constant. If no wall
+  qualifies, that is information about the trade, not a number to manufacture.
+
+- THE EXIT WALL CAN BE DEGENERATE, and analyzeChain's two selectors make it
+  likely rather than rare: callWall takes strikes >= 0.98x spot, putWall
+  takes strikes <= 1.02x spot, so the windows OVERLAP by 4% of spot and any
+  dominant strike near spot is eligible to be both. SLV printed 60/60 that
+  way, which put the bearish target 0.3% from spot and scored a 44.5%-vol
+  name at an expectancy of 0.04 -- with its own implied range at 51 to 69.
+  analyzeChain now keeps the ranked ladder (callWalls/putWalls, not just the
+  maximum) and exitWall() steps past a wall that is the same strike as the
+  entry wall or inside MIN_TARGET_TRAVEL (1%) of spot, taking the next one
+  genuinely beyond spot and falling back to the one-sigma target if none
+  qualifies. SLV 60 -> 57, EV 0.04 -> 2.8; GLD at 1.1% is untouched.
+  Logged as calc/target.wall.stepped with the strike skipped and why.
+  This governs the TARGET, which is never published. The walls printed in
+  the note are the raw top-OI strikes and did not change.
+  Open question: 1% is flat, and in vol terms it is not the same test for
+  every name -- GLD's 1.1% is 0.15 sigma while ETHA's 15.6% is 1.02 sigma.
+  A 0.25-sigma floor would also step GLD, whose target is 1.1% away and
+  which scores 0.29.
+
+- THE VIEW IS STATED, THE TRADE IS PROPOSED -- two sentences, two tenses.
+  Rule 1 is no longer "conditional throughout". The view sentence is
+  indicative and flat, "We are bearish on IBIT.", its own sentence with no
+  numbers in it; everything after it stays conditional. The principle that
+  replaced it is the same one, sharpened: the desk gives a view and proposes
+  how to express it, rather than reporting a position it holds.
+  Every theme paragraph opens the same two sentences: view, then execution.
+  SALES on a bearish leg, PURCHASES on a bullish one. The immediate case is
+  "The wall leaves no room to scale, so look to sell at current levels."
+- checkThemeOpening() enforces the shape, because both halves fail silently
+  and neither failure looks like an error: a paragraph headed "We are
+  bullish on IBIT" under a bearish theme reads perfectly well and is a
+  complete inversion, and "scale purchases" on a bearish leg is the same
+  inversion arriving one sentence later. It checks direction against the
+  theme and ticker against the leg.
+  VOICE_CHECKS.declarative no longer bans bearish|bullish -- that phrasing
+  is now REQUIRED. It still bans reporting a position ("we are short GLD")
+  and first-person advice ("we recommend").
+
 - DIRECTION, NOT POSITION. The view is stated as bearish or bullish, never
   short or long: "we would be bearish GLD". The note carries a view the
   client expresses; it does not put on a trade. The conditional is unchanged
