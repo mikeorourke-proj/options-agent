@@ -192,6 +192,23 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- checkImmediate ALLOWS the sanctioned phrase "no room to scale". Draft rule
+  7 REQUIRES that construction on an immediate leg, and the LADDER pattern
+  flags the word "scale" inside it -- so the drafter wrote exactly what the
+  prompt demanded and the guard called it a violation on three consecutive
+  runs. The template arrived in v0.20.0; the check predates it by five
+  versions. Only that phrase is neutralised; every other ladder word still
+  fires.
+- The harness now covers the draft guards (35 cases: 13 scoring, 3 chain,
+  4 expiry, 15 voice). Voice cases assert BOTH directions -- the house
+  phrasing must pass and every real violation must still fire -- because a
+  guard that stops firing is as broken as one that fires wrongly, and
+  silence looks like success.
+  This was the THIRD defect found in an area the harness did not cover, after
+  walls and expiry ranking. Every one sat in code feeding the plan, the stop,
+  the structure gate or the draft. Coverage has to lead the redesign, not
+  follow it.
+
 - rankExpiries GUARANTEES THE DEEPEST EXPIRY IS OFFERED. It used to build the
   candidate list in DATE order and slice to four, which defeated the "always
   keep the liquid fallback" line sitting directly above the slice. On 14 Sep

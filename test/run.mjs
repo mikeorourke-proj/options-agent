@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CASES, CHAIN_CASES, EXPIRY_CASES } from "./fixtures.mjs";
+import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX } from "./fixtures.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SNAP = join(HERE, "snapshot.json");
@@ -32,6 +32,8 @@ hush();
 const { scalePlan, targets, scoreShares, entryWall, exitWall } =
   await import("../src/lib/shares.js");
 const { analyzeChain, rankExpiries } = await import("../src/lib/vol.js");
+const { checkVoice, checkImmediate, checkThemeOpening, checkExecutionGeneric } =
+  await import("../netlify/functions/_prompts.mjs");
 speak();
 
 const r = (n, d = 3) => n == null || Number.isNaN(n) ? null : +Number(n).toFixed(d);
@@ -96,16 +98,36 @@ function expiry(c) {
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
 
+function voice(c) {
+  hush();
+  try {
+    /* Theme paragraphs and the execution paragraph are different sections
+       with different rules — run each against the checks that govern it. */
+    const isExec = c.section === "execution";
+    const paras = isExec ? { execution: c.body } : { [c.subject]: c.body };
+    const hits = (isExec
+      ? [...checkVoice(c.body), ...checkExecutionGeneric(paras, VOICE_CTX),
+         ...(checkImmediate(paras, VOICE_CTX).execution || [])]
+      : [...checkVoice(c.body),
+         ...(checkImmediate(paras, VOICE_CTX)[c.subject] || []),
+         ...(checkThemeOpening(paras, VOICE_CTX)[c.subject] || [])]
+    ).map(h => `${h.id}:${h.phrase}`).sort();
+    return { expect: c.expect, flagged: hits.length > 0, hits,
+             correct: (hits.length > 0) === (c.expect === "flag") };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
 const now = {
   ...Object.fromEntries(CASES.map(c => [c.id, score(c)])),
   ...Object.fromEntries(CHAIN_CASES.map(c => ["chain:" + c.id, chain(c)])),
   ...Object.fromEntries(EXPIRY_CASES.map(c => ["expiry:" + c.id, expiry(c)])),
+  ...Object.fromEntries(VOICE_CASES.map(c => ["voice:" + c.id, voice(c)])),
 };
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length} cases -> test/snapshot.json`);
-  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && v.score == null) || (k.startsWith("chain:") && !v.ok));
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length} cases -> test/snapshot.json`);
+  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
     for (const [id, v] of broken) console.log("  " + id.padEnd(32) + (v.ERROR ? "THREW: " + v.ERROR : "no expectancy"));
@@ -131,7 +153,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

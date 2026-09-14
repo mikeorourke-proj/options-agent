@@ -225,3 +225,58 @@ export const EXPIRY_CASES = [
     why: "nothing clears the floor — must still offer the deepest rather than nothing",
     oi: { "2026-09-21": 300, "2026-09-25": 900, "2026-10-02": 1500, "2026-10-16": 2200 } },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Voice checks — the THIRD area to produce a defect while uncovered.
+   Walls, then expiry ranking, now the draft guards.
+
+   The trigger: draft rule 7 requires "the wall leaves no room to scale" on
+   an immediate leg, and checkImmediate's LADDER pattern flags the word
+   "scale" inside it. The drafter wrote exactly what the prompt demanded and
+   the guard called it a violation on three consecutive runs. The template
+   landed in v0.20.0; the check predates it by five versions.
+
+   These cases pin BOTH directions: the sanctioned phrasing must pass, and
+   every real violation must still fire.
+   ═══════════════════════════════════════════════════════════════════ */
+export const VOICE_CTX = { themes: [
+  { subject: "Gold",   direction: "bearish", etf: { ticker: "GLD", execution: "immediate" } },
+  { subject: "Silver", direction: "bearish", etf: { ticker: "SLV", execution: "scaled" } },
+  { subject: "Rates",  direction: "bullish", etf: { ticker: "TLT", execution: "scaled" } },
+]};
+
+export const VOICE_CASES = [
+  { id: "immediate.house-phrasing", subject: "Gold", expect: "clean",
+    body: "We are bearish on GLD. The wall leaves no room to scale, so look to sell at current levels. The stop-loss at 404.30 ends the trade, 3.3% of risk." },
+  { id: "immediate.real-ladder", subject: "Gold", expect: "flag",
+    body: "We are bearish on GLD. Look for the opportunity to scale sales from current levels to 400.00 targeting a weighted average execution of 396.10." },
+  { id: "immediate.tranche-elsewhere", subject: "Gold", expect: "flag",
+    body: "We are bearish on GLD. The position goes on at current levels; the tranches would fill only on strength." },
+  { id: "scaled.house-phrasing", subject: "Silver", expect: "clean",
+    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00 targeting a weighted average execution of 58.40." },
+  { id: "scaled.old-conditional", subject: "Silver", expect: "flag",
+    body: "We would be short SLV, scaling from current levels to 60.00 targeting a weighted average execution of 58.40." },
+  { id: "bullish.house-phrasing", subject: "Rates", expect: "clean",
+    body: "We are bullish on TLT. Look for the opportunity to scale purchases from current levels to 83.00 targeting a weighted average execution of 81.20." },
+  { id: "bullish.inverted-verb", subject: "Rates", expect: "flag",
+    body: "We are bullish on TLT. Look for the opportunity to scale sales from current levels to 83.00 targeting a weighted average execution of 81.20." },
+  { id: "opening.direction-inverted", subject: "Gold", expect: "flag",
+    body: "We are bullish on GLD. The wall leaves no room to scale, so look to sell at current levels." },
+  { id: "opening.wrong-ticker", subject: "Gold", expect: "flag",
+    body: "We are bearish on IAU. The wall leaves no room to scale, so look to sell at current levels." },
+  { id: "voice.position-wording", subject: "Silver", expect: "flag",
+    body: "We would be long SLV into the decision, scaling from current levels to 60.00." },
+  { id: "voice.stop-wording", subject: "Silver", expect: "flag",
+    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00. The stop at 63.63 ends the trade." },
+  { id: "voice.targeting-weighted-average", subject: "Silver", expect: "clean",
+    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00 targeting a weighted average execution of 58.40." },
+  { id: "voice.real-price-objective", subject: "Silver", expect: "flag",
+    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00, targeting 52 over the hold." },
+
+  /* Execution paragraph — a different section with a different rule: state
+     the convention, name no tickers. */
+  { id: "execution.generic", section: "execution", expect: "clean",
+    body: "The scaled legs are worked as five price-triggered executions at equal intervals from current levels to the open-interest wall, weighted 10/15/20/25/30. The immediate leg goes on in full at current levels. The stop-loss is a close 1% beyond the wall scaled into." },
+  { id: "execution.names-legs", section: "execution", expect: "flag",
+    body: "Each ladder runs from current levels to its wall, GLD to 400.00 and SLV to 60.00, with tranches price-triggered." },
+];

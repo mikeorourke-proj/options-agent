@@ -437,6 +437,15 @@ export function checkVoice(text) {
    draft was written from. `ctx` is the draftContext JSON. */
 const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|rungs|improvement)\b/i;
 
+/* Draft rule 7 REQUIRES this exact construction on an immediate leg — "the
+   wall leaves no room to scale, so look to sell at current levels" — and
+   LADDER flags the word "scale" inside it. So the drafter wrote precisely
+   what the prompt demanded and the guard called it a violation, three runs
+   in a row. The template arrived in v0.20.0; this check predates it.
+   Neutralise the sanctioned phrase before matching. Anything else carrying
+   a ladder word still flags. */
+const SANCTIONED = /\bno room to scale\b/gi;
+
 /* Every theme paragraph opens with the same two sentences: the view, then the
    execution. This is checked rather than trusted because both halves can fail
    silently and neither failure looks like an error.
@@ -502,15 +511,15 @@ export function checkImmediate(paras, ctx) {
   for (const th of imm) {
     const add = (k, phrase, msg) => { (hits[k] ||= []).push({ id: "immediate", msg, phrase }); };
 
-    // The theme's own paragraph: no scale language at all.
-    const own = paras[th.subject];
+    // The theme's own paragraph: no scale language beyond the sanctioned phrase.
+    const own = paras[th.subject]?.replace(SANCTIONED, "");
     const m = own && own.match(LADDER);
     if (m) add(th.subject, m[0], `${th.etf.ticker} is immediate — no ladder to describe`);
 
     /* Shared paragraphs legitimately discuss the scaled legs, so only a
        sentence naming this ticker can offend. */
     for (const k of ["summary", "execution"]) {
-      for (const sent of String(paras[k] || "").split(/(?<=[.!?])\s+/)) {
+      for (const sent of String(paras[k] || "").replace(SANCTIONED, "").split(/(?<=[.!?])\s+/)) {
         if (!sent.includes(th.etf.ticker)) continue;
         const s = sent.match(LADDER);
         if (s) add(k, s[0], `${th.etf.ticker} is immediate — no ladder to describe`);

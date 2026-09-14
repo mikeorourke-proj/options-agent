@@ -617,5 +617,119 @@
   "includesDeepest": true,
   "deepest": "2026-10-16",
   "thinnestOffered": 300
+ },
+ "voice:immediate.house-phrasing": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:immediate.real-ladder": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "immediate:scale"
+  ],
+  "correct": true
+ },
+ "voice:immediate.tranche-elsewhere": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "immediate:tranches"
+  ],
+  "correct": true
+ },
+ "voice:scaled.house-phrasing": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:scaled.old-conditional": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:We would be short SLV, scaling from current leve",
+   "position:We would be short"
+  ],
+  "correct": true
+ },
+ "voice:bullish.house-phrasing": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:bullish.inverted-verb": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:scale sales"
+  ],
+  "correct": true
+ },
+ "voice:opening.direction-inverted": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:We are bullish on GLD"
+  ],
+  "correct": true
+ },
+ "voice:opening.wrong-ticker": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:We are bearish on IAU"
+  ],
+  "correct": true
+ },
+ "voice:voice.position-wording": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:We would be long SLV into the decision, scaling",
+   "position:We would be long"
+  ],
+  "correct": true
+ },
+ "voice:voice.stop-wording": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "stopword:stop at"
+  ],
+  "correct": true
+ },
+ "voice:voice.targeting-weighted-average": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:voice.real-price-objective": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "objective:targeting"
+  ],
+  "correct": true
+ },
+ "voice:execution.generic": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:execution.names-legs": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "generic:GLD",
+   "generic:SLV",
+   "immediate:ladder"
+  ],
+  "correct": true
  }
 }
