@@ -192,6 +192,24 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- rankExpiries GUARANTEES THE DEEPEST EXPIRY IS OFFERED. It used to build the
+  candidate list in DATE order and slice to four, which defeated the "always
+  keep the liquid fallback" line sitting directly above the slice. On 14 Sep
+  that cost GLD its whole derivatives leg: the deepest expiry held 191,992
+  contracts, sat NINTH by date, and was sliced away, so the gate tried four
+  consecutive dailies carrying 10, 0, 1 and 5 contracts on the thinnest leg,
+  blocked long_put and put_spread in turn, and a grade-A name with 1,847
+  usable contracts printed shares-only.
+  Now: take the nearest three that clear the floor, THEN add the deepest if
+  it is not already among them. Floor raised 1,000 -> 4,000, though that is
+  a weak signal either way — whole-expiry OI spread over a hundred strikes
+  says nothing about any single leg, and per-leg OI remains the real gate
+  downstream.
+  Fixtures added (20 cases now: 13 scoring, 3 chain, 4 expiry). This is the
+  SECOND defect found in a function the harness did not cover — walls were
+  the first. Anything that feeds the plan, the stop, the target or the
+  structure gate needs a case.
+
 - WALLS ARE STRICTLY ON THEIR OWN SIDE OF SPOT: callWall > spot, putWall <
   spot. The old windows (0.98x / 1.02x) overlapped by 4% of spot, so a
   dominant strike near spot was eligible to be both -- GLD printed 400/400 at

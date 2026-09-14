@@ -555,5 +555,67 @@
   "iv30": 24,
   "contracts": 44,
   "ok": true
+ },
+ "expiry:GLD.dailies-ahead-of-the-monthly": {
+  "candidates": [
+   "2026-09-21",
+   "2026-09-25",
+   "2026-09-30",
+   "2026-10-16"
+  ],
+  "oi": [
+   6396,
+   35451,
+   64798,
+   191992
+  ],
+  "includesDeepest": true,
+  "deepest": "2026-10-16",
+  "thinnestOffered": 6396
+ },
+ "expiry:IBIT.deep-third-candidate": {
+  "candidates": [
+   "2026-09-21",
+   "2026-09-23",
+   "2026-09-25",
+   "2026-10-16"
+  ],
+  "oi": [
+   11287,
+   5396,
+   258783,
+   465284
+  ],
+  "includesDeepest": true,
+  "deepest": "2026-10-16",
+  "thinnestOffered": 5396
+ },
+ "expiry:FXY.single-expiry": {
+  "candidates": [
+   "2026-12-18"
+  ],
+  "oi": [
+   27193
+  ],
+  "includesDeepest": true,
+  "deepest": "2026-12-18",
+  "thinnestOffered": 27193
+ },
+ "expiry:all-thin": {
+  "candidates": [
+   "2026-09-21",
+   "2026-09-25",
+   "2026-10-02",
+   "2026-10-16"
+  ],
+  "oi": [
+   300,
+   900,
+   1500,
+   2200
+  ],
+  "includesDeepest": true,
+  "deepest": "2026-10-16",
+  "thinnestOffered": 300
  }
 }

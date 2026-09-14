@@ -208,10 +208,22 @@ export function rankExpiries(expiries = [], catalystDate, horizon = "weeks",
   /* Absolute floor, not a share of the largest: a dominant monthly would
      otherwise disqualify weeklies that are perfectly tradeable. Per-leg OI
      is checked downstream, so this only needs to skip the truly dead. */
-  const viable = pool.filter(e => (expiryOI[e] || 0) >= 1000);
+  const viable = pool.filter(e => (expiryOI[e] || 0) >= 4000);
   const deepest = pool.reduce((a, b) => (expiryOI[b] || 0) > (expiryOI[a] || 0) ? b : a);
-  const ordered = [...viable];
-  if (!ordered.includes(deepest)) ordered.push(deepest);          // always keep the liquid fallback
+
+  /* Take the nearest few that clear the floor, THEN guarantee the deepest
+     expiry is among them. The old code appended the fallback and sliced to
+     four afterwards, which defeated it: GLD's deepest expiry carried 191,992
+     contracts, sat ninth by date, and was sliced away — so the gate tried
+     four consecutive dailies holding 10, 0, 1 and 5 contracts on the
+     thinnest leg, blocked every structure, and a grade-A name with 1,847
+     usable contracts came out shares-only.
+     The floor is on WHOLE-EXPIRY open interest, which is a weak signal: a
+     1,018-contract expiry spread over a hundred strikes has nothing at any
+     one of them. Per-leg OI is still the real gate downstream, so this only
+     has to skip the obviously dead. */
+  const head = (viable.length ? viable : pool).slice(0, 3);
+  const ordered = head.includes(deepest) ? [...head] : [...head, deepest];
   if (!ordered.length) ordered.push(pool[0]);
 
   RunLog.info("calc", "expiry.rank", {

@@ -194,3 +194,34 @@ export const CHAIN_CASES = [
         leg("call", k, k === 48 ? 31000 : 5000, 44.99, exp),
         leg("put",  k, k === 40 ? 53372 : 8000, 44.99, exp)])) },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Expiry ranking — the second untested function to bite.
+
+   rankExpiries built its candidate list in DATE order and sliced to four,
+   which defeated the "always keep the liquid fallback" line sitting right
+   above the slice. On 14 Sep that cost GLD its entire derivatives leg: the
+   deepest expiry held 191,992 contracts, sat ninth by date, and never got
+   tried, while four consecutive dailies holding 10, 0, 1 and 5 contracts on
+   the thinnest leg blocked every structure in turn.
+   ═══════════════════════════════════════════════════════════════════ */
+export const EXPIRY_CASES = [
+  { id: "GLD.dailies-ahead-of-the-monthly", catalyst: "2026-09-16", horizon: "weeks",
+    why: "four thin dailies precede the 191,992-contract monthly — the case that lost the leg",
+    oi: { "2026-09-21": 6396, "2026-09-22": 1686, "2026-09-23": 2118, "2026-09-24": 1018,
+          "2026-09-25": 35451, "2026-09-30": 64798, "2026-10-02": 17148, "2026-10-09": 17037,
+          "2026-10-16": 191992, "2026-10-23": 6540, "2026-10-30": 3116 } },
+
+  { id: "IBIT.deep-third-candidate", catalyst: "2026-09-16", horizon: "weeks",
+    why: "already worked before the fix — must not change",
+    oi: { "2026-09-21": 11287, "2026-09-23": 5396, "2026-09-25": 258783, "2026-10-02": 67999,
+          "2026-10-09": 33892, "2026-10-16": 465284, "2026-10-23": 9691, "2026-10-30": 7597 } },
+
+  { id: "FXY.single-expiry", catalyst: null, horizon: "weeks",
+    why: "one expiry in the window — must still be returned",
+    oi: { "2026-12-18": 27193 } },
+
+  { id: "all-thin", catalyst: "2026-09-16", horizon: "weeks",
+    why: "nothing clears the floor — must still offer the deepest rather than nothing",
+    oi: { "2026-09-21": 300, "2026-09-25": 900, "2026-10-02": 1500, "2026-10-16": 2200 } },
+];
