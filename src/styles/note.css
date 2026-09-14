@@ -90,6 +90,8 @@
 .rail table.etfr { font-size: 6.6pt; }
 .rail table.etfr th, .rail table.etfr td { padding-left: .5mm; }
 .rail td, .rail th { padding: .35mm 0; vertical-align: baseline; }
+/* Caveat under a rail panel — smaller than the table, same muted tone. */
+.rail .rnote { font-size: 5.9pt; line-height: 1.35; color: var(--n-muted); margin: .5mm 0 1.6mm; }
 .rail th { font-weight: 700; color: var(--n-muted); font-size: 6.4pt; text-align: right; }
 .rail th:first-child, .rail td:first-child { text-align: left; }
 .rail td { text-align: right; }

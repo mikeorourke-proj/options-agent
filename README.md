@@ -192,6 +192,26 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- WALLS ARE STRICTLY ON THEIR OWN SIDE OF SPOT: callWall > spot, putWall <
+  spot. The old windows (0.98x / 1.02x) overlapped by 4% of spot, so a
+  dominant strike near spot was eligible to be both -- GLD printed 400/400 at
+  a spot of 392.19 on 14 Sep. The strict test removes the collision at source
+  instead of stepping past it downstream; MIN_TARGET_TRAVEL in shares.js
+  still handles a wall that is technically beyond spot but too close to use.
+- LEVERED funds are now split. `selected` was computed in compose and never
+  read, so ticking GLL did nothing and Exhibit 2 went on calling it "Not
+  Recommended" while the analyst had chosen it. Carried funds get a
+  "Levered ETF Expression" rail panel between ETF Expression and Derivatives
+  Expression; Exhibit 2 lists only what was passed over and says so. A
+  levered leg has no chain, so its stop is the underlying's level and its
+  risk is that move at the stated multiple -- approximate by construction,
+  and the panel says that too.
+- The fixture harness now covers analyzeChain (16 cases, 3 of them chain).
+  The wall change above reported "nothing moved" against the original 13,
+  because those feed a finished `vol` object and never touch analyzeChain --
+  a real blind spot in a rule that feeds the plan, the stop and the target.
+  Reverting the filters now flags 2 cases with 13 field diffs.
+
 - SCORING FIXTURES EXIST: `npm test` (13 cases), `npm run test:record` to
   re-baseline. They are GOLDEN-MASTER, not assertions of correctness --
   several recorded values are known to be wrong. The harness exists so that

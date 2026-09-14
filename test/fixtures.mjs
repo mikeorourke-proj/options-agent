@@ -136,3 +136,61 @@ export const CASES = [
     execution: "scaled", stopMode: "wall", liq: "A", purity: 1.0,
     why: "the months horizon with low conviction — the widest distribution the tool produces" },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Chain fixtures — analyzeChain, which the scoring cases above bypass
+   entirely because they hand it a finished `vol` object.
+
+   That blind spot was real: the wall filters were changed from 0.98x/1.02x
+   windows to strict above/below spot, and the 13 scoring cases reported
+   "nothing moved" because none of them goes through analyzeChain. A wall is
+   the input to the plan, the stop and the target, so the selection rule
+   needs its own coverage.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Minimal contract the `usable` filter accepts: real greeks, IV in range,
+   delta off the wings. Strike and OI are what the wall logic reads. */
+const leg = (type, strike, oi, spot, exp = "2026-10-16") => ({
+  details: { contract_type: type, strike_price: strike, expiration_date: exp },
+  implied_volatility: 0.24,
+  open_interest: oi,
+  greeks: { delta: type === "call"
+    ? Math.max(0.03, Math.min(0.97, 0.5 - (strike - spot) / (spot * 0.25)))
+    : -Math.max(0.03, Math.min(0.97, 0.5 + (strike - spot) / (spot * 0.25))) },
+});
+
+/* analyzeChain needs 30+ usable contracts, so the grids below are dense
+   enough to clear that bar — a thin grid records nulls and tests nothing. */
+
+const gldStrikes = [360, 365, 370, 375, 380, 385, 390, 396, 400, 405, 410, 415, 420];
+const gldCallOI = { 360:400, 365:600, 370:900, 375:1200, 380:1900, 385:2100, 390:3300,
+                    396:4100, 400:21500, 405:9800, 410:6200, 415:2600, 420:1400 };
+const gldPutOI  = { 360:2200, 365:3100, 370:5200, 375:7400, 380:9600, 385:11000, 390:15200,
+                    396:9100, 400:24800, 405:3000, 410:1200, 415:700, 420:400 };
+
+export const CHAIN_CASES = [
+  /* GLD as it printed on 14 Sep: spot 392.19 with the 400 strike carrying the
+     largest open interest on BOTH sides. Under the old 0.98x/1.02x windows it
+     was eligible for each and the note printed 400/400. */
+  { id: "GLD.walls.collided", spot: 392.185,
+    why: "top OI on 400 for calls AND puts — printed 400/400 before the strict filters",
+    contracts: ["2026-10-09", "2026-12-18"].flatMap(exp =>
+      gldStrikes.flatMap(k => [leg("call", k, gldCallOI[k], 392.185, exp),
+                               leg("put",  k, gldPutOI[k],  392.185, exp)])) },
+
+  /* The dominant strike sits exactly ON spot. It can be neither wall. */
+  { id: "walls.top-strike-at-spot", spot: 60.0,
+    why: "biggest OI exactly at spot — must not become either wall",
+    contracts: ["2026-10-09", "2026-12-18"].flatMap(exp =>
+      [50, 52, 55, 57, 58, 60, 62, 63, 65, 68, 70].flatMap(k => [
+        leg("call", k, k === 60 ? 40000 : 6000, 60, exp),
+        leg("put",  k, k === 60 ? 44000 : 7000, 60, exp)])) },
+
+  /* Well-separated walls — the strict filters must leave this untouched. */
+  { id: "walls.clean", spot: 44.99,
+    why: "walls far apart on either side of spot",
+    contracts: ["2026-10-09", "2026-12-18"].flatMap(exp =>
+      [34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54].flatMap(k => [
+        leg("call", k, k === 48 ? 31000 : 5000, 44.99, exp),
+        leg("put",  k, k === 40 ? 53372 : 8000, 44.99, exp)])) },
+];

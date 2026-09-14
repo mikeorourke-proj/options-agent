@@ -479,5 +479,81 @@
    "exec": 1,
    "riskDef": 0.4
   }
+ },
+ "chain:GLD.walls.collided": {
+  "callWall": 400,
+  "putWall": 390,
+  "callWallAboveSpot": true,
+  "putWallBelowSpot": true,
+  "collided": false,
+  "callLadder": [
+   400,
+   405,
+   410,
+   396,
+   415,
+   420
+  ],
+  "putLadder": [
+   390,
+   385,
+   380,
+   375,
+   370,
+   365,
+   360
+  ],
+  "iv30": 24,
+  "contracts": 52,
+  "ok": true
+ },
+ "chain:walls.top-strike-at-spot": {
+  "callWall": 62,
+  "putWall": 50,
+  "callWallAboveSpot": true,
+  "putWallBelowSpot": true,
+  "collided": false,
+  "callLadder": [
+   62,
+   63,
+   65,
+   68,
+   70
+  ],
+  "putLadder": [
+   50,
+   52,
+   55,
+   57,
+   58
+  ],
+  "iv30": 24,
+  "contracts": 44,
+  "ok": true
+ },
+ "chain:walls.clean": {
+  "callWall": 48,
+  "putWall": 40,
+  "callWallAboveSpot": true,
+  "putWallBelowSpot": true,
+  "collided": false,
+  "callLadder": [
+   48,
+   46,
+   50,
+   52,
+   54
+  ],
+  "putLadder": [
+   40,
+   34,
+   36,
+   38,
+   42,
+   44
+  ],
+  "iv30": 24,
+  "contracts": 44,
+  "ok": true
  }
 }

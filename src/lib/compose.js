@@ -68,7 +68,26 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
         considered: [...(m.secondary || []).map(s => s.t)],
         whyNot: (m.secondary || []).map(s => `${s.t}: ${s.fitWhy || ""}`).join("; "),
       },
-      levered: (m.levered || []).map(l => ({ tk: l.t, lev: l.lev, gamma: l.gamma, selected: levSel.includes(l.t) })),
+      /* Split, because a carried levered fund and a rejected one are opposite
+         statements. `selected` was computed here and never read, so ticking
+         GLL did nothing at all and Exhibit 2 went on calling it "Not
+         Recommended" while the analyst had chosen it.
+         A levered position has no chain of its own, so its levels are derived
+         from the underlying: the same stop, expressed at |leverage| times the
+         move. That is approximate by construction — daily reset means the
+         realised multiple drifts from the stated one over a hold. */
+      levered: (m.levered || []).filter(l => !levSel.includes(l.t))
+        .map(l => ({ tk: l.t, lev: l.lev, gamma: l.gamma })),
+      leveredCarried: (m.levered || []).filter(l => levSel.includes(l.t))
+        .map(l => ({
+          tk: l.t, lev: l.lev, gamma: l.gamma, price: l.price ?? null,
+          underlying: m.primary?.t ?? null,
+          ulStop: m.primary?.plan?.stop ?? null,
+          riskPct: m.primary?.share?.riskPct != null
+            ? +(m.primary.share.riskPct * Math.abs(l.lev || 1)).toFixed(1)
+            : (m.primary?.shareScore?.riskPct != null
+                ? +(m.primary.shareScore.riskPct * Math.abs(l.lev || 1)).toFixed(1) : null),
+        })),
       vol: m.vol,
       contracts: m.vol?.contracts,
     };

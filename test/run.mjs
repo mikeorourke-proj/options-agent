@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CASES } from "./fixtures.mjs";
+import { CASES, CHAIN_CASES } from "./fixtures.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SNAP = join(HERE, "snapshot.json");
@@ -31,6 +31,7 @@ const speak = () => Object.assign(console, real);
 hush();
 const { scalePlan, targets, scoreShares, entryWall, exitWall } =
   await import("../src/lib/shares.js");
+const { analyzeChain } = await import("../src/lib/vol.js");
 speak();
 
 const r = (n, d = 3) => n == null || Number.isNaN(n) ? null : +Number(n).toFixed(d);
@@ -65,12 +66,31 @@ function score(c) {
   } finally { speak(); }
 }
 
-const now = Object.fromEntries(CASES.map(c => [c.id, score(c)]));
+function chain(c) {
+  hush();
+  try {
+    const v = analyzeChain(c.id.split(".")[0], c.contracts, c.spot, new Date("2026-09-14T12:00:00Z"));
+    return {
+      callWall: v.callWall, putWall: v.putWall,
+      callWallAboveSpot: v.callWall == null ? null : v.callWall > c.spot,
+      putWallBelowSpot: v.putWall == null ? null : v.putWall < c.spot,
+      collided: v.callWall != null && v.callWall === v.putWall,
+      callLadder: (v.callWalls || []).map(w => w.strike),
+      putLadder: (v.putWalls || []).map(w => w.strike),
+      iv30: v.iv30, contracts: v.contracts, ok: v.ok,
+    };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
+const now = {
+  ...Object.fromEntries(CASES.map(c => [c.id, score(c)])),
+  ...Object.fromEntries(CHAIN_CASES.map(c => ["chain:" + c.id, chain(c)])),
+};
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length} cases -> test/snapshot.json`);
-  const broken = Object.entries(now).filter(([, v]) => v.ERROR || v.score == null);
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length} cases -> test/snapshot.json`);
+  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && v.score == null) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
     for (const [id, v] of broken) console.log("  " + id.padEnd(32) + (v.ERROR ? "THREW: " + v.ERROR : "no expectancy"));
@@ -96,7 +116,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

@@ -150,6 +150,20 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               ))}
             </tbody></table>
 
+            {etfRows.some(t => t.leveredCarried?.length) && (<>
+              <div className="rh">Levered ETF Expression</div>
+              <table><thead><tr><th></th><th>Lev</th><th>On</th><th>Stop-loss</th><th>Risk</th></tr></thead><tbody>
+                {etfRows.flatMap(t => (t.leveredCarried || []).map(l => (
+                  <tr key={l.tk}><td><Arrow d={t.direction} /> {l.tk}</td>
+                    <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td>
+                    <td className="c">{l.underlying}</td>
+                    <td className="r">{f(l.ulStop)}</td>
+                    <td>{l.riskPct != null ? f(l.riskPct, 1) + "%" : "\u2014"}</td></tr>)))}
+              </tbody></table>
+              <div className="rnote">Stop is the underlying's level; risk is that move at the stated multiple.
+                Daily reset means the realised multiple drifts over a hold.</div>
+            </>)}
+
             <div className="rh">Derivatives Expression</div>
             <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "Net" : "Debit"}</th><th>Max gain</th></tr></thead><tbody>
               {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{t.etf.tk}</td>
@@ -219,7 +233,10 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma}</td>
               <td>days only — daily reset decay compounds over {meta.holdWindow}</td></tr>))}
           </tbody></table>
-          <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets. None is carried here.</div>
+          <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets.
+            {etfRows.some(t => t.leveredCarried?.length)
+              ? " The funds listed above are the ones passed over; anything carried appears under Levered ETF Expression on page 1."
+              : " None is carried here."}</div>
           </div>
         )}
 

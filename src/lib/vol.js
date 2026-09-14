@@ -122,8 +122,15 @@ export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date())
       return ent.sort((a, b) => b[1] - a[1])
                 .map(([strike, oi]) => ({ strike, oi, conc: total ? +(oi / total * 100).toFixed(1) : 0 }));
     };
-    out.callWalls = rank(callOI, k => k >= spot * 0.98);
-    out.putWalls  = rank(putOI,  k => k <= spot * 1.02);
+    /* A call wall is resistance ABOVE spot and a put wall is support BELOW
+       it. The old windows were 0.98x and 1.02x, which overlapped by 4% of
+       spot, so any dominant strike near spot was eligible to be both — GLD
+       printed 400/400 at a spot of 392.19 because 400 sat inside each. The
+       strict test removes the collision at its source rather than stepping
+       past it downstream. A wall that is technically beyond spot but too
+       close to be useful is still handled by MIN_TARGET_TRAVEL in shares.js. */
+    out.callWalls = rank(callOI, k => k > spot);
+    out.putWalls  = rank(putOI,  k => k < spot);
     const top = (arr) => arr.length ? [arr[0].strike, arr[0].oi, arr[0].conc] : [null, 0, 0];
     [out.callWall, out.callWallOI, out.callWallConc] = top(out.callWalls);
     [out.putWall,  out.putWallOI,  out.putWallConc]  = top(out.putWalls);
