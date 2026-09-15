@@ -192,6 +192,22 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- CHAIN TRUNCATION SILENTLY DROPPED THE HIGHEST STRIKES. The near slice
+  capped at 9 pages x 250, and on 15 Sep both SPY and QQQ came back with
+  exactly 2,250 contracts -- the cap, to the contract. Polygon returns
+  strikes ASCENDING, so what gets dropped is the top of the range: QQQ had
+  2,488 usable contracts and a NULL 25-delta risk reversal, because
+  ivAtDelta could not find a 25-delta call that was never fetched, and its
+  call wall of 720 was chosen from an incomplete set for the same reason.
+  Fixed two ways. The near slice now starts at day 2 instead of day 0 --
+  nothing consumes a sub-7-day expiry (walls read 7-45 dte, frontExp needs
+  20+, rankExpiries floors at max(target, 2)) -- and DENSE_CHAIN names get
+  16 pages instead of 9. Narrowing the strike window is NOT the lever: walls
+  need the full window, and these names truncate because of daily expiries,
+  not strike width. Costs up to 7 extra paginated calls per dense ticker.
+  The truncation warning now names the consequence rather than just the
+  page count.
+
 - The 25dRR footnote says what the number DRIVES, not just which way the
   sign points. It used to read "Positive 25dRR = calls bid" in every note,
   while the same figure switches structure selection in strategy.js at hard

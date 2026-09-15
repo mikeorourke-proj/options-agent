@@ -99,8 +99,23 @@ export default async (request) => {
         const strikeQ = win ? `&strike_price.gte=${win.lo}&strike_price.lte=${win.hi}` : "";
         if (win) L.info("chain.window", { ticker, spot, pct, ...win });
 
+        /* The near slice used to start at day 0 and cap at 9 pages, and SPY
+           and QQQ both hit exactly 2,250 contracts — 9 x 250 — on 15 Sep.
+           Polygon returns strikes ascending, so truncation silently drops the
+           HIGHEST strikes: QQQ came back with 2,488 usable contracts and a
+           null 25-delta risk reversal, because the OTM calls that define it
+           were never fetched. Its call wall was picked from an incomplete set
+           for the same reason.
+
+           Two changes. Nothing consumes an expiry under 7 days — walls read
+           7-45 dte and frontExp requires 20+ — and rankExpiries floors its
+           own search at max(target, 2), so starting at day 2 is free. And the
+           names that truncate are exactly the ones with daily expiries, so
+           they get more pages rather than a narrower strike window: walls
+           need the full window, which is why narrowing is not the lever. */
+        const dense = DENSE_CHAIN.has(ticker);
         const slices = [
-          { name: "near", lo: day(0),  hi: day(48),  pages: 9 },
+          { name: "near", lo: day(2),  hi: day(48),  pages: dense ? 16 : 9 },
           { name: "far",  lo: day(30), hi: day(100), pages: 5 },
         ];
 
@@ -122,7 +137,9 @@ export default async (request) => {
             p++;
             if (url) await new Promise(z => setTimeout(z, 90));
           }
-          if (url) { anyTruncated = true; L.warn("chain.slice.truncated", { ticker, slice: sl.name, pages: p }); }
+          if (url) { anyTruncated = true; L.warn("chain.slice.truncated", {
+            ticker, slice: sl.name, pages: p, contracts: all.length,
+            note: "strikes are returned ascending, so the highest were dropped — call-side skew and the call wall are unreliable" }); }
           L.info("chain.slice", { ticker, slice: sl.name, from: sl.lo, to: sl.hi, pages: p, total: all.length });
         }
 
