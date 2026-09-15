@@ -202,7 +202,25 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                 <td className={t.vol?.termSlope < 0.9 ? "am" : ""}>{f(t.vol?.termSlope)}</td>
                 <td>{t.vol?.putWall}/{t.vol?.callWall}</td></tr>)}
             </tbody></table>
-            <div className="note">Positive 25ΔRR = calls bid</div>
+            {/* This number is not decoration — strategy.js switches structure
+                on it at -3 and +1, so the footnote should say what it drives,
+                not just which way the sign points. The closing clause reads
+                the note's own legs so it describes this note rather than
+                stating a general rule. */}
+            {(() => {
+              const rrs = etfRows.map(t => t.vol?.rr25).filter(v => v != null);
+              const here = !rrs.length ? ""
+                : rrs.every(v => v <= -3) ? " Every leg here is bid for downside."
+                : rrs.every(v => v >= 1) ? " Every leg here is bid for upside."
+                : rrs.some(v => v <= -3) && rrs.some(v => v >= 1) ? " The legs here are split."
+                : "";
+              return (
+                <div className="note">25ΔRR is the 25-delta call's implied volatility less the
+                  25-delta put's, in volatility points; positive means calls are bid. Past −3 the
+                  downside strike is rich enough to be worth selling, which favours spreads; past
+                  +1 the downside is comparatively neglected, which favours outright puts.{here}</div>
+              );
+            })()}
 
             <div className="rh">Liquidity Screen</div>
             <table><tbody>

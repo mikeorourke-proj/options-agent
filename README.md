@@ -192,6 +192,16 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- The 25dRR footnote says what the number DRIVES, not just which way the
+  sign points. It used to read "Positive 25dRR = calls bid" in every note,
+  while the same figure switches structure selection in strategy.js at hard
+  thresholds: putSkew at <= -3 favours spreads and the put backspread,
+  callSkew at >= +1 favours outright puts. A client reading the panel had no
+  way to know the number was load-bearing.
+  The closing clause reads the note's own legs, so it describes THIS note
+  ("every leg here is bid for downside") rather than restating a general
+  rule, and stays silent when the legs sit between the thresholds.
+
 - A SHARES-ONLY NOTE PRINTS CLEANLY. Two defects surfaced on 15 Sep when a
   note carried two themes and no derivatives:
   The rail said "no tradable chain on the selected vehicles", which was
