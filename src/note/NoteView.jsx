@@ -184,7 +184,15 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                 <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {o.expiry.slice(5)}</td>
                 <td>${f(Math.abs(o.pricing.net) / 100)}{o.pricing.net < 0 ? " cr" : ""}</td>
                 <td className="g">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td></tr>)}
-              {optRows.length === 0 && <tr><td colSpan={4} className="note">no tradable chain on the selected vehicles</td></tr>}
+              {/* "No tradable chain" and "none carried" are different statements
+                  and only one of them is about the market. SMH priced a long
+                  put at 0.635 and a put spread at 0.55 on 15 Sep; neither was
+                  ticked, and the note would have told the client there was no
+                  chain. `alternatives` holds what was priced and passed over. */}
+              {optRows.length === 0 && <tr><td colSpan={4} className="note">
+                {etfRows.some(t => t.alternatives?.length)
+                  ? "no derivatives carried \u2014 priced alternatives are in Exhibit 6"
+                  : "no tradable chain on the selected vehicles"}</td></tr>}
             </tbody></table>
 
             <div className="rh">Volatility</div>
@@ -298,6 +306,10 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           </>}</div>
 
         </div>
+        {/* Exhibits 6 and 7 were already suppressed when nothing is carried;
+            5 was not, so a shares-only note printed one lone table of column
+            headers over an empty body. */}
+        {optRows.length > 0 && (
         <div className="exhblk"><div className="exh">Exhibit 5: Derivatives Expression</div>
         <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Structure</th><th>Expiry</th><th>Legs</th><th>Net</th><th>Max gain</th><th>Breakeven</th><th>POP</th></tr></thead><tbody>
           {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
@@ -305,10 +317,9 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <td className="c">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
             <td className="c">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td>
             <td className="c">{o.pricing.breakevens.join(" / ") || "—"}</td><td className="c">{f(o.econ.pop, 1)}%</td></tr>)}
-          {optRows.length === 0 && <tr><td colSpan={9}>No derivatives expression carried.</td></tr>}
         </tbody></table>
         <div className="src">Marks from {[...new Set(optRows.map(x => x.o.pricing.priceSource))].join(" / ") || "the chain"}. POP is the probability of finishing beyond breakeven under the stated view.</div>
-        </div>
+        </div>)}
 
         {optRows.length > 0 && <>
           <div className="exhblk"><div className="exh">Exhibit 6: Structure Notes</div>
@@ -321,7 +332,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           <div className="src">The first structure under each theme is the one carried; the second is the nearest alternative.</div>
 
           </div>
-        <div className="exhblk"><div className="exh">Exhibit 7: Option Leg Detail</div>
+          <div className="exhblk"><div className="exh">Exhibit 7: Option Leg Detail</div>
           <table className="x"><thead><tr><th></th><th>Action</th><th>Qty</th><th>Expiry</th><th>Strike</th><th>Type</th><th>Mark</th><th>Moneyness</th><th>Delta</th><th>OI</th></tr></thead><tbody>
             {optRows.flatMap(({ t, o }) => o.pricing.legDetail.map((L, i) => <tr key={t.id + o.id + i}>
               <td>{i === 0 ? `${t.etf.tk} ${o.name}` : ""}</td><td className="c">{L.action}</td><td className="c">{L.qty}</td>

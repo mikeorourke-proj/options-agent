@@ -192,6 +192,24 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- A SHARES-ONLY NOTE PRINTS CLEANLY. Two defects surfaced on 15 Sep when a
+  note carried two themes and no derivatives:
+  The rail said "no tradable chain on the selected vehicles", which was
+  FALSE — SMH priced a long put at 0.635 and a put spread at 0.55 and
+  neither was ticked. "Nothing priced" and "nothing carried" are different
+  statements and only the first is about the market. It now reads off
+  `alternatives` and says "no derivatives carried — priced alternatives are
+  in Exhibit 6" when structures existed.
+  Exhibit 5 was the only derivatives exhibit without an optRows guard, so it
+  printed a lone table of column headers over an empty body while 6 and 7
+  correctly vanished. Guarded, and its dead empty-row fallback removed.
+- analyzeChain can legitimately return NO walls. GRID on 15 Sep had 189
+  usable contracts and neither wall, and the v0.17.2 degradation path caught
+  it: plan.no.wall, flat 5% stop, sigma target off realised vol, scored
+  0.689 / EV 2.06, carried. Strict wall filters make this outcome more
+  common than the old overlapping windows did, and it is the right one — no
+  wall is better than a collided wall.
+
 - The page-1 overflow check no longer logs before the draft lands. An empty
   note always fits, so it was recording "page1.fits 214.2mm" on mount --
   which is the RAIL's height, not the prose column's -- and the real reading
