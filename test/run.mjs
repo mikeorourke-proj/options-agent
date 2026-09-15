@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX } from "./fixtures.mjs";
+import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES } from "./fixtures.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SNAP = join(HERE, "snapshot.json");
@@ -31,7 +31,7 @@ const speak = () => Object.assign(console, real);
 hush();
 const { scalePlan, targets, scoreShares, entryWall, exitWall } =
   await import("../src/lib/shares.js");
-const { analyzeChain, rankExpiries } = await import("../src/lib/vol.js");
+const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.js");
 const { checkVoice, checkImmediate, checkThemeOpening, checkExecutionGeneric } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
@@ -84,6 +84,22 @@ function chain(c) {
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
 
+function skew(c) {
+  hush();
+  try {
+    const iv = ivAtDelta(c.quotes, c.target);
+    const ivs = c.quotes.map(x => x.implied_volatility);
+    return {
+      iv: iv == null ? null : +(iv * 100).toFixed(2),
+      /* The invariant: a reading may never fall outside the quotes it was
+         built from. Extrapolation is exactly the failure that produced -37. */
+      withinQuotedRange: iv == null ? null
+        : iv >= Math.min(...ivs) - 1e-9 && iv <= Math.max(...ivs) + 1e-9,
+      quotedRange: ivs.length ? [+(Math.min(...ivs) * 100).toFixed(2), +(Math.max(...ivs) * 100).toFixed(2)] : null,
+    };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
 function expiry(c) {
   hush();
   try {
@@ -122,12 +138,13 @@ const now = {
   ...Object.fromEntries(CHAIN_CASES.map(c => ["chain:" + c.id, chain(c)])),
   ...Object.fromEntries(EXPIRY_CASES.map(c => ["expiry:" + c.id, expiry(c)])),
   ...Object.fromEntries(VOICE_CASES.map(c => ["voice:" + c.id, voice(c)])),
+  ...Object.fromEntries(SKEW_CASES.map(c => ["skew:" + c.id, skew(c)])),
 };
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length} cases -> test/snapshot.json`);
-  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("chain:") && !v.ok));
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length} cases -> test/snapshot.json`);
+  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
     for (const [id, v] of broken) console.log("  " + id.padEnd(32) + (v.ERROR ? "THREW: " + v.ERROR : "no expectancy"));
@@ -153,7 +170,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

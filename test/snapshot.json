@@ -731,5 +731,58 @@
    "immediate:ladder"
   ],
   "correct": true
+ },
+ "skew:brackets.target": {
+  "iv": 30,
+  "withinQuotedRange": true,
+  "quotedRange": [
+   28,
+   33
+  ]
+ },
+ "skew:sparse.both-above": {
+  "iv": 29,
+  "withinQuotedRange": true,
+  "quotedRange": [
+   27,
+   29.5
+  ]
+ },
+ "skew:sparse.both-below": {
+  "iv": 34,
+  "withinQuotedRange": true,
+  "quotedRange": [
+   34,
+   37
+  ]
+ },
+ "skew:exact.hit": {
+  "iv": 30,
+  "withinQuotedRange": true,
+  "quotedRange": [
+   28,
+   30
+  ]
+ },
+ "skew:nothing.close": {
+  "iv": null,
+  "withinQuotedRange": null,
+  "quotedRange": [
+   26,
+   28
+  ]
+ },
+ "skew:single.quote": {
+  "iv": 33,
+  "withinQuotedRange": true,
+  "quotedRange": [
+   33,
+   33
+  ]
+ },
+ "skew:empty": {
+  "iv": null,
+  "withinQuotedRange": null,
+  "quotedRange": null
  }
 }

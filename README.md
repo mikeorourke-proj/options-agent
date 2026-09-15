@@ -192,6 +192,25 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- ivAtDelta INTERPOLATES ONLY -- it never extrapolates. It used to sort by
+  closeness to the target delta and take the two nearest, which does not
+  require them to STRADDLE it. On a sparse chain both land on one side, the
+  denominator collapses and the weight leaves [0,1]: deltas of 0.30 and 0.31
+  against a 0.25 target give w = -5, a five-fold projection of the vol
+  difference. Both sides extrapolate independently and compound in
+  c25 - p25 -- CIBR printed rr25 -20.58 on 15 Sep and -37.02 an hour later
+  on 99 contracts, while SPY read -5.6 on 2,538 in the same run.
+  That figure is not cosmetic: strategy.js switches structure on it at -3,
+  and the Volatility footnote now explains to the client why it matters.
+  Now it brackets the target and interpolates between the two sides; where
+  only one side exists it returns that quote if within tolerance and never
+  projects past it. Fixtures assert the invariant directly -- a reading may
+  never fall outside the range of the quotes it was built from.
+  FOURTH defect found in an area the harness did not cover, after walls,
+  expiry ranking and the draft guards. 42 cases now.
+- Chain truncation is resolved: every name on 15 Sep 21:00 reported
+  truncated:false, SPY taking 11 pages inside the new 16-page dense cap.
+
 - CHAIN TRUNCATION SILENTLY DROPPED THE HIGHEST STRIKES. The near slice
   capped at 9 pages x 250, and on 15 Sep both SPY and QQQ came back with
   exactly 2,250 contracts -- the cap, to the contract. Polygon returns

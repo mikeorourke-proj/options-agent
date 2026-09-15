@@ -280,3 +280,37 @@ export const VOICE_CASES = [
   { id: "execution.names-legs", section: "execution", expect: "flag",
     body: "Each ladder runs from current levels to its wall, GLD to 400.00 and SLV to 60.00, with tranches price-triggered." },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Skew interpolation — the FOURTH area to produce a defect uncovered.
+   Walls, expiry ranking, the draft guards, now ivAtDelta.
+
+   It sorted by closeness to the target delta and took the two nearest,
+   which does not require them to straddle it. On a sparse chain both fall
+   on one side, the denominator collapses and the weight leaves [0,1]:
+   deltas of 0.30 and 0.31 against a 0.25 target give w = -5. Both sides
+   extrapolate independently and compound in c25 - p25 — CIBR printed
+   -20.58, then -37.02 an hour later, on 99 contracts, while SPY read -5.6
+   on 2,538 in the same run.
+
+   Each case is built as a front-expiry call list; the assertion is that the
+   result never lies outside the range of the quotes it was built from.
+   ═══════════════════════════════════════════════════════════════════ */
+const q = (delta, iv) => ({ greeks: { delta }, implied_volatility: iv,
+                            details: { contract_type: "call", strike_price: 0 } });
+
+export const SKEW_CASES = [
+  { id: "brackets.target", target: 0.25, why: "the normal case — must interpolate",
+    quotes: [q(0.18, 0.33), q(0.22, 0.31), q(0.28, 0.29), q(0.35, 0.28)] },
+  { id: "sparse.both-above", target: 0.25, why: "CIBR's shape — used to give w = -5",
+    quotes: [q(0.30, 0.29), q(0.31, 0.295), q(0.44, 0.27)] },
+  { id: "sparse.both-below", target: 0.25, why: "the mirror — used to give w = -6",
+    quotes: [q(0.19, 0.34), q(0.18, 0.345), q(0.11, 0.37)] },
+  { id: "exact.hit", target: 0.25, why: "a quote sits exactly on the target",
+    quotes: [q(0.25, 0.30), q(0.40, 0.28)] },
+  { id: "nothing.close", target: 0.25, why: "no quote within the 0.12 tolerance",
+    quotes: [q(0.55, 0.28), q(0.60, 0.27), q(0.72, 0.26)] },
+  { id: "single.quote", target: 0.25, why: "one usable quote — no interpolation possible",
+    quotes: [q(0.27, 0.33)] },
+  { id: "empty", target: 0.25, why: "no usable quotes at all", quotes: [] },
+];

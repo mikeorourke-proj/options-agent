@@ -31,18 +31,43 @@ function usable(contracts, now) {
   });
 }
 
-/* Interpolate IV at a target delta on one side of one expiry. */
-function ivAtDelta(list, targetAbsDelta) {
-  if (list.length < 2) return null;
-  const s = [...list].sort((a, b) =>
-    Math.abs(Math.abs(a.greeks.delta) - targetAbsDelta) -
-    Math.abs(Math.abs(b.greeks.delta) - targetAbsDelta));
-  const [a, b] = s;
-  const da = Math.abs(a.greeks.delta), db = Math.abs(b.greeks.delta);
-  if (Math.abs(da - targetAbsDelta) > 0.12) return null;   // nothing close enough
-  if (da === db) return a.implied_volatility;
-  const w = (targetAbsDelta - da) / (db - da);
-  return a.implied_volatility + w * (b.implied_volatility - a.implied_volatility);
+/* IV at a target delta on one side of one expiry. INTERPOLATE ONLY.
+
+   This used to sort by closeness to the target and take the two nearest,
+   which does not require them to straddle it. On a sparse chain both land on
+   the same side, the denominator collapses, and the weight runs far outside
+   [0,1]: deltas of 0.30 and 0.31 against a 0.25 target give w = -5, a
+   five-fold extrapolation of the vol difference. Both sides extrapolate
+   independently and the errors compound in c25 - p25, which is how CIBR
+   printed a 25-delta risk reversal of -20.58 on 15 Sep and -37.02 an hour
+   later on 99 contracts, while SPY read -5.6 on 2,538.
+
+   That number is not cosmetic: strategy.js switches structure on it at -3,
+   and the Volatility panel now explains to the client why it matters.
+
+   So: bracket the target and interpolate between the two sides. Where only
+   one side exists, return that point's IV if it is close enough, and never
+   project beyond it. */
+export function ivAtDelta(list, targetAbsDelta) {
+  const pts = list
+    .map(c => ({ d: Math.abs(c.greeks?.delta ?? NaN), iv: c.implied_volatility }))
+    .filter(p => p.d > 0 && p.iv > 0)
+    .sort((a, b) => a.d - b.d);
+  if (!pts.length) return null;
+
+  let lo = null, hi = null;
+  for (const p of pts) {
+    if (p.d <= targetAbsDelta) lo = p;                 // nearest at or below
+    if (p.d >= targetAbsDelta && hi === null) hi = p;  // nearest at or above
+  }
+
+  if (lo && hi && hi.d > lo.d) {
+    const w = (targetAbsDelta - lo.d) / (hi.d - lo.d);   // always within [0,1]
+    return lo.iv + w * (hi.iv - lo.iv);
+  }
+  const near = lo || hi;
+  if (!near || Math.abs(near.d - targetAbsDelta) > 0.12) return null;
+  return near.iv;
 }
 
 export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date()) {
