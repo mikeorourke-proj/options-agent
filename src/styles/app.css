@@ -313,3 +313,23 @@ button.ghost {
    as support. Red rule and a label, against the neutral grey of evidence. */
 .evidlab { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--red); font-weight: 700; margin-bottom: 3px; }
 .evid.contra { border-left-color: var(--red); }
+
+/* ── Idea history ─────────────────────────────────────────────────────
+   A diagnostic surface, not a product one: legible, dense, unstyled
+   beyond what makes a month of notes scannable. */
+.ledger { background: var(--panel, #fff); border: 1px solid var(--hair, #e2e2e2);
+          border-radius: 6px; padding: 10px 12px; margin: 0 0 10px; }
+.ledger-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.ledger-head .mut { font-size: 11px; }
+.ledger-row { border-top: 1px solid var(--hair, #ececec); }
+.ledger-toggle { display: flex; gap: 12px; align-items: baseline; width: 100%;
+                 background: none; border: 0; text-align: left; cursor: pointer;
+                 padding: 5px 2px; font: inherit; }
+.ledger-toggle:hover { background: var(--hover, #f7f7f7); }
+.ledger-toggle code { font-size: 11px; opacity: .75; }
+.ledger-toggle span:nth-child(2) { flex: 1; font-weight: 500; }
+.ledger-detail { padding: 4px 2px 10px; }
+.ledger-detail table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.ledger-detail th { text-align: left; font-weight: 500; opacity: .6; padding: 2px 4px; }
+.ledger-detail td { padding: 2px 4px; border-top: 1px solid var(--hair, #f0f0f0); }
+.ledger-detail td.r { text-align: right; font-variant-numeric: tabular-nums; }

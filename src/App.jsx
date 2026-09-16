@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import RunLog from "./lib/runlog.js";
+import LedgerPanel from "./steps/LedgerPanel.jsx";
 import { clearCache } from "./lib/api.js";
 import StepSource from "./steps/StepSource.jsx";
 import StepIdeas from "./steps/StepIdeas.jsx";
@@ -7,7 +8,7 @@ import StepNote from "./steps/StepNote.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.28.0";
+export const VERSION = "0.29.0";
 
 const STEPS = [
   { id: "source",    label: "Source" },
@@ -29,7 +30,7 @@ function Wordmark() {
   );
 }
 
-function LogBar() {
+function LogBar({ onLedger }) {
   const [tick, setTick] = useState(0);
   useEffect(() => { const i = setInterval(() => setTick(t => t + 1), 1200); return () => clearInterval(i); }, []);
   const es = RunLog.entries;
@@ -41,6 +42,7 @@ function LogBar() {
       <code>{es.length} events{errs ? ` · ${errs} err` : ""}{warns ? ` · ${warns} warn` : ""}</code>
       <button className="ghost" style={{ padding: "3px 9px" }} onClick={() => RunLog.download()}>Download log</button>
       <button className="ghost" style={{ padding: "3px 9px" }} onClick={async () => alert(await RunLog.copy())}>Copy</button>
+      <button className="ghost" style={{ padding: "3px 9px" }} onClick={onLedger}>Idea history</button>
     </div>
   );
 }
@@ -51,6 +53,10 @@ export default function App() {
   const [picks, setPicks] = useState({ sel: {}, primaryThemeId: null, split: [] });
   const [menuCache, setMenuCache] = useState(null);
   const [noteState, setNoteState] = useState({ prose: { summary: "", themes: {}, execution: "" } });
+  /* The idea history is reachable from two places: here beside the run log,
+     and from the Source step, because that is where a session begins and
+     where last month's notes are most likely to be wanted. */
+  const [ledgerOpen, setLedgerOpen] = useState(false);
 
   useEffect(() => { RunLog.start("session", { app: "tactical-note", v: VERSION }); }, []);
 
@@ -98,7 +104,8 @@ export default function App() {
           <StepNote parsed={parsed} picks={picks} menus={menuCache} noteState={noteState} setNoteState={setNoteState} />}
       </div>
 
-      <LogBar />
+      {ledgerOpen && <LedgerPanel onClose={() => setLedgerOpen(false)} />}
+      <LogBar onLedger={() => setLedgerOpen(v => !v)} />
     </div>
   );
 }

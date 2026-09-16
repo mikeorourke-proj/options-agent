@@ -192,6 +192,28 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- THE IDEA LEDGER EXISTS (0.29.0). netlify/functions/ledger.mjs on Blobs,
+  src/lib/ledger.js for the record shape, src/steps/LedgerPanel.jsx to read
+  it back. INTERNAL — nothing here is published in a note.
+  Written on PRINT, not on compose: a note is composed repeatedly while the
+  prose is edited, so recording each compose would fill the history with
+  drafts of one idea and make fill-rate and outcome statistics meaningless.
+  Re-printing the same note REPLACES its row rather than adding a second.
+  35 fields per leg, each present to settle a question that has come up in
+  design and could not be answered: rungs and weighted entry for whether
+  ladders FILL, stop and its provenance for whether price stalls at a wall,
+  pStopped for whether the barrier model is CALIBRATED, expectancy against
+  expectancyRaw and confidence for whether the chain shrink helps the
+  ordering, and iv30/rv30/walls so an old note can be RE-SCORED under new
+  code rather than only compared against itself.
+  Export is one row per LEG, not per note, because replay asks what happened
+  to a position.
+  Two entry points as requested: beside the run log, and on the Source step.
+  A ledger failure never blocks a print — it logs ledger.failed and returns.
+  NOT YET BUILT: the replay itself. Nothing fetches bars for a stored leg and
+  scores the outcome. That is the next piece, and it needs roughly a month of
+  prints behind it before the answers mean anything.
+
 - A LEG WITH NO WALL NOW SCALES (0.28.0). It used to be forced immediate,
   which had the logic backwards: a leg with resistance helping the entry got
   to ladder, while a leg with no structure at all was hurried in at market.

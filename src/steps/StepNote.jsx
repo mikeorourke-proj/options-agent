@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
+import { record as ledgerRecord } from "../lib/ledger.js";
+import { VERSION } from "../App.jsx";
 import { api } from "../lib/api.js";
 import { composeNote, draftContext, analystMeta } from "../lib/compose.js";
 import NoteView from "../note/NoteView.jsx";
@@ -117,6 +119,11 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     const prev = document.title;
     document.title = name;
     RunLog.info("ui", "note.print", { filename: name, themes: note.themes.length });
+    /* Recorded on PRINT, not on compose: a note is composed repeatedly while
+       the prose is edited, and recording each one would fill the history
+       with drafts of the same idea. Fire and forget — a ledger failure must
+       never block the print. */
+    ledgerRecord(note, { version: VERSION });
     window.print();
     setTimeout(() => { document.title = prev; }, 800);
   }

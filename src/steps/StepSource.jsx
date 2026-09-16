@@ -1,5 +1,6 @@
 import { useState } from "react";
 import RunLog from "../lib/runlog.js";
+import LedgerPanel from "./LedgerPanel.jsx";
 import { api } from "../lib/api.js";
 import { TAG_VOCAB, ANCHOR_VOCAB } from "../data/etf-universe.js";
 
@@ -28,6 +29,7 @@ Google is being supplanted as Broadcom's largest XPU customer by two companies t
 const PDF_MAX = 4 * 1024 * 1024;
 
 export default function StepSource({ parsed, setParsed, onNext }) {
+  const [showLedger, setShowLedger] = useState(false);
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -144,9 +146,17 @@ export default function StepSource({ parsed, setParsed, onNext }) {
 
   return (
     <>
+      {showLedger && <LedgerPanel onClose={() => setShowLedger(false)} />}
       <div className="card">
         <div className="row">
           <h2 style={{ margin: 0 }}>Source</h2>
+          {/* The history belongs here as well as beside the run log: a
+              session starts on this screen, and last month's notes are most
+              often wanted before a new one is written, not after. */}
+          <button className="ghost" style={{ padding: "3px 9px" }}
+                  onClick={() => setShowLedger(v => !v)}>
+            {showLedger ? "Hide history" : "Idea history"}
+          </button>
           <span className="spacer" />
           {/* Fading a story is a different operation from agreeing with it, and
               it is not a switch that can be thrown after the fact — see the
