@@ -79,6 +79,10 @@ async function buildMenu(theme, catalystDate, horizon) {
   // chain analytics on the primary only — one heavy call per theme
   let vol = null, structures = [], liq = "X", optionsBlocked = [];
   let plan = null, tgt = null, shareScore = null;
+  /* Retained for the correlation view. These bars are fetched anyway for the
+     realised-vol read and were being thrown away; closes only, so the theme
+     object does not carry 120 OHLCV rows per leg. */
+  let closes = [];
   try {
     const [chain, bars] = await Promise.all([
       api.chain(primary.t, primary.price),
@@ -86,6 +90,7 @@ async function buildMenu(theme, catalystDate, horizon) {
     ]);
     liq = grade(chain?.quality);
     RunLog.gate(`liquidity:${primary.t}`, liq !== "X", { grade: liq, ...chain?.quality });
+    closes = (bars?.bars || []).map(b => b?.c).filter(c => typeof c === "number" && c > 0);
     const rv = realisedVol(bars?.bars || [], 30);
     if (liq !== "X") {
       vol = analyzeChain(primary.t, chain.contracts, primary.price);
@@ -168,7 +173,7 @@ async function buildMenu(theme, catalystDate, horizon) {
   ].sort((a, b) => b.score - a.score);
   if (allExpr.length) RunLog.info("ui", `ranked.${theme.id}`, { order: allExpr.map(e => `${e.label}:${e.score}`) });
 
-  return { ...theme, primary: { ...primary, liq, plan, tgt, shareScore },
+  return { ...theme, primary: { ...primary, liq, plan, tgt, shareScore, closes },
            secondary, levered, vol, structures, optionsBlocked, allExpr };
 }
 

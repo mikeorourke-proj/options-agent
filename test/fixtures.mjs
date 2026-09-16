@@ -419,3 +419,58 @@ export const ECON_CASES = [
     structure: "long_put", expiry: dayFrom(56), catalystDate: dayFrom(49),
     why: "catalyst 49 days out on a 28-day hold — carry must charge the days HELD, not the days to the event" },
 ].map(c => ({ ...c, contracts: chainFor(c.spot, c.expiry, c.iv) }));
+
+/* ═══════════════════════════════════════════════════════════════════
+   Correlation — sizing and the outlier, never the ranking.
+
+   Two faults in the first build of this, both caught by running it rather
+   than reading it. The concentration figure was largest + rho x (the rest),
+   which can never exceed the sum, so a WARNING about concentration printed
+   as an apparent reduction — 27.9% "rather than" 33%. And a two-leg note
+   flagged both legs as outliers, since each is the other's only pair, then
+   printed the same sentence twice.
+   ═══════════════════════════════════════════════════════════════════ */
+function corrSeries(loading, vol, p0, seed) {
+  let s = seed;
+  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+  const g = () => { const u = rnd() || 1e-9, v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  let f = 11;
+  const fr = () => { f = (f * 1103515245 + 12345) & 0x7fffffff; return f / 0x7fffffff; };
+  const fg = () => { const u = fr() || 1e-9, v = fr(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+  const out = [{ c: p0 }];
+  let p = p0;
+  for (let i = 0; i < 90; i++) {
+    p *= Math.exp((loading * fg() + Math.sqrt(Math.max(0, 1 - loading * loading)) * g()) * vol);
+    out.push({ c: p });
+  }
+  return out;
+}
+
+export const CORR_CASES = [
+  { id: "one-thesis-four-expressions",
+    why: "the 9 Sep shape — must warn on sizing, must not reorder",
+    legs: [{ ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) },
+           { ticker: "QQQ", riskPct: 3.6,  bars: corrSeries(0.95, 0.012, 700, 5) },
+           { ticker: "SPY", riskPct: 4.5,  bars: corrSeries(0.93, 0.009, 760, 9) },
+           { ticker: "CIBR", riskPct: 11.8, bars: corrSeries(0.70, 0.014, 80, 13) }] },
+
+  { id: "cluster-plus-outlier",
+    why: "a leg that does not respond to the catalyst — must be named",
+    legs: [{ ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) },
+           { ticker: "QQQ", riskPct: 3.6,  bars: corrSeries(0.95, 0.012, 700, 5) },
+           { ticker: "TLT", riskPct: 3.4,  bars: corrSeries(-0.10, 0.006, 88, 21) }] },
+
+  { id: "two-unrelated-legs",
+    why: "no outlier possible with two legs — must say nothing at all",
+    legs: [{ ticker: "GLD", riskPct: 7.4, bars: corrSeries(0.05, 0.008, 400, 31) },
+           { ticker: "TLT", riskPct: 3.4, bars: corrSeries(-0.10, 0.006, 88, 21) }] },
+
+  { id: "single-leg",
+    why: "nothing to correlate",
+    legs: [{ ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
+
+  { id: "too-few-bars",
+    why: "a fund listed five weeks ago — must decline rather than invent a number",
+    legs: [{ ticker: "NCLD", riskPct: 5, bars: corrSeries(0.9, 0.05, 25, 7).slice(0, 12) },
+           { ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
+];

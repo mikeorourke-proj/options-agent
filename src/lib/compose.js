@@ -8,6 +8,7 @@
 import RunLog from "./runlog.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT } from "./ordering.js";
 import { leveredFor } from "../data/etf-universe.js";
+import { analyzeCorrelation, correlationNote } from "./correlation.js";
 
 /* Round numbers stay round in the prose. toFixed(2) turned a 600 strike into
    "$600.00", which reads as false precision on a level that is exactly round.
@@ -119,6 +120,17 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
   };
 
   const note = {
+    /* Correlation across the CARRIED legs. Not part of any ordering — see
+       correlation.js for why ranking is deliberately left alone. It informs
+       sizing and flags the leg that is not in the trade. */
+    correlation: (() => {
+      const c = analyzeCorrelation(orderedThemes
+        .filter(t => t.etf?.tk)
+        .map(t => ({ ticker: t.etf.tk,
+                     bars: menus.find(m => m.id === t.id)?.primary?.closes,
+                     riskPct: t.etf.share?.riskPct })));
+      return c && { ...c, sentence: correlationNote(c) };
+    })(),
     meta, themes: orderedThemes, etfOrder, optOrder,
     contra: Boolean(parsed.contra),
     risks: parsed.risks || [],

@@ -192,6 +192,32 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- CORRELATION (0.25.0) — src/lib/correlation.js. Sizing warning plus the
+  low-correlation outlier flag; THE RANKING IS UNTOUCHED, deliberately.
+  Correlation between the legs of an event note is evidence the thesis is
+  doing work, not redundancy: legs that did not move together would mean the
+  catalyst does not drive them. Demoting a leg for being correlated would
+  bury the second-best expression of the very view the note is making.
+  Each leg's MEAN correlation to the others separates a cluster from an
+  outlier; a single pairwise number cannot. Aggregate risk is the standard
+  portfolio form sqrt(r'Rr), reported as independent vs correlated.
+  Uses the 120 days of bars already fetched for the realised-vol read and
+  previously discarded — closes only, retained on the theme.
+  Rail panel sits above Liquidity Screen and is SILENT when there is nothing
+  to warn about.
+  Two faults in my first build, both found by running it rather than reading
+  it: the concentration figure was largest + rho x (the rest), which can
+  never exceed the sum, so a concentration WARNING printed as an apparent
+  reduction (27.9% "rather than" 33%); and a two-leg note flagged both legs
+  as outliers, since each is the other's only pair, printing the same
+  sentence twice. Outlier detection now needs 3+ legs.
+  Fixtures assert the invariant directly — a concentration warning must
+  report MORE risk than the independent case. Reverting to the old formula
+  flips warnsUpward false. 55 cases.
+  Trailing correlation UNDERSTATES what matters: these are assets chosen
+  because they respond to one catalyst, and realised correlation rises in
+  stress. Treat the number as a floor.
+
 - THE SHARES LEG IS SCORED BY THE STOPPED QUADRATURE (0.24.0). The
   two-point model is gone. Every landing point is counted at its
   mark-to-market, weighted by likelihood — the same integral the option

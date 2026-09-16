@@ -222,6 +222,14 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               );
             })()}
 
+            {/* Sizing, not ranking. Four legs on one thesis is one position
+                at several times the intended risk, and nothing else on the
+                page says so. Silent when there is nothing to warn about. */}
+            {note.correlation?.sentence && (<>
+              <div className="rh">Correlation</div>
+              <div className="rnote">{note.correlation.sentence}</div>
+            </>)}
+
             <div className="rh">Liquidity Screen</div>
             <table><tbody>
               {etfRows.map(t => <tr key={t.id}><td>{t.etf.tk}</td>

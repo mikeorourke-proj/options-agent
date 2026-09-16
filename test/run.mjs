@@ -35,7 +35,7 @@ const NOW = new Date(FROZEN);
    read the real clock for its expiry offsets while pricing.js read the
    frozen one — and the gap between them grows by a day every day. That is
    exactly what happened: prTdays moved 9.2 -> 10.2 overnight. */
-const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES } =
+const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES, CORR_CASES } =
   await import("./fixtures.mjs");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +53,7 @@ const { scalePlan, targets, scoreShares, entryWall, exitWall } =
   await import("../src/lib/shares.js");
 const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.js");
 const { buildLegs, priceStructure, scoreEconomics } = await import("../src/lib/pricing.js");
+const { analyzeCorrelation, correlationNote } = await import("../src/lib/correlation.js");
 const { checkVoice, checkImmediate, checkThemeOpening, checkExecutionGeneric } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
@@ -100,6 +101,23 @@ function chain(c) {
       callLadder: (v.callWalls || []).map(w => w.strike),
       putLadder: (v.putWalls || []).map(w => w.strike),
       iv30: v.iv30, contracts: v.contracts, ok: v.ok,
+    };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
+function corr(c) {
+  hush();
+  try {
+    const a = analyzeCorrelation(c.legs);
+    if (!a) return { view: null, sentence: null };
+    return {
+      basket: a.basket, meanTo: a.meanTo, cluster: a.cluster, outliers: a.outliers,
+      sumRiskPct: a.sumRiskPct, independentRiskPct: a.independentRiskPct,
+      correlatedRiskPct: a.correlatedRiskPct, amplification: a.amplification,
+      /* The invariant the first build broke: a concentration warning must
+         report MORE risk than the independent case, never less. */
+      warnsUpward: a.correlatedRiskPct >= a.independentRiskPct,
+      sentence: correlationNote(a),
     };
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
@@ -192,12 +210,13 @@ const now = {
   ...Object.fromEntries(VOICE_CASES.map(c => ["voice:" + c.id, voice(c)])),
   ...Object.fromEntries(SKEW_CASES.map(c => ["skew:" + c.id, skew(c)])),
   ...Object.fromEntries(ECON_CASES.map(c => ["econ:" + c.id, econ(c)])),
+  ...Object.fromEntries(CORR_CASES.map(c => ["corr:" + c.id, corr(c)])),
 };
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length} cases -> test/snapshot.json`);
-  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("chain:") && !v.ok));
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length} cases -> test/snapshot.json`);
+  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && !k.startsWith("corr:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("corr:") && v.warnsUpward === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
     for (const [id, v] of broken) console.log("  " + id.padEnd(32) + (v.ERROR ? "THREW: " + v.ERROR : "no expectancy"));
@@ -223,7 +242,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

@@ -919,5 +919,68 @@
    "exec": 0.955,
    "riskDef": 1
   }
+ },
+ "corr:one-thesis-four-expressions": {
+  "basket": 0.78,
+  "meanTo": {
+   "SMH": 0.802,
+   "QQQ": 0.822,
+   "SPY": 0.825,
+   "CIBR": 0.673
+  },
+  "cluster": [
+   "SMH",
+   "QQQ",
+   "SPY",
+   "CIBR"
+  ],
+  "outliers": [],
+  "sumRiskPct": 33,
+  "independentRiskPct": 18.5,
+  "correlatedRiskPct": 30.4,
+  "amplification": 1.64,
+  "warnsUpward": true,
+  "sentence": "SMH, QQQ, SPY, CIBR have moved together (mean correlation 0.78 over 60 sessions). Sized as separate ideas they would carry 18.5% of aggregate risk; at that correlation they carry 30.4%, 1.64x more, because they stop together."
+ },
+ "corr:cluster-plus-outlier": {
+  "basket": 0.184,
+  "meanTo": {
+   "SMH": 0.342,
+   "QQQ": 0.367,
+   "TLT": -0.158
+  },
+  "cluster": [],
+  "outliers": [
+   "TLT"
+  ],
+  "sumRiskPct": 20.1,
+  "independentRiskPct": 14,
+  "correlatedRiskPct": 15.3,
+  "amplification": 1.09,
+  "warnsUpward": true,
+  "sentence": "TLT has not moved with the rest (TLT at -0.16), so it either diversifies the view or does not express it."
+ },
+ "corr:two-unrelated-legs": {
+  "basket": 0.139,
+  "meanTo": {
+   "GLD": 0.139,
+   "TLT": 0.139
+  },
+  "cluster": [],
+  "outliers": [],
+  "sumRiskPct": 10.8,
+  "independentRiskPct": 8.1,
+  "correlatedRiskPct": 8.6,
+  "amplification": 1.05,
+  "warnsUpward": true,
+  "sentence": null
+ },
+ "corr:single-leg": {
+  "view": null,
+  "sentence": null
+ },
+ "corr:too-few-bars": {
+  "view": null,
+  "sentence": null
  }
 }
