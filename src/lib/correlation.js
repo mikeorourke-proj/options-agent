@@ -172,3 +172,49 @@ export function correlationNote(c) {
   }
   return parts.length ? parts.join(" ") : null;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   Measured purity.
+
+   The pur values in etf-universe.js are hand-set judgements — GDX 0.60,
+   WGMI 0.45, DTCR 0.35. That was fine while purity only broke ties at
+   vehicle selection. Now it MULTIPLIES the drift on every expectancy, which
+   promotes those numbers from tie-breakers to coefficients, and they should
+   be measured where they can be.
+
+   Where a pure vehicle exists for the same anchor, the proxy's sensitivity
+   to it is a regression slope: beta = cov(proxy, pure) / var(pure). That is
+   the fraction of the proxy that the view actually moves.
+
+   Two honest limits. Beta and purity are not the same quantity — a 2x-beta
+   pure play has beta 2 and purity 1 — so the measure is capped at 1 and
+   used only to say how much of the move is SHARED, never to lever it up.
+   And trailing beta is backward-looking; on an event note the forward
+   number is usually higher, so the measure errs conservative.
+   ═══════════════════════════════════════════════════════════════════ */
+export function measuredPurity(proxyBars, pureBars, { window = 60, stated } = {}) {
+  const a = returnsOf(proxyBars, window), b = returnsOf(pureBars, window);
+  const n = Math.min(a.length, b.length);
+  if (n < 20) return { purity: stated, from: "stated", reason: "fewer than 20 overlapping sessions" };
+
+  const x = b.slice(b.length - n), y = a.slice(a.length - n);   // x = pure, y = proxy
+  const mx = x.reduce((s, v) => s + v, 0) / n, my = y.reduce((s, v) => s + v, 0) / n;
+  let cov = 0, varx = 0, vary = 0;
+  for (let i = 0; i < n; i++) {
+    const u = x[i] - mx, w = y[i] - my;
+    cov += u * w; varx += u * u; vary += w * w;
+  }
+  if (varx <= 0 || vary <= 0) return { purity: stated, from: "stated", reason: "no variance" };
+
+  const beta = cov / varx;
+  const r = cov / Math.sqrt(varx * vary);
+  /* r^2 is the share of the proxy's variance explained by the pure vehicle —
+     which is the question being asked, and unlike beta it cannot exceed 1
+     or go negative on a high-beta name. */
+  const measured = Math.max(0, Math.min(1, r * r));
+  return {
+    purity: +measured.toFixed(2), from: "measured",
+    beta: +beta.toFixed(2), r: +r.toFixed(2), sessions: n, stated,
+  };
+}

@@ -192,6 +192,30 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- PURITY SCALES THE DRIFT (0.26.0). mu = purity x DRIFT[conviction] x sd.
+  Exhibit 1 already printed "GDX: indirect proxy (0.60) — carries its own
+  beta" and the ranking then scored GDX as though a bearish gold view moved
+  every dollar of it: stated in prose, absent from the score. Only the DRIFT
+  is scaled -- the width is already right, because the vehicle's own implied
+  vol carries the non-thesis beta as variance, so an impure proxy correctly
+  gets the same noise and less signal.
+  Effect on the fixture: GDX at 0.60 goes EV 5.28 -> 3.08, evOnRisk
+  0.592 -> 0.345, score 0.711 -> 0.640, and pStopped RISES 22.3 -> 28.7
+  because a weaker drift leaves more of the distribution behind the stop.
+- PURITY IS MEASURED where a pure vehicle exists for the same anchor
+  (correlation.js measuredPurity). The hand-set pur values were fine as
+  tie-breakers at vehicle selection; as a multiplier on every expectancy
+  they deserve evidence. Measured as r^2 against the pure vehicle -- the
+  share of the proxy's variance the view explains -- NOT beta, which exceeds
+  1 on a high-beta name and would lever the drift up. Falls back to the
+  stated value under 20 overlapping sessions.
+  On synthetic data it corrects in both directions: GDX 0.60 -> 0.67
+  (validates), GDXJ 0.45 -> 0.61 (too harsh), WGMI 0.45 -> 0.12 (far too
+  generous — mostly bitcoin beta, not gold).
+  Costs one extra bars call, and only for an impure primary.
+  Trailing beta is backward-looking and the forward number on an event note
+  is usually higher, so the measure errs conservative.
+
 - CORRELATION IS SIGNED BY DIRECTION (0.25.1) — it correlates the POSITIONS,
   not the underlyings. On 16 Sep a note carried a bearish SMH leg and a
   bullish QQQ leg; the two assets correlate at 0.90, so the first build

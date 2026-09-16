@@ -21,6 +21,7 @@ export const STOP_WALL = 0.01;   // preferred stop: 1% beyond the wall
 export const STOP_FLAT = 0.05;   // alternative: flat 5% from the entry
 const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
 const pdf = z => Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+const clamp01 = x => Math.max(0, Math.min(1, Number.isFinite(x) ? x : 1));
 
 /* Five equal-distance executions from the last sale into the wall being
    faded, weighted toward the wall — the call wall on a bearish leg, the
@@ -230,9 +231,20 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
      since a debit does not care where you scale. The plan keeps its own
      entry-based riskPct for the note, whose caption promises execution
      economics; the RANKING risk below is spot to stop. */
+  /* PURITY SCALES THE DRIFT. The view moves the part of the vehicle that
+     expresses it; the rest is that vehicle's own beta, which you have no
+     view on. Exhibit 1 already prints "GDX: indirect proxy (0.60) — carries
+     its own beta", and the ranking then scored GDX as though a bearish gold
+     view moved every dollar of it. Stated in prose, absent from the score.
+
+     Only the drift is scaled. The WIDTH is already right, because the
+     vehicle's own implied vol contains the non-thesis beta as variance —
+     so an impure proxy correctly gets the same noise and less signal, which
+     is exactly what being an indirect proxy means. */
   const bear = direction === "bearish";
+  const purity = clamp01(v.purity ?? 1);
   const sd   = (vol / 100) * Math.sqrt(horizonDays / 365);
-  const mu   = (bear ? -1 : 1) * (DRIFT[conviction] ?? 0.6) * sd;
+  const mu   = (bear ? -1 : 1) * purity * (DRIFT[conviction] ?? 0.6) * sd;
   const spot = plan.spot ?? plan.rungs?.[0]?.px ?? plan.entry;
   const med  = spot * Math.exp(mu - sd * sd / 2);
   const stop = plan.stop;
@@ -292,10 +304,12 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
     riskPct: +riskPct.toFixed(2),                              // spot to stop — ranking risk
     riskSigma: +(riskPct / (sd * 100)).toFixed(2),
     sdPct: +(sd * 100).toFixed(1), impliedMove: +(mu / sd).toFixed(2),
+    purity: +purity.toFixed(2), purityFrom: v.purityFrom ?? "stated",
     rankedFrom: "spot",
     riskDef,
   };
   RunLog.fact(`shares.${v.ticker}`, { score: out.score, ev: out.expectancy,
-    pStopped: out.pStopped, riskPct: out.riskPct }, { src: "shares/quadrature" });
+    pStopped: out.pStopped, riskPct: out.riskPct,
+    purity: out.purity, purityFrom: out.purityFrom }, { src: "shares/quadrature" });
   return out;
 }

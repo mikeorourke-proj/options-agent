@@ -102,9 +102,9 @@ export const CASES = [
     execution: "scaled", stopMode: "wall", liq: "A", purity: 1.0,
     why: "the silver case mirrored — bullish, both walls on one strike, spot already below the put wall" },
 
-  { id: "GDX.bearish.impure-proxy", note: "synthetic",
+  { id: "GDX.bearish.impure-proxy", note: "synthetic", purity: 0.60,
     spot: 61.20, direction: "bearish", conviction: "medium", horizonDays: 28,
-    vol: { ticker: "GDX", iv30: 38.0, rv30: 36.5, rr25: -3.40, termSlope: 1.05,
+    vol: { ticker: "GDX", purity: 0.60, iv30: 38.0, rv30: 36.5, rr25: -3.40, termSlope: 1.05,
            callWall: 66, putWall: 57,
            callWalls: [{ strike: 66, oi: 22000 }, { strike: 70, oi: 8000 }],
            putWalls:  [{ strike: 57, oi: 29000 }, { strike: 54, oi: 11000 }] },

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import { api, mapLimit } from "../lib/api.js";
-import { searchUniverse, leveredFor, appropriateness } from "../data/etf-universe.js";
+import { searchUniverse, leveredFor, appropriateness, ETF_UNIVERSE } from "../data/etf-universe.js";
+import { measuredPurity } from "../lib/correlation.js";
 import { analyzeChain, realisedVol, realisedVolAvailable } from "../lib/vol.js";
 import { suggestStructures } from "../lib/strategy.js";
 import { evaluate } from "../lib/pricing.js";
@@ -76,6 +77,18 @@ async function buildMenu(theme, catalystDate, horizon) {
     } catch { return null; }
   })).filter(e => e && e.price > 0).sort((a, b) => b.fit - a.fit).slice(0, 2);
 
+  /* PURITY, measured where it can be. It now multiplies the drift on every
+     expectancy, so the hand-set pur values are coefficients rather than
+     tie-breakers and deserve evidence. Where the anchor has a pure vehicle
+     (pur >= 0.99) that is not the primary itself, its bars give a regression
+     against which the proxy's shared variance can be measured. One extra
+     bars call, and only for an impure primary. */
+  let purity = primary.pur ?? 1, purityFrom = "stated", purityDetail = null;
+  const pureRef = (primary.pur ?? 1) < 0.99
+    ? ETF_UNIVERSE.find(e => (e.pur ?? 0) >= 0.99 && e.t !== primary.t &&
+        (e.a || []).some(a => (primary.a || []).includes(a)))
+    : null;
+
   // chain analytics on the primary only — one heavy call per theme
   let vol = null, structures = [], liq = "X", optionsBlocked = [];
   let plan = null, tgt = null, shareScore = null;
@@ -91,10 +104,24 @@ async function buildMenu(theme, catalystDate, horizon) {
     liq = grade(chain?.quality);
     RunLog.gate(`liquidity:${primary.t}`, liq !== "X", { grade: liq, ...chain?.quality });
     closes = (bars?.bars || []).map(b => b?.c).filter(c => typeof c === "number" && c > 0);
+    if (pureRef) {
+      try {
+        const pb = await api.bars(pureRef.t, new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10));
+        const mp = measuredPurity(bars?.bars || [], pb?.bars || [], { stated: primary.pur ?? 1 });
+        purity = mp.purity ?? purity; purityFrom = mp.from; purityDetail = { ...mp, against: pureRef.t };
+        RunLog.info("calc", `purity.${primary.t}`, { against: pureRef.t, stated: primary.pur,
+          measured: mp.from === "measured" ? mp.purity : null, beta: mp.beta, r: mp.r,
+          sessions: mp.sessions, used: purity, from: purityFrom, reason: mp.reason });
+      } catch { /* leave the stated value; a missing reference is not a failure */ }
+    }
     const rv = realisedVol(bars?.bars || [], 30);
     if (liq !== "X") {
       vol = analyzeChain(primary.t, chain.contracts, primary.price);
       vol.rv30 = rv;
+      /* Purity rides on vol because that is what scoreShares reads. It
+         scales the DRIFT only — the width already carries the proxy's own
+         beta as variance. */
+      vol.purity = purity; vol.purityFrom = purityFrom;
       /* Candidates from the matrix, then priced against the real chain and
          ranked on view-conditional economics. Risk-neutral EV is zero for
          every structure, so the distribution is shifted by the move the
@@ -145,7 +172,8 @@ async function buildMenu(theme, catalystDate, horizon) {
       const rvA = realisedVolAvailable(bars?.bars || []);
       vol = { ticker: primary.t, iv30: null, rv30: rvA?.rv ?? rv,
               rvWindow: rvA?.window ?? (rv != null ? 30 : null),
-              putWall: null, callWall: null };
+              putWall: null, callWall: null,
+              purity, purityFrom };
       plan = scalePlan(primary.price, vol, theme.direction, { execution: "immediate", mode: "flat" });
       tgt  = targets(primary.price, vol, theme.direction, hzDays);
       shareScore = plan && tgt
@@ -173,7 +201,8 @@ async function buildMenu(theme, catalystDate, horizon) {
   ].sort((a, b) => b.score - a.score);
   if (allExpr.length) RunLog.info("ui", `ranked.${theme.id}`, { order: allExpr.map(e => `${e.label}:${e.score}`) });
 
-  return { ...theme, primary: { ...primary, liq, plan, tgt, shareScore, closes },
+  return { ...theme, primary: { ...primary, liq, plan, tgt, shareScore, closes,
+                                purity, purityFrom, purityDetail },
            secondary, levered, vol, structures, optionsBlocked, allExpr };
 }
 
