@@ -314,3 +314,95 @@ export const SKEW_CASES = [
     quotes: [q(0.27, 0.33)] },
   { id: "empty", target: 0.25, why: "no usable quotes at all", quotes: [] },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Option structure economics — scoreEconomics, which nothing has ever
+   tested because it needs a priced chain rather than a summary object.
+
+   It is also where the CLOCKS problem lives. scoreEconomics integrates to
+   `pr.T`, the option's own expiry, while scoreShares integrates to
+   horizonDays, and the note promises a 4-to-6 week hold. On the 9 Sep note
+   the IBIT put spread was valued to its 18 September expiry — nine days —
+   while the IBIT shares leg was valued over twenty-eight, and both went
+   into the same composite.
+
+   These fixtures record the CURRENT behaviour so the clocks change can be
+   read as a diff rather than taken on trust. Several recorded numbers are
+   expected to move.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* buildLegs needs a real ladder: 4+ contracts at the expiry, strikes spread
+   either side of spot, and it selects by DELTA rather than by strike. So the
+   fixture generates a chain the way a chain actually looks, with a
+   Black-Scholes delta and price at each strike. */
+function chainFor(spot, expiry, iv) {
+  const T = Math.max((new Date(expiry) - Date.now()) / 31536e6, 1 / 365);
+  const N = x => { const t = 1 / (1 + 0.2316419 * Math.abs(x)); const d = 0.3989423 * Math.exp(-x * x / 2);
+    const p = d * t * (1.330274 * t ** 4 - 1.821256 * t ** 3 + 1.781478 * t * t - 0.3565638 * t + 0.3193815);
+    return x > 0 ? 1 - p : p; };
+  const out = [];
+  for (let m = -0.30; m <= 0.301; m += 0.05) {
+    const K = +(spot * (1 + m)).toFixed(2);
+    const d1 = (Math.log(spot / K) + (0.045 + iv * iv / 2) * T) / (iv * Math.sqrt(T));
+    const d2 = d1 - iv * Math.sqrt(T), df = Math.exp(-0.045 * T);
+    const call = spot * N(d1) - K * df * N(d2);
+    const put  = K * df * N(-d2) - spot * N(-d1);
+    const oi = Math.round(40000 * Math.exp(-((m / 0.12) ** 2)) + 500);
+    for (const [type, px, delta] of [["call", call, N(d1)], ["put", put, N(d1) - 1]]) {
+      const v = Math.max(px, 0.01);
+      out.push({
+        details: { contract_type: type, strike_price: K, expiration_date: expiry, ticker: `O:${type}${K}${expiry}` },
+        implied_volatility: iv, open_interest: oi,
+        greeks: { delta, gamma: 0.04, theta: -0.012, vega: 0.06 },
+        last_quote: { bid: +(v * 0.97).toFixed(2), ask: +(v * 1.03).toFixed(2) },
+        day: { close: +v.toFixed(2) },
+      });
+    }
+  }
+  return out;
+}
+
+/* Expiries are RELATIVE to today, not fixed dates.
+
+   priceStructure computes time to expiry against Date.now(), so a fixed
+   calendar date makes every recorded value drift by one day per day and the
+   whole suite fails tomorrow for a reason that has nothing to do with the
+   code. Offsets keep T constant and the snapshot reproducible. */
+export const dayFrom = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+/* Date.now() is frozen by the harness before this module is imported, so
+   these resolve to the same calendar dates on every run. */
+
+const IBIT_NEAR = dayFrom(9);    //  expires mid-hold
+const IBIT_FAR  = dayFrom(37);   //  outlives a 28-day hold
+
+export const ECON_CASES = [
+  { id: "IBIT.put-spread.near-expiry", spot: 44.99, direction: "bearish",
+    conviction: "medium", horizonDays: 28, rv: 39.4, iv: 0.421,
+    vol: { ticker: "IBIT", iv30: 42.1, rv30: 39.4, callWall: 48, putWall: 40 },
+    structure: "put_spread", expiry: IBIT_NEAR,
+    why: "expires at day 9 of a 28-day hold — valued to its own expiry today" },
+
+  { id: "IBIT.put-spread.far-expiry", spot: 44.99, direction: "bearish",
+    conviction: "medium", horizonDays: 28, rv: 39.4, iv: 0.421,
+    vol: { ticker: "IBIT", iv30: 42.1, rv30: 39.4, callWall: 48, putWall: 40 },
+    structure: "put_spread", expiry: IBIT_FAR,
+    why: "outlives the hold — today it is valued nine days past the hold's end" },
+
+  { id: "IBIT.long-put.far-expiry", spot: 44.99, direction: "bearish",
+    conviction: "medium", horizonDays: 28, rv: 39.4, iv: 0.421,
+    vol: { ticker: "IBIT", iv30: 42.1, rv30: 39.4, callWall: 48, putWall: 40 },
+    structure: "long_put", expiry: IBIT_FAR,
+    why: "uncapped payoff — the convexity component's reference case" },
+
+  { id: "GLD.long-put.low-vol", spot: 404.47, direction: "bearish",
+    conviction: "medium", horizonDays: 28, rv: 26.8, iv: 0.275,
+    vol: { ticker: "GLD", iv30: 27.5, rv30: 26.8, callWall: 430, putWall: 400 },
+    structure: "long_put", expiry: dayFrom(37),
+    why: "a quarter of IBIT's volatility — the horizon matters more here" },
+
+  { id: "TLT.long-call.bullish", spot: 88.40, direction: "bullish",
+    conviction: "medium", horizonDays: 28, rv: 14.1, iv: 0.152,
+    vol: { ticker: "TLT", iv30: 15.2, rv30: 14.1, callWall: 95, putWall: 85 },
+    structure: "long_call", expiry: dayFrom(37),
+    why: "the bullish side, which no published note has exercised" },
+].map(c => ({ ...c, contracts: chainFor(c.spot, c.expiry, c.iv) }));

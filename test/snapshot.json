@@ -784,5 +784,125 @@
   "iv": null,
   "withinQuotedRange": null,
   "quotedRange": null
+ },
+ "econ:IBIT.put-spread.near-expiry": {
+  "prTdays": 9.2,
+  "horizonDays": 28,
+  "clocksAgree": false,
+  "net": 105.5,
+  "risk": 105.5,
+  "maxGain": 344.5,
+  "breakevens": [
+   43.94
+  ],
+  "legs": 2,
+  "ev": 97,
+  "evOnRisk": 0.917,
+  "pop": 60.6,
+  "score": 0.727,
+  "parts": {
+   "evOnRisk": 0.667,
+   "pop": 0.625,
+   "convexity": 0.396,
+   "carry": 1,
+   "exec": 0.943,
+   "riskDef": 1
+  }
+ },
+ "econ:IBIT.put-spread.far-expiry": {
+  "prTdays": 37.2,
+  "horizonDays": 28,
+  "clocksAgree": false,
+  "net": 163,
+  "risk": 163,
+  "maxGain": 287,
+  "breakevens": [
+   43.36
+  ],
+  "legs": 2,
+  "ev": 111,
+  "evOnRisk": 0.68,
+  "pop": 65.2,
+  "score": 0.656,
+  "parts": {
+   "evOnRisk": 0.531,
+   "pop": 0.695,
+   "convexity": 0.14,
+   "carry": 1,
+   "exec": 0.847,
+   "riskDef": 1
+  }
+ },
+ "econ:IBIT.long-put.far-expiry": {
+  "prTdays": 37.2,
+  "horizonDays": 28,
+  "clocksAgree": false,
+  "net": 227,
+  "risk": 227,
+  "maxGain": "uncapped",
+  "breakevens": [
+   42.72
+  ],
+  "legs": 1,
+  "ev": 219,
+  "evOnRisk": 0.966,
+  "pop": 60.6,
+  "score": 0.725,
+  "parts": {
+   "evOnRisk": 0.695,
+   "pop": 0.625,
+   "convexity": 0.488,
+   "carry": 0.822,
+   "exec": 0.953,
+   "riskDef": 1
+  }
+ },
+ "econ:GLD.long-put.low-vol": {
+  "prTdays": 37.2,
+  "horizonDays": 28,
+  "clocksAgree": false,
+  "net": 1304,
+  "risk": 1304,
+  "maxGain": "uncapped",
+  "breakevens": [
+   391.43
+  ],
+  "legs": 1,
+  "ev": 1354,
+  "evOnRisk": 1.038,
+  "pop": 60.6,
+  "score": 0.766,
+  "parts": {
+   "evOnRisk": 0.736,
+   "pop": 0.625,
+   "convexity": 0.513,
+   "carry": 1,
+   "exec": 0.957,
+   "riskDef": 1
+  }
+ },
+ "econ:TLT.long-call.bullish": {
+  "prTdays": 37.2,
+  "horizonDays": 28,
+  "clocksAgree": false,
+  "net": 188.5,
+  "risk": 188.5,
+  "maxGain": "uncapped",
+  "breakevens": [
+   90.29
+  ],
+  "legs": 1,
+  "ev": 146,
+  "evOnRisk": 0.774,
+  "pop": 56,
+  "score": 0.658,
+  "parts": {
+   "evOnRisk": 0.585,
+   "pop": 0.553,
+   "convexity": 0.409,
+   "carry": 0.767,
+   "exec": 0.96,
+   "riskDef": 1
+  }
  }
 }

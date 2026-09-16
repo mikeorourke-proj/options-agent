@@ -192,6 +192,22 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- scoreEconomics NOW HAS FIXTURE COVERAGE (47 cases: 13 scoring, 5 econ, 3
+  chain, 4 expiry, 15 voice, 7 skew). It had none, because it needs a priced
+  chain rather than a summary object — so test/fixtures.mjs generates one,
+  with Black-Scholes deltas and prices across a strike ladder, which is what
+  buildLegs actually selects on.
+  Expiries are RELATIVE (dayFrom(9), dayFrom(37)), not fixed dates.
+  priceStructure measures time to expiry against Date.now(), so a calendar
+  date would drift the whole snapshot by a day per day and fail the suite
+  tomorrow for a reason unrelated to the code.
+  The baseline records the CLOCKS problem rather than fixing it: an option
+  is valued over its own life (9d or 37d) while the shares leg is valued
+  over horizonDays (28), and clocksAgree is false on every case. The same
+  put spread scores 0.724 on the near expiry and 0.656 on the far one —
+  a difference driven by the valuation horizon, not by merit. Fixing the
+  clocks should be read as a diff against these numbers.
+
 - ivAtDelta INTERPOLATES ONLY -- it never extrapolates. It used to sort by
   closeness to the target delta and take the two nearest, which does not
   require them to STRADDLE it. On a sparse chain both land on one side, the

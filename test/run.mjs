@@ -16,7 +16,19 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES } from "./fixtures.mjs";
+const NOW = new Date(Date.parse("2026-09-15T16:00:00Z"));
+import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES } from "./fixtures.mjs";
+
+/* FREEZE THE CLOCK before anything is imported.
+
+   priceStructure measures time to expiry against Date.now(), so an option
+   fixture recorded at 09:00 and replayed at 17:00 prices a slightly shorter
+   contract and every derived number drifts. Relative expiry dates do not fix
+   that — they move the drift from days to hours. Pinning the clock makes the
+   whole suite reproducible, and no production code has to know about it. */
+const FROZEN = Date.parse("2026-09-15T16:00:00Z");
+const realNow = Date.now;
+Date.now = () => FROZEN;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SNAP = join(HERE, "snapshot.json");
@@ -32,6 +44,7 @@ hush();
 const { scalePlan, targets, scoreShares, entryWall, exitWall } =
   await import("../src/lib/shares.js");
 const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.js");
+const { buildLegs, priceStructure, scoreEconomics } = await import("../src/lib/pricing.js");
 const { checkVoice, checkImmediate, checkThemeOpening, checkExecutionGeneric } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
@@ -71,7 +84,7 @@ function score(c) {
 function chain(c) {
   hush();
   try {
-    const v = analyzeChain(c.id.split(".")[0], c.contracts, c.spot, new Date("2026-09-14T12:00:00Z"));
+    const v = analyzeChain(c.id.split(".")[0], c.contracts, c.spot, NOW);
     return {
       callWall: v.callWall, putWall: v.putWall,
       callWallAboveSpot: v.callWall == null ? null : v.callWall > c.spot,
@@ -80,6 +93,30 @@ function chain(c) {
       callLadder: (v.callWalls || []).map(w => w.strike),
       putLadder: (v.putWalls || []).map(w => w.strike),
       iv30: v.iv30, contracts: v.contracts, ok: v.ok,
+    };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
+function econ(c) {
+  hush();
+  try {
+    const legs = buildLegs(c.structure, c.contracts, c.expiry, c.spot, c.vol);
+    if (!legs) return { ERROR: "buildLegs returned null" };
+    const pr = priceStructure(legs, c.spot, c.expiry);
+    if (!pr) return { ERROR: "priceStructure returned null" };
+    const e = scoreEconomics(pr, legs, c.spot, c.vol, {
+      direction: c.direction, conviction: c.conviction, rv: c.rv, horizonDays: c.horizonDays });
+    return {
+      /* prT is the clock the option is valued on; horizonDays is the clock
+         the shares leg uses. They differ, and both feed one composite. */
+      prTdays: +(pr.T * 365).toFixed(1), horizonDays: c.horizonDays,
+      clocksAgree: Math.abs(pr.T * 365 - c.horizonDays) < 1,
+      net: +pr.net.toFixed(2), risk: +pr.risk.toFixed(2),
+      maxGain: pr.uncapped ? "uncapped" : +pr.maxGain.toFixed(2),
+      breakevens: pr.breakevens, legs: legs.length,
+      ev: +e.ev.toFixed(3), evOnRisk: +e.evOnRisk.toFixed(4), pop: +e.pop.toFixed(1),
+      score: +e.score.toFixed(3),
+      parts: e.parts ? Object.fromEntries(Object.entries(e.parts).map(([k, x]) => [k, r(x)])) : null,
     };
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
@@ -104,7 +141,7 @@ function expiry(c) {
   hush();
   try {
     const out = rankExpiries(Object.keys(c.oi), c.catalyst, c.horizon, 5,
-                             new Date("2026-09-14T12:00:00Z"), c.oi);
+                             NOW, c.oi);
     const deepest = Object.entries(c.oi).reduce((a, b) => b[1] > a[1] ? b : a)[0];
     return {
       candidates: out, oi: out.map(e => c.oi[e] ?? 0),
@@ -139,12 +176,13 @@ const now = {
   ...Object.fromEntries(EXPIRY_CASES.map(c => ["expiry:" + c.id, expiry(c)])),
   ...Object.fromEntries(VOICE_CASES.map(c => ["voice:" + c.id, voice(c)])),
   ...Object.fromEntries(SKEW_CASES.map(c => ["skew:" + c.id, skew(c)])),
+  ...Object.fromEntries(ECON_CASES.map(c => ["econ:" + c.id, econ(c)])),
 };
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length} cases -> test/snapshot.json`);
-  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("chain:") && !v.ok));
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length} cases -> test/snapshot.json`);
+  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
     for (const [id, v] of broken) console.log("  " + id.padEnd(32) + (v.ERROR ? "THREW: " + v.ERROR : "no expectancy"));
@@ -170,7 +208,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);
