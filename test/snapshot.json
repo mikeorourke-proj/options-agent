@@ -428,6 +428,45 @@
    "riskDef": 0.4
   }
  },
+ "IAU.bearish.secondary-vehicle": {
+  "entryWall": null,
+  "entryWallFrom": "none",
+  "exitWall": null,
+  "exitWallFrom": "sigma",
+  "execution": "scaled",
+  "noWall": true,
+  "bandPct": 3.44,
+  "entryImprovementPct": 2.15,
+  "planEntry": 62.5143,
+  "stop": 65.64,
+  "rungs": 5,
+  "target": 56.9942,
+  "targetFrom": "sigma",
+  "volFrom": "realised",
+  "range": [
+   56.99,
+   65.41
+  ],
+  "score": 0.699,
+  "expectancy": 3.73,
+  "evOnRisk": 0.515,
+  "pop": 70,
+  "pStopped": 14.5,
+  "purity": 1,
+  "confidence": 1,
+  "expectancyRaw": 3.73,
+  "riskPct": 7.25,
+  "riskSigma": 1.06,
+  "rankedFrom": "spot",
+  "parts": {
+   "evOnRisk": 0.437,
+   "pop": 0.77,
+   "convexity": 1,
+   "carry": 1,
+   "exec": 1,
+   "riskDef": 0.3
+  }
+ },
  "GDX.bearish.impure-proxy": {
   "entryWall": 66,
   "entryWallFrom": "wall",

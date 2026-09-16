@@ -50,7 +50,15 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
     const etfSel = chosen.find(c => c.themeId === id && (c.kind === "primary" || c.kind === "secondary"));
     // House rule: the ETF line is always present — the asset class is the idea.
     const etfTk = etfSel?.ticker || m.primary?.t;
-    const etf = m.primary?.t === etfTk ? m.primary : (m.secondary || []).find(s => s.t === etfTk) || m.primary;
+    /* A ticked secondary now carries its own plan, target and score, so it
+       is a real leg rather than a ticker with a price. If it somehow has no
+       score — bars unavailable — fall back to the primary rather than emit a
+       hollow leg that the drafter would still write a paragraph about. */
+    const picked = m.primary?.t === etfTk ? m.primary : (m.secondary || []).find(s => s.t === etfTk);
+    const etf = picked?.shareScore ? picked : (picked && !picked.shareScore ? m.primary : m.primary);
+    if (picked && !picked.shareScore && picked.t !== m.primary?.t)
+      RunLog.warn("calc", "etf.secondary.unscored", { theme: id, picked: picked.t,
+        usedInstead: m.primary?.t, why: "no realised-vol read for the secondary — it would print as a leg with no levels" });
     const optSel = chosen.filter(c => c.themeId === id && c.kind === "option");
     const options = optSel.map(o => (m.structures || []).find(st => st.id === o.ticker)).filter(Boolean);
     const alternatives = (m.structures || []).filter(st => !options.some(o => o.id === st.id));
@@ -90,8 +98,12 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
           riskPct: m.primary?.plan?.riskPct != null
             ? +(m.primary.plan.riskPct * Math.abs(l.lev || 1)).toFixed(1) : null,
         })),
-      vol: m.vol,
-      contracts: m.vol?.contracts,
+      /* The volatility panel must describe the vehicle actually carried.
+         A ticked secondary is scored off its own realised vol and has no
+         chain, so printing the primary's walls under its ticker would be
+         plainly wrong. */
+      vol: (etf && etf.t !== m.primary?.t && etf.vol) ? etf.vol : m.vol,
+      contracts: (etf && etf.t !== m.primary?.t) ? 0 : m.vol?.contracts,
     };
   });
 

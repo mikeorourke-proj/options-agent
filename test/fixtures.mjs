@@ -120,6 +120,17 @@ export const CASES = [
     execution: "scaled", stopMode: "wall", liq: "A", purity: 1.0,
     why: "the silver case mirrored — bullish, both walls on one strike, spot already below the put wall" },
 
+  /* A ticked SECONDARY, scored the way StepIdeas now scores one: its own
+     realised vol, no chain, volatility-banded ladder, flat stop. Before
+     this it had no plan at all, failed compose's t.etf?.share filter and
+     vanished from the note while the drafter still wrote its paragraph. */
+  { id: "IAU.bearish.secondary-vehicle", note: "2026-09-16",
+    spot: 61.20, direction: "bearish", conviction: "medium", horizonDays: 24,
+    vol: { ticker: "IAU", iv30: null, rv30: 26.8, rvWindow: 30,
+           callWall: null, putWall: null, purity: 1, confidence: 1 },
+    execution: "scaled", stopMode: "flat", liq: "B",
+    why: "secondary vehicles must produce a real leg, not a ticker with a price" },
+
   { id: "GDX.bearish.impure-proxy", note: "synthetic", purity: 0.60,
     spot: 61.20, direction: "bearish", conviction: "medium", horizonDays: 28,
     vol: { ticker: "GDX", purity: 0.60, iv30: 38.0, rv30: 36.5, rr25: -3.40, termSlope: 1.05,

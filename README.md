@@ -192,6 +192,25 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- A TICKED SECONDARY IS NOW A REAL LEG (0.30.0). Chain analytics run on the
+  primary only, so a secondary carried nothing but a ticker, a price and a
+  fit score. Ticking one produced a leg with no plan, no target and no
+  expectancy, which failed compose's `t.etf?.share` filter and vanished from
+  the rail WHILE the drafter went on writing a paragraph about it from
+  draftContext — the note described a position whose levels were not on the
+  page. Swapping GLD for IAU lost the leg the same way.
+  Each secondary now gets the shares-only treatment: its own bars, its own
+  realised vol, a volatility-banded ladder and a flat stop, the same path a
+  grade-X name takes. One bars call each, no chain call, marked noChain.
+  compose also takes the VOLATILITY PANEL from the carried vehicle — printing
+  the primary's walls under a secondary's ticker would be plainly wrong — and
+  falls back to the primary with a logged warning if a secondary cannot be
+  scored at all, rather than emitting a hollow leg.
+  A chain call per secondary would give wall-anchored levels, but there are
+  up to three per theme and they are alternatives, not selections. If one is
+  ticked regularly, that argues for promoting it in the universe rather than
+  for four chain calls a theme.
+
 - THE IDEA LEDGER EXISTS (0.29.0). netlify/functions/ledger.mjs on Blobs,
   src/lib/ledger.js for the record shape, src/steps/LedgerPanel.jsx to read
   it back. INTERNAL — nothing here is published in a note.

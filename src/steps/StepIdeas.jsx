@@ -208,6 +208,48 @@ const hzDays = { days: 10, weeks: 24, months: 90 }[horizon] || 24;
     }
   } catch (e) { RunLog.error("ui", `chain ${primary.t}`, e); }
 
+  /* SECONDARY VEHICLES GET A PLAN TOO.
+
+     Chain analytics run on the primary only — one heavy call per theme — so
+     a secondary carried nothing but a ticker, a price and a fit score.
+     Ticking one produced a leg with no plan, no target and no expectancy,
+     which then failed compose's `t.etf?.share` filter and vanished from the
+     rail entirely, WHILE the drafter went on writing a paragraph about it
+     from draftContext. The note described a position whose levels were not
+     on the page. Swapping GLD for IAU lost the leg the same way.
+
+     Each secondary now gets the shares-only treatment: its own bars, its own
+     realised vol, a volatility-banded ladder and a flat stop — the same path
+     a grade-X name takes. One bars call each, no chain call, and the leg is
+     marked noChain so the note says the levels are not wall-derived.
+
+     A chain call per secondary would give wall-anchored levels, but there
+     are up to three of them per theme and they are alternatives, not
+     selections. If you tick one regularly, that is the argument for
+     promoting it in the universe rather than for four chain calls a theme. */
+  const secondaryScored = await mapLimit(secondary, 2, async e => {
+    try {
+      const sb = await api.bars(e.t, new Date(Date.now() - 120 * 864e5).toISOString().slice(0, 10));
+      const srv = realisedVolAvailable(sb?.bars || []);
+      if (srv?.rv == null) return e;
+      const sv = { ticker: e.t, iv30: null, rv30: srv.rv, rvWindow: srv.window,
+                   putWall: null, callWall: null,
+                   purity: e.pur ?? 1, purityFrom: "stated",
+                   confidence: 1, confidenceFrom: "none" };
+      const sp = scalePlan(e.price, sv, theme.direction,
+                           { execution: theme.execution || "scaled", mode: "flat", horizonDays: hzDays });
+      const st = targets(e.price, sv, theme.direction, hzDays);
+      const ss = sp && st ? scoreShares(sp, st, sv, { direction: theme.direction,
+                    conviction: theme.conviction || "medium", liq: e.liq, horizonDays: hzDays }) : null;
+      return { ...e, plan: sp, tgt: st, shareScore: ss, vol: sv, noChain: true,
+               closes: (sb?.bars || []).map(b => b?.c).filter(c => typeof c === "number" && c > 0) };
+    } catch { return e; }
+  });
+  const scoredCount = secondaryScored.filter(x => x.shareScore).length;
+  RunLog.info("ui", `secondary.${theme.id}`, {
+    considered: secondary.map(s => s.t), scored: scoredCount,
+    unscored: secondaryScored.filter(x => !x.shareScore).map(x => x.t) });
+
   t.end({ primary: primary.t, secondary: secondary.map(s => s.t), levered: levered.map(l => l.t), structures: structures.length });
   /* One ranked list across every expression of the theme. */
   const allExpr = [
@@ -220,7 +262,7 @@ const hzDays = { days: 10, weeks: 24, months: 90 }[horizon] || 24;
 
   return { ...theme, primary: { ...primary, liq, plan, tgt, shareScore, closes,
                                 purity, purityFrom, purityDetail },
-           secondary, levered, vol, structures, optionsBlocked, allExpr };
+           secondary: secondaryScored, levered, vol, structures, optionsBlocked, allExpr };
 }
 
 export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCache, setMenuCache, onNext }) {
