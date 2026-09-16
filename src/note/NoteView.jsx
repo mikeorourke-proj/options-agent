@@ -65,6 +65,23 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
      analyst is told before printing rather than after. */
   const colsRef = useRef(null);
   const [overflow, setOverflow] = useState(null);
+  /* The release valve when page 1 will not fit. The execution paragraph is
+     pure CONVENTION — the same ladder mechanics, the same stop rule, in
+     every note — while every theme paragraph is specific to an idea the
+     client is being asked to act on. So it is the one block that can go
+     without losing anything the reader could not reconstruct, and the
+     appendix on page 3 still carries the mechanics.
+
+     Dropped automatically, never restored automatically: re-adding it the
+     moment the page fits would put the layout into a loop, dropping and
+     restoring on every keystroke. It comes back when the analyst asks, or
+     when a new draft arrives. */
+  const [execDropped, setExecDropped] = useState(false);
+  const proseKey = `${prose?.summary?.length || 0}:${Object.keys(prose?.themes || {}).length}:${prose?.execution?.length || 0}`;
+  const lastProse = useRef(proseKey);
+  useEffect(() => {
+    if (lastProse.current !== proseKey) { lastProse.current = proseKey; setExecDropped(false); }
+  }, [proseKey]);
   /* The banner is on screen; the log is where this project is actually
      diagnosed. Without an entry, a session that overflowed and one that fit
      look identical afterwards — which is the same blindness that made the
@@ -91,6 +108,19 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
          arrives nineteen seconds later at 275.6mm. Say nothing until there
          is prose on the page. */
       const hasProse = Boolean(prose?.summary);
+
+      /* Drop the execution paragraph before complaining. Only once, and only
+         when it is actually present — otherwise the page is genuinely too
+         full and the banner is the right answer. */
+      if (over != null && hasProse && !execDropped && prose?.execution) {
+        RunLog.info("ui", "page1.execution.dropped", {
+          usedMm: +used.toFixed(1), limitMm: limit, overMm: over,
+          words: String(prose.execution).trim().split(/\s+/).length,
+          why: "execution strategy is convention, repeated in every note, and the appendix carries the mechanics" });
+        setExecDropped(true);
+        return;                       // re-measures on the next paint
+      }
+
       const fits = over == null;
       if (hasProse && lastFit.current !== fits) {
         lastFit.current = fits;
@@ -109,16 +139,28 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
     const ro = new ResizeObserver(check);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [prose, etfRows.length, optRows.length]);
+    /* execDropped must be here: the drop removes a paragraph, so the page
+       has to be MEASURED AGAIN. Without it the effect never re-runs and the
+       banner keeps the pre-drop figure, reporting an overflow that has
+       already been solved. */
+  }, [prose, etfRows.length, optRows.length, execDropped]);
 
   return (
     <div className="noteprint">
       {/* ═══ PAGE 1 ═══ */}
       {/* Screen only — a warning about the page must never be on the page. */}
+      {overflow == null && execDropped && (
+        <div className="fitnote screen-only">
+          Execution strategy omitted so page 1 fits. It is convention rather than
+          idea-specific, and the appendix still carries the mechanics.
+          <button className="ghost" onClick={() => setExecDropped(false)}>Put it back</button>
+        </div>
+      )}
       {overflow != null && (
         <div className="overflowwarn">
           <b>Page 1 is over by about {Math.max(1, Math.ceil(overflow / LINE_MM))} line
-          {Math.ceil(overflow / LINE_MM) > 1 ? "s" : ""} ({overflow}mm).</b> The two columns have
+          {Math.ceil(overflow / LINE_MM) > 1 ? "s" : ""} ({overflow}mm)</b>
+          {execDropped ? ", even with the execution strategy omitted" : ""}. The two columns have
           grown past the analyst block, which is pinned to the bottom of the sheet and will be
           printed over. Cut roughly {Math.max(8, Math.ceil(overflow / LINE_MM) * 9)} words, or drop
           a theme, before saving the PDF.
@@ -147,8 +189,10 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                     onChange={onProse && (v => onProse(t.id, v))}
                     accepted={accepted[t.id]} onAccept={onAccept} />
             ))}
-            <Para lead="Execution strategy." k="execution" text={prose.execution} onChange={onProse && (v => onProse("execution", v))}
-                  accepted={accepted.execution} onAccept={onAccept} />
+            {!execDropped && (
+              <Para lead="Execution strategy." k="execution" text={prose.execution} onChange={onProse && (v => onProse("execution", v))}
+                    accepted={accepted.execution} onAccept={onAccept} />
+            )}
           </div>
 
           <div className="col-r rail">

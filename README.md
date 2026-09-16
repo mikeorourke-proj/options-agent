@@ -192,6 +192,27 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- PAGE 1 DROPS THE EXECUTION PARAGRAPH BEFORE IT COMPLAINS (0.31.0). Four
+  themes overflowed on 16 Sep — 281.8mm against a 275mm limit, over by 6.8mm
+  — which is the four-theme case the geometry predicted.
+  The execution strategy is the right release valve: it is pure CONVENTION,
+  the same ladder mechanics and stop rule in every note, while each theme
+  paragraph is specific to an idea the client is being asked to act on. The
+  appendix on page 3 still carries the mechanics, so nothing is lost that a
+  reader could not reconstruct. At ~90 words it is worth roughly 43mm, which
+  takes that note to ~237mm with room to spare.
+  Dropped AUTOMATICALLY, restored only on request or when a new draft
+  arrives. Auto-restoring the moment the page fits would put the layout in a
+  loop, dropping and restoring on every keystroke.
+  execDropped is IN THE MEASURE EFFECT'S DEPS — without it the effect never
+  re-runs after the drop and the banner keeps reporting an overflow that has
+  already been solved.
+  A screen-only notice says it happened, with a "put it back" control; the
+  banner now reads "even with the execution strategy omitted" when the page
+  is still over after dropping.
+- Secondary scoring confirmed in production: SOXX/SOXQ/PSI, VOO/IVV/RSP and
+  VGLT/EDV/ZROZ all scored, zero unscored.
+
 - A TICKED SECONDARY IS NOW A REAL LEG (0.30.0). Chain analytics run on the
   primary only, so a secondary carried nothing but a ticker, a price and a
   fit score. Ticking one produced a leg with no plan, no target and no

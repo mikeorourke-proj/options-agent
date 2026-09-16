@@ -191,3 +191,10 @@ table.x .c { text-align: center; }
 }
 .overflowwarn b { color: #6E0C0C; }
 @media print { .overflowwarn { display: none !important; } }
+
+/* Notice shown when the execution paragraph was dropped to make page 1 fit.
+   Screen only — it must never reach the printed sheet. */
+.fitnote { display: flex; align-items: center; gap: 10px; font-size: 12px;
+           background: #f4f7fb; border: 1px solid #d6e0ee; color: #33475f;
+           border-radius: 5px; padding: 6px 10px; margin: 0 0 8px; }
+@media print { .fitnote, .screen-only { display: none !important; } }
