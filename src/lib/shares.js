@@ -20,6 +20,7 @@ export const NEAR_WALL = 0.02;   // inside this there is no room to ladder
 export const STOP_WALL = 0.01;   // preferred stop: 1% beyond the wall
 export const STOP_FLAT = 0.05;   // alternative: flat 5% from the entry
 const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
+const pdf = z => Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
 
 /* Five equal-distance executions from the last sale into the wall being
    faded, weighted toward the wall — the call wall on a bearish leg, the
@@ -80,7 +81,7 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
   const stop = mode === "wall" ? stopWall : stopFlat;
 
   return {
-    single, execution: single ? "immediate" : "scaled", reason, wallFrom,
+    single, execution: single ? "immediate" : "scaled", reason, wallFrom, spot,
     wall, rungs, entry, stop, stopWall, stopFlat, mode,
     entryImprovementPct: ((entry - spot) / spot) * 100 * sgn,   // positive = better than spot
     riskPct: (Math.abs(stop - entry) / entry) * 100,
@@ -194,22 +195,71 @@ export function targets(spot, v, direction, horizonDays = 42) {
    engine so the two are directly comparable. */
 export function scoreShares(plan, tgt, v, { direction, conviction = "medium", horizonDays = 42, liq = "A" }) {
   const vol = v.iv30 ?? v.rv30;
-  if (!plan || !tgt?.struct || vol == null) return null;
+  if (!plan || !tgt || vol == null) return null;
 
+  /* THE STOPPED QUADRATURE — the same integral the options side runs,
+     replacing the two-point target/stop model.
+
+     The old model asked two questions — reach the target, or hit the stop —
+     and everything in between was worth exactly zero. Most outcomes live in
+     between: silver drifting 4% in your favour and sitting there scored
+     nothing, which is how a 44.5%-vol name printed an expectancy of 0.04.
+     Worse, the target was always a CAP: GLD's whole reward was truncated at
+     a put wall 1.1% away no matter how far gold could actually fall.
+
+     Now every landing point is counted at its mark-to-market, weighted by
+     likelihood — the easiest possible integral, since shares are linear.
+     The structural target is RETIRED from the arithmetic. It remains in tgt
+     for display; nothing here reads it.
+
+     The stop is priced as a BARRIER, which is what a stop is. Quadrature
+     only sees where price ends, and two paths ending at the same place can
+     differ — one touched the stop and came back. The Brownian-bridge
+     hitting probability is exact for that under GBM, one exp per node,
+     drift-free because conditioning on both endpoints removes the drift:
+
+        P(touched B | started S0, ended S) = exp(-2 ln(B/S0) ln(B/S) / sd^2)
+
+     The two-point model understated stop risk 2.5-3x across the 9 Sep note
+     because it asked whether price FINISHES beyond the stop; a stop fires
+     when touched. pStopped below is the honest number.
+
+     RANKED FROM SPOT, executed on the ladder. The ladder inflated R:R 2-10x
+     by measuring reward from a flattered entry and risk over a shortened
+     distance — and it moved shares relative to options on the same theme,
+     since a debit does not care where you scale. The plan keeps its own
+     entry-based riskPct for the note, whose caption promises execution
+     economics; the RANKING risk below is spot to stop. */
   const bear = direction === "bearish";
   const sd   = (vol / 100) * Math.sqrt(horizonDays / 365);
   const mu   = (bear ? -1 : 1) * (DRIFT[conviction] ?? 0.6) * sd;
-  const med  = plan.entry * Math.exp(mu);
+  const spot = plan.spot ?? plan.rungs?.[0]?.px ?? plan.entry;
+  const med  = spot * Math.exp(mu - sd * sd / 2);
+  const stop = plan.stop;
 
-  const rewardPct = (Math.abs(plan.entry - tgt.struct) / plan.entry) * 100;
-  const riskPct   = plan.riskPct;
+  const riskPct  = (Math.abs(stop - spot) / spot) * 100;      // spot to stop
+  const stopPL   = -riskPct;                                   // stopped out = the risk, in %
+  const term     = S => (bear ? (spot - S) / spot : (S - spot) / spot) * 100;
+  const beyond   = S => bear ? S >= stop : S <= stop;
+  const lnBS0    = Math.log(stop / spot);
 
-  // Lognormal probabilities under the view-shifted median
-  const pTarget = bear ? N(Math.log(tgt.struct / med) / sd) : 1 - N(Math.log(tgt.struct / med) / sd);
-  const pStop   = bear ? 1 - N(Math.log(plan.stop / med) / sd) : N(Math.log(plan.stop / med) / sd);
-  const pProfit = bear ? N(Math.log(plan.entry / med) / sd) : 1 - N(Math.log(plan.entry / med) / sd);
+  let ev = 0, pWin = 0, pStopped = 0, wsum = 0;
+  for (let z = -3.6; z <= 3.6; z += 0.05) {
+    const S = med * Math.exp(sd * z);
+    const w = pdf(z);
+    let pTouch;
+    if (beyond(S)) pTouch = 1;
+    else {
+      const x = -2 * lnBS0 * Math.log(stop / S) / (sd * sd);
+      pTouch = Math.min(1, Math.exp(x));
+    }
+    const pl = pTouch * stopPL + (1 - pTouch) * term(S);
+    ev += w * pl; pStopped += w * pTouch; wsum += w;
+    if (pl > 0) pWin += w;
+  }
+  ev /= wsum; pStopped /= wsum; pWin /= wsum;
 
-  const expectancy = pTarget * rewardPct - pStop * riskPct;   // in % of notional
+  const expectancy = ev;                                       // % of notional over the hold
   const evOnRisk   = riskPct > 0 ? expectancy / riskPct : 0;
 
   /* Shares are linear and uncapped, so full convexity; no theta, so no
@@ -226,7 +276,7 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
 
   const parts = {
     evOnRisk:  nz(evOnRisk, NORM.evOnRisk),
-    pop:       nz(pProfit, NORM.pop),
+    pop:       nz(pWin, NORM.pop),
     convexity: nz(convexity, NORM.convexity),
     carry:     1 - nz(carryPct / 100, NORM.carry),
     exec:      1 - nz(execPct / 100, NORM.exec),
@@ -237,17 +287,15 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
   const out = {
     kind: "shares", score: +score.toFixed(3), parts,
     expectancy: +expectancy.toFixed(2), evOnRisk: +evOnRisk.toFixed(3),
-    pop: +(pProfit * 100).toFixed(1),
-    pTarget: +(pTarget * 100).toFixed(1), pStop: +(pStop * 100).toFixed(1),
-    rewardPct: +rewardPct.toFixed(2), riskPct: +riskPct.toFixed(2),
-    rr: riskPct > 0 ? +(rewardPct / riskPct).toFixed(2) : null,
-    rewardSigma: +(rewardPct / (sd * 100)).toFixed(2),   // how ambitious the target is
-    riskSigma:   +(riskPct   / (sd * 100)).toFixed(2),
+    pop: +(pWin * 100).toFixed(1),
+    pStopped: +(pStopped * 100).toFixed(1),                    // honest touch probability
+    riskPct: +riskPct.toFixed(2),                              // spot to stop — ranking risk
+    riskSigma: +(riskPct / (sd * 100)).toFixed(2),
     sdPct: +(sd * 100).toFixed(1), impliedMove: +(mu / sd).toFixed(2),
-    // Honest asymmetry against the options: a stop is not a guarantee.
+    rankedFrom: "spot",
     riskDef,
   };
-  RunLog.fact(`shares.${v.ticker}`, { score: out.score, rr: out.rr, ev: out.expectancy,
-                                      rewardSigma: out.rewardSigma }, { src: "shares/expectancy" });
+  RunLog.fact(`shares.${v.ticker}`, { score: out.score, ev: out.expectancy,
+    pStopped: out.pStopped, riskPct: out.riskPct }, { src: "shares/quadrature" });
   return out;
 }

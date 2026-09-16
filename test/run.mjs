@@ -67,7 +67,7 @@ function score(c) {
     const plan = scalePlan(c.spot, c.vol, c.direction,
                            { execution: c.execution, mode: c.stopMode });
     const tgt = targets(c.spot, c.vol, c.direction, c.horizonDays);
-    const sh = plan && tgt?.struct
+    const sh = plan && tgt
       ? scoreShares(plan, tgt, c.vol, { direction: c.direction, conviction: c.conviction,
                                         liq: c.liq, horizonDays: c.horizonDays })
       : null;
@@ -79,9 +79,8 @@ function score(c) {
       target: r(tgt?.struct, 4), targetFrom: tgt?.structFrom ?? null,
       volFrom: tgt?.volFrom ?? null, range: [r(tgt?.dn, 2), r(tgt?.up, 2)],
       score: r(sh?.score), expectancy: r(sh?.expectancy, 2), evOnRisk: r(sh?.evOnRisk),
-      pop: r(sh?.pop, 1), pTarget: r(sh?.pTarget, 1), pStop: r(sh?.pStop, 1),
-      rewardPct: r(sh?.rewardPct, 2), riskPct: r(sh?.riskPct, 2), rr: r(sh?.rr),
-      rewardSigma: r(sh?.rewardSigma), riskSigma: r(sh?.riskSigma),
+      pop: r(sh?.pop, 1), pStopped: r(sh?.pStopped, 1),
+      riskPct: r(sh?.riskPct, 2), riskSigma: r(sh?.riskSigma), rankedFrom: sh?.rankedFrom ?? null,
       parts: sh?.parts ? Object.fromEntries(Object.entries(sh.parts).map(([k, v]) => [k, r(v)])) : null,
     };
   } catch (e) {

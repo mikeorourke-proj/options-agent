@@ -74,14 +74,20 @@ export function buildExplainer({ note, menus }) {
       <table class="k s"><tbody>
         <tr><td>Execution</td><td>${plan.single ? `immediate — ${esc(plan.reason || "")}` : `scaled, five rungs ${f(t.etf.price)} → ${f(plan.wall)}`}</td></tr>
         <tr><td>Weighted entry</td><td>${f(plan.entry)} (${f(plan.entryImprovementPct, 1)}% better than the last sale)</td></tr>
-        <tr><td>Structural target</td><td>${tgt?.struct ?? "—"} — the opposite open-interest wall. <b>Not shown in the note</b>; used only to compute expectancy.</td></tr>
-        <tr><td>Stop</td><td>${f(plan.stop)} — ${plan.mode === "wall" ? "1% beyond the wall scaled into" : "flat 5% from the entry"}</td></tr>
-        <tr><td>Reward / risk</td><td>${f(sh.rewardPct, 1)}% against ${f(sh.riskPct, 1)}% = <b>${sh.rr}</b> : 1</td></tr>
-        <tr><td>Distance in sigma</td><td>reward <b>${sh.rewardSigma}σ</b>, risk <b>${sh.riskSigma}σ</b> — one sigma is ${f(sh.sdPct, 1)}% over the hold.
-          A ratio cannot see this: a 3.3:1 bought with a target 1.1σ away is not the same trade as 2:1 with one a third of a sigma away.</td></tr>
-        <tr><td>Probabilities</td><td>reaches target <b>${sh.pTarget}%</b> · stopped <b>${sh.pStop}%</b> · profitable <b>${sh.pop}%</b>,
+        <tr><td>Structural level</td><td>${tgt?.struct ?? "—"} — the opposite open-interest wall. Shown for context;
+          <b>the score no longer reads it</b>. The old model credited the trade only for reaching this level, which
+          capped every reward at an arbitrary strike and scored silver at 0.04 with 5% of room in front of it.</td></tr>
+        <tr><td>Stop</td><td>${f(plan.stop)} — ${plan.mode === "wall" ? "1% beyond the wall scaled into" : "flat 5% from the entry"},
+          priced as a <b>touch</b>: it fires the moment price trades there, not only if price finishes beyond it.
+          The finish-based model understated this risk 2.5–3×.</td></tr>
+        <tr><td>Ranked from</td><td>current levels (${f(plan.spot)}), risk to the stop <b>${f(sh.riskPct, 1)}%</b> = <b>${sh.riskSigma}σ</b>,
+          one sigma being ${f(sh.sdPct, 1)}% over the hold. Execution is still the ladder — the note's risk figure is
+          measured from the weighted entry — but the <b>ranking</b> ignores the ladder, because a better fill is
+          conditional on the market coming to you and was inflating R:R 2–10×.</td></tr>
+        <tr><td>Probabilities</td><td>stopped <b>${sh.pStopped}%</b> (touch, Brownian-bridge) · profitable <b>${sh.pop}%</b>,
           under a distribution shifted <b>${sh.impliedMove}σ</b> by the stated conviction</td></tr>
-        <tr><td>Expectancy</td><td class="${sh.expectancy >= 0 ? "ok" : "warn"}"><b>${f(sh.expectancy)}%</b> of notional</td></tr>
+        <tr><td>Expectancy</td><td class="${sh.expectancy >= 0 ? "ok" : "warn"}"><b>${f(sh.expectancy)}%</b> of notional over the hold —
+          every landing point counted at its mark, the same integral the option structures are scored by</td></tr>
       </tbody></table>
       ${partsTable(sh.parts, sh.score)}` : `<p class="warn">No share expression scored — the vehicle had no usable volatility read.</p>`;
 

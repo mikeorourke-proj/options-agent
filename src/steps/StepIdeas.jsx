@@ -143,7 +143,7 @@ async function buildMenu(theme, catalystDate, horizon) {
               putWall: null, callWall: null };
       plan = scalePlan(primary.price, vol, theme.direction, { execution: "immediate", mode: "flat" });
       tgt  = targets(primary.price, vol, theme.direction, hzDays);
-      shareScore = plan && tgt?.struct
+      shareScore = plan && tgt
         ? scoreShares(plan, tgt, vol, { direction: theme.direction,
                                         conviction: theme.conviction || "medium", liq, horizonDays: hzDays })
         : null;
@@ -460,11 +460,15 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                         : `${m.primary.price.toFixed(2)} → ${m.primary.plan.wall}`}</b></span>
                     {!m.primary.plan.single && <span>entry <b>{m.primary.plan.entry.toFixed(2)}</b></span>}
                     {/* A wall target is a round strike; a sigma target is a raw float. */}
-                    <span>target <b>{m.primary.tgt.struct?.toFixed(2)}</b> ({m.primary.shareScore.rewardSigma}σ{m.primary.tgt.volFrom === "realised" ? ", realised" : ""})</span>
+                    {/* The structural level is still shown — it is real
+                        information about where the OI sits — but the score no
+                        longer reads it, so it is labelled as structure rather
+                        than as the trade's objective. */}
+                    <span>struct <b>{m.primary.tgt.struct?.toFixed(2) ?? "\u2014"}</b>{m.primary.tgt.volFrom === "realised" ? " (realised)" : ""}</span>
                     <span>stop <b>{m.primary.plan.stop.toFixed(2)}</b></span>
                     <span>risk <b>{m.primary.shareScore.riskPct}%</b></span>
-                    <span>R:R <b>{m.primary.shareScore.rr}</b></span>
-                    <span>P(tgt) <b>{m.primary.shareScore.pTarget}%</b></span>
+                    <span>EV <b>{m.primary.shareScore.expectancy}%</b></span>
+                    <span>P(stopped) <b>{m.primary.shareScore.pStopped}%</b></span>
                     <span>EV <b style={{ color: m.primary.shareScore.expectancy >= 0 ? "var(--green)" : "var(--red)" }}>
                       {m.primary.shareScore.expectancy}%</b></span>
                     {m.primary.plan.reason && <span className="planwhy">{m.primary.plan.reason}</span>}

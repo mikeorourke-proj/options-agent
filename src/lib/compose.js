@@ -83,10 +83,11 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
           tk: l.t, lev: l.lev, gamma: l.gamma, price: l.price ?? null,
           underlying: m.primary?.t ?? null,
           ulStop: m.primary?.plan?.stop ?? null,
-          riskPct: m.primary?.share?.riskPct != null
-            ? +(m.primary.share.riskPct * Math.abs(l.lev || 1)).toFixed(1)
-            : (m.primary?.shareScore?.riskPct != null
-                ? +(m.primary.shareScore.riskPct * Math.abs(l.lev || 1)).toFixed(1) : null),
+          /* Execution economics, like the rest of the page: the underlying
+             plan's entry-based risk at the stated multiple. The ranking's
+             spot-based risk lives in the score, not the note. */
+          riskPct: m.primary?.plan?.riskPct != null
+            ? +(m.primary.plan.riskPct * Math.abs(l.lev || 1)).toFixed(1) : null,
         })),
       vol: m.vol,
       contracts: m.vol?.contracts,
@@ -180,7 +181,7 @@ export function draftContext(note) {
             ? { noChain: true, stopBasis: "flat 5% from entry — there is no wall to stop beyond" }
             : { putWall: t.vol?.putWall, callWall: t.vol?.callWall,
                 wallDistancePct: fmt(t.etf.plan?.distToWallPct, 1) }),
-          stop: fmt(t.etf.plan?.stop), riskPct: fmt(t.etf.share?.riskPct, 1),
+          stop: fmt(t.etf.plan?.stop), riskPct: fmt(t.etf.plan?.riskPct, 1),
         };
       })(),
       vol: t.vol && { iv30: t.vol.iv30, rv30: t.vol.rv30, rr25: t.vol.rr25, term: t.vol.termSlope,

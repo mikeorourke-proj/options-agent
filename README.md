@@ -192,6 +192,32 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- THE SHARES LEG IS SCORED BY THE STOPPED QUADRATURE (0.24.0). The
+  two-point model is gone. Every landing point is counted at its
+  mark-to-market, weighted by likelihood — the same integral the option
+  structures are scored by — and the STOP IS PRICED AS A TOUCH via the
+  Brownian-bridge hitting probability, exact under GBM, one exp per node.
+  The structural target is RETIRED from the arithmetic; it remains in tgt
+  and is displayed as structure, not as the trade's objective.
+  RANKED FROM SPOT, executed on the ladder: score.riskPct is spot-to-stop;
+  the note keeps the PLAN's entry-based riskPct because its caption promises
+  risk from the weighted average execution. compose reads plan.riskPct now.
+  Retired fields: pTarget, pStop, rewardPct, rr, rewardSigma (shares only —
+  the options pr.rr is untouched). New: pStopped, rankedFrom. explain.js and
+  the StepIdeas stats line updated; the stats line shows EV and P(stopped)
+  instead of R:R and P(tgt).
+  Effect across the 13 scoring fixtures: expectancies now match the design
+  prototype exactly (ETHA 5.44, IBIT 5.30, SLV 4.66, GLD 4.04 — the target
+  was always a CAP and GLD moves 12x); POP is finally differentiated (was a
+  uniform 72.6 because it never saw the stop or the entry); pStopped is
+  honest and brutal where it should be — NCLD's flat 5% stop on an 85-vol
+  name reads 69.5%, and the 90-day low-conviction SLV case reads 71.1%,
+  which is the correct price of holding a tight stop for three months.
+  Bullish legs recover from the cap: TLT 0.17% -> 2.44% EV.
+  Scores COMPRESS (0.61-0.86 across cases) because the honest spot-based
+  risk denominator lowers evOnRisk while pStopped drags POP — the
+  shares-versus-options tilt from 0.23.1 narrows accordingly.
+
 - QC PASS (0.23.3), three repairs:
   clocksAgree was a TAUTOLOGY -- the harness re-derived min(horizon, expiry)
   with the same formula the code uses, so it could never fail.
