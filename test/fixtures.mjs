@@ -449,28 +449,41 @@ function corrSeries(loading, vol, p0, seed) {
 export const CORR_CASES = [
   { id: "one-thesis-four-expressions",
     why: "the 9 Sep shape — must warn on sizing, must not reorder",
-    legs: [{ ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) },
-           { ticker: "QQQ", riskPct: 3.6,  bars: corrSeries(0.95, 0.012, 700, 5) },
-           { ticker: "SPY", riskPct: 4.5,  bars: corrSeries(0.93, 0.009, 760, 9) },
-           { ticker: "CIBR", riskPct: 11.8, bars: corrSeries(0.70, 0.014, 80, 13) }] },
+    legs: [{ ticker: "SMH", direction: "bearish", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) },
+           { ticker: "QQQ", direction: "bearish", riskPct: 3.6,  bars: corrSeries(0.95, 0.012, 700, 5) },
+           { ticker: "SPY", direction: "bearish", riskPct: 4.5,  bars: corrSeries(0.93, 0.009, 760, 9) },
+           { ticker: "CIBR", direction: "bearish", riskPct: 11.8, bars: corrSeries(0.70, 0.014, 80, 13) }] },
 
   { id: "cluster-plus-outlier",
     why: "a leg that does not respond to the catalyst — must be named",
-    legs: [{ ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) },
-           { ticker: "QQQ", riskPct: 3.6,  bars: corrSeries(0.95, 0.012, 700, 5) },
-           { ticker: "TLT", riskPct: 3.4,  bars: corrSeries(-0.10, 0.006, 88, 21) }] },
+    legs: [{ ticker: "SMH", direction: "bearish", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) },
+           { ticker: "QQQ", direction: "bearish", riskPct: 3.6,  bars: corrSeries(0.95, 0.012, 700, 5) },
+           { ticker: "TLT", direction: "bullish", riskPct: 3.4,  bars: corrSeries(-0.10, 0.006, 88, 21) }] },
 
   { id: "two-unrelated-legs",
     why: "no outlier possible with two legs — must say nothing at all",
-    legs: [{ ticker: "GLD", riskPct: 7.4, bars: corrSeries(0.05, 0.008, 400, 31) },
-           { ticker: "TLT", riskPct: 3.4, bars: corrSeries(-0.10, 0.006, 88, 21) }] },
+    legs: [{ ticker: "GLD", direction: "bearish", riskPct: 7.4, bars: corrSeries(0.05, 0.008, 400, 31) },
+           { ticker: "TLT", direction: "bullish", riskPct: 3.4, bars: corrSeries(-0.10, 0.006, 88, 21) }] },
+
+  /* 16 Sep, live: a bearish SMH leg and a bullish QQQ leg. The underlyings
+     correlate at 0.90 and the first build called them a concentrated cluster
+     that would "stop together". They stop on opposite moves. */
+  { id: "opposite-directions-same-asset-beta",
+    why: "hedged pair — must NOT read as concentrated",
+    legs: [{ ticker: "SMH", direction: "bearish", riskPct: 12.8, bars: corrSeries(0.92, 0.020, 300, 3) },
+           { ticker: "QQQ", direction: "bullish", riskPct: 3.7,  bars: corrSeries(0.95, 0.012, 700, 5) }] },
+
+  { id: "same-direction-same-beta",
+    why: "the control — identical assets, both short, must read as concentrated",
+    legs: [{ ticker: "SMH", direction: "bearish", riskPct: 12.8, bars: corrSeries(0.92, 0.020, 300, 3) },
+           { ticker: "QQQ", direction: "bearish", riskPct: 3.7,  bars: corrSeries(0.95, 0.012, 700, 5) }] },
 
   { id: "single-leg",
     why: "nothing to correlate",
-    legs: [{ ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
+    legs: [{ ticker: "SMH", direction: "bearish", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
 
   { id: "too-few-bars",
     why: "a fund listed five weeks ago — must decline rather than invent a number",
-    legs: [{ ticker: "NCLD", riskPct: 5, bars: corrSeries(0.9, 0.05, 25, 7).slice(0, 12) },
-           { ticker: "SMH", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
+    legs: [{ ticker: "NCLD", direction: "bearish", riskPct: 5, bars: corrSeries(0.9, 0.05, 25, 7).slice(0, 12) },
+           { ticker: "SMH", direction: "bearish", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
 ];

@@ -192,6 +192,24 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- CORRELATION IS SIGNED BY DIRECTION (0.25.1) — it correlates the POSITIONS,
+  not the underlyings. On 16 Sep a note carried a bearish SMH leg and a
+  bullish QQQ leg; the two assets correlate at 0.90, so the first build
+  reported a concentrated cluster that would "stop together" when they stop
+  on opposite moves. Signing turns +0.87 into -0.87 and the same pair now
+  reads as a hedge that REDUCES aggregate risk.
+  Three states, not two: cluster (rho >= +0.60, one bet), hedge
+  (rho <= -0.60, deliberate offset, reduces risk) and outlier
+  (|rho| <= 0.25, does not respond to the catalyst). Lumping a hedge in with
+  outliers would flag an intentional offset as a problem.
+  Fixtures pin both directions of the same pair: same-direction-same-beta
+  must read concentrated, opposite-directions-same-asset-beta must not.
+- The Themes stats line shows RISK IN SIGMA and EV/risk. Retiring the
+  structural target took rewardSigma with it, and the sigma read was the
+  signal that told you whether a stop sat inside the noise -- 0.2 sigma and
+  1.0 sigma are different trades at the same percentage. evOnRisk is what
+  the composite ranks on and was not displayed at all.
+
 - CORRELATION (0.25.0) — src/lib/correlation.js. Sizing warning plus the
   low-correlation outlier flag; THE RANKING IS UNTOUCHED, deliberately.
   Correlation between the legs of an event note is evidence the thesis is

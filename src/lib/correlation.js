@@ -29,7 +29,8 @@ import RunLog from "./runlog.js";
    rises in stress — exactly when the sizing question bites. So the warning
    leans conservative: treat the trailing number as a floor. */
 export const HIGH_RHO = 0.60;     // above this, the basket is one position
-export const LOW_RHO  = 0.25;     // below this, the leg is not in the trade
+export const LOW_RHO  = 0.25;     // |rho| below this, the leg is not in the trade
+                                  // and below -HIGH_RHO it is a hedge
 
 const closes = bars => (bars || [])
   .map(b => (typeof b === "number" ? b : b?.c))
@@ -60,11 +61,22 @@ export function pearson(a, b) {
   return +(num / Math.sqrt(dx * dy)).toFixed(3);
 }
 
-/* legs: [{ ticker, bars, riskPct }] — one per carried theme.
-   Returns null for a single-leg note, where none of this applies. */
+/* legs: [{ ticker, bars, riskPct, direction }] — one per carried theme.
+   Returns null for a single-leg note, where none of this applies.
+
+   Returns are SIGNED BY DIRECTION, so what is correlated is the POSITIONS,
+   not the underlyings. On 16 Sep a note carried a bearish SMH leg and a
+   bullish QQQ leg; the two assets correlate at 0.90, and the first build
+   duly reported a concentrated cluster that would "stop together". They
+   would do the opposite — one stops on a rally, the other on a selloff.
+   Signing the returns turns an asset correlation of +0.90 into a position
+   correlation of -0.90, which is a hedge and reduces aggregate risk. */
 export function analyzeCorrelation(legs, { window = 60 } = {}) {
   const usable = (legs || [])
-    .map(l => ({ ...l, r: returnsOf(l.bars, window) }))
+    .map(l => {
+      const sign = l.direction === "bearish" ? -1 : 1;
+      return { ...l, sign, r: returnsOf(l.bars, window).map(x => x * sign) };
+    })
     .filter(l => l.ticker && l.r.length >= 20);
   if (usable.length < 2) return null;
 
@@ -103,12 +115,18 @@ export function analyzeCorrelation(legs, { window = 60 } = {}) {
   const correlated = Math.sqrt(Math.max(0, sumSq + 2 * basket * crossSum));
 
   const cluster = usable.filter(l => (meanTo[l.ticker] ?? 0) >= HIGH_RHO).map(l => l.ticker);
+  /* Three states, not two. With signed returns a strongly NEGATIVE
+     correlation is a hedge — deliberate, informative, and the opposite of a
+     concern — while a correlation near zero is a leg that does not respond
+     to the catalyst at all. Lumping them together as "outliers" would flag
+     an intentional hedge as a problem. */
+  const hedges = usable.filter(l => (meanTo[l.ticker] ?? 0) <= -HIGH_RHO).map(l => l.ticker);
   /* An outlier is a leg unlike THE OTHERS, which needs at least two others
      to be unlike. With two legs each is the other's only pair, so both would
      score identically and both get flagged — and the note prints the same
      sentence twice. */
   const outliers = usable.length >= 3
-    ? usable.filter(l => (meanTo[l.ticker] ?? 1) <= LOW_RHO).map(l => l.ticker)
+    ? usable.filter(l => Math.abs(meanTo[l.ticker] ?? 1) <= LOW_RHO).map(l => l.ticker)
     : [];
 
   const out = {
@@ -117,11 +135,12 @@ export function analyzeCorrelation(legs, { window = 60 } = {}) {
     independentRiskPct: +independent.toFixed(1),
     correlatedRiskPct: +correlated.toFixed(1),
     amplification: independent > 0 ? +(correlated / independent).toFixed(2) : null,
-    cluster, outliers,
+    cluster, outliers, hedges,
+    directions: Object.fromEntries(usable.map(l => [l.ticker, l.direction ?? "bullish"])),
     concentrated: basket >= HIGH_RHO || cluster.length >= 2,
   };
   RunLog.info("calc", "correlation", {
-    window, basket, cluster, outliers,
+    window, basket, cluster, outliers, hedges, signed: true,
     independentRiskPct: out.independentRiskPct, correlatedRiskPct: out.correlatedRiskPct,
   });
   return out;
@@ -138,6 +157,12 @@ export function correlationNote(c) {
       `${c.window} sessions). Sized as separate ideas they would carry ` +
       `${c.independentRiskPct.toFixed(1)}% of aggregate risk; at that correlation they carry ` +
       `${c.correlatedRiskPct.toFixed(1)}%, ${c.amplification}x more, because they stop together.`);
+  }
+  if (c.hedges.length) {
+    const each = c.hedges.map(t => `${t} at ${(c.meanTo[t] ?? 0).toFixed(2)}`).join(", ");
+    parts.push(`${c.hedges.length > 1 ? "Several legs offset" : c.hedges[0] + " offsets"} the ` +
+      `rest (${each} against the other positions, direction accounted for), so the aggregate ` +
+      `carries less risk than the separate stop-losses imply.`);
   }
   if (c.outliers.length) {
     const each = c.outliers.map(t => `${t} at ${(c.meanTo[t] ?? 0).toFixed(2)}`).join(", ");

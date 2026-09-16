@@ -112,6 +112,7 @@ function corr(c) {
     if (!a) return { view: null, sentence: null };
     return {
       basket: a.basket, meanTo: a.meanTo, cluster: a.cluster, outliers: a.outliers,
+      hedges: a.hedges, directions: a.directions,
       sumRiskPct: a.sumRiskPct, independentRiskPct: a.independentRiskPct,
       correlatedRiskPct: a.correlatedRiskPct, amplification: a.amplification,
       /* The invariant the first build broke: a concentration warning must

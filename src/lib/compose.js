@@ -126,7 +126,7 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
     correlation: (() => {
       const c = analyzeCorrelation(orderedThemes
         .filter(t => t.etf?.tk)
-        .map(t => ({ ticker: t.etf.tk,
+        .map(t => ({ ticker: t.etf.tk, direction: t.direction,
                      bars: menus.find(m => m.id === t.id)?.primary?.closes,
                      riskPct: t.etf.share?.riskPct })));
       return c && { ...c, sentence: correlationNote(c) };

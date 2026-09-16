@@ -471,8 +471,16 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                         than as the trade's objective. */}
                     <span>struct <b>{m.primary.tgt.struct?.toFixed(2) ?? "\u2014"}</b>{m.primary.tgt.volFrom === "realised" ? " (realised)" : ""}</span>
                     <span>stop <b>{m.primary.plan.stop.toFixed(2)}</b></span>
-                    <span>risk <b>{m.primary.shareScore.riskPct}%</b></span>
+                    {/* Risk in SIGMA as well as percent. The old line carried
+                        rewardSigma — how ambitious the target was — and
+                        retiring the target took the sigma read with it. The
+                        question that matters now is the other one: is the stop
+                        inside the noise? 0.2σ and 1.0σ are different trades at
+                        the same percentage. And evOnRisk is what the composite
+                        actually ranks on, so it belongs on the line. */}
+                    <span>risk <b>{m.primary.shareScore.riskPct}%</b> ({m.primary.shareScore.riskSigma}σ)</span>
                     <span>EV <b>{m.primary.shareScore.expectancy}%</b></span>
+                    <span>EV/risk <b>{m.primary.shareScore.evOnRisk}</b></span>
                     <span>P(stopped) <b>{m.primary.shareScore.pStopped}%</b></span>
                     <span>EV <b style={{ color: m.primary.shareScore.expectancy >= 0 ? "var(--green)" : "var(--red)" }}>
                       {m.primary.shareScore.expectancy}%</b></span>
