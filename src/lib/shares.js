@@ -271,7 +271,16 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
   }
   ev /= wsum; pStopped /= wsum; pWin /= wsum;
 
-  const expectancy = ev;                                       // % of notional over the hold
+  /* SHRUNK FOR WHAT THE CHAIN CAN SUPPORT. The whole distribution — its
+     width from iv30, its centre from the conviction drift — is read off the
+     chain, and on a thin one that reading carries wide error bars. The
+     shrink pulls the edge toward zero in proportion to how little it rests
+     on, so a precise 4.0 can outrank a speculative 5.4. Deep chains are
+     untouched at 1.0. The raw figure is kept alongside so the effect is
+     always legible rather than baked in. */
+  const conf = clamp01(v.confidence ?? 1);
+  const evRaw = ev;
+  const expectancy = ev * conf;                                // % of notional over the hold
   const evOnRisk   = riskPct > 0 ? expectancy / riskPct : 0;
 
   /* Shares are linear and uncapped, so full convexity; no theta, so no
@@ -299,6 +308,8 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
   const out = {
     kind: "shares", score: +score.toFixed(3), parts,
     expectancy: +expectancy.toFixed(2), evOnRisk: +evOnRisk.toFixed(3),
+    expectancyRaw: +evRaw.toFixed(2), confidence: +conf.toFixed(3),
+    confidenceFrom: v.confidenceFrom ?? "none",
     pop: +(pWin * 100).toFixed(1),
     pStopped: +(pStopped * 100).toFixed(1),                    // honest touch probability
     riskPct: +riskPct.toFixed(2),                              // spot to stop — ranking risk
@@ -310,6 +321,7 @@ export function scoreShares(plan, tgt, v, { direction, conviction = "medium", ho
   };
   RunLog.fact(`shares.${v.ticker}`, { score: out.score, ev: out.expectancy,
     pStopped: out.pStopped, riskPct: out.riskPct,
-    purity: out.purity, purityFrom: out.purityFrom }, { src: "shares/quadrature" });
+    purity: out.purity, purityFrom: out.purityFrom,
+    confidence: out.confidence, evRaw: out.expectancyRaw }, { src: "shares/quadrature" });
   return out;
 }

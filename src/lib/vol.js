@@ -261,3 +261,57 @@ export function rankExpiries(expiries = [], catalystDate, horizon = "weeks",
 export function chooseExpiry(expiries, catalystDate, horizon, buffer, now, expiryOI) {
   return rankExpiries(expiries, catalystDate, horizon, buffer, now, expiryOI)[0] || null;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   How well the chain is known.
+
+   Every view-conditional number in the tool is read off the chain — the
+   volatility level, the 25-delta skew, the walls, the expiry ladder. On SPY
+   those are measurements. On CIBR, 91 contracts with greeks across three
+   expiries, they are estimates with wide error bars, and the ranking has
+   been treating the two identically.
+
+   The history is specific. CIBR printed a 25-delta risk reversal of -20.58
+   on 15 Sep and -37.02 an hour later; the extrapolation bug behind those is
+   fixed, but the underlying thinness is not, and the same chain now reads
+   -2.26 to -2.96 run to run while SPY holds -5.5 to -5.7. The reading moves
+   because there is little there to read.
+
+   So the response is not to distrust thin chains categorically — grade C is
+   still tradable — but to SHRINK the view-conditional edge toward zero in
+   proportion to how little the estimate rests on. An expectancy of 5.4 +/- 2
+   should rank below one of 4.0 +/- 0.3, and nothing in the composite could
+   previously express that.
+
+   The shape is deliberately gentle and bounded: a deep chain is barely
+   touched, the thinnest usable chain keeps about two-thirds of its edge.
+   The floor is a judgement, not a measurement, and stays one until the
+   ledger has enough resolved legs to calibrate it. ═══════════════════════ */
+export const CONFIDENCE_FLOOR = 0.65;
+
+export function chainConfidence(q) {
+  if (!q) return { confidence: 1, from: "none", reason: "no chain — realised vol carries no chain estimate" };
+
+  const greeks = q.withGreeks ?? q.fetched ?? 0;
+  const exps = q.expiriesOver20d ?? q.expiries ?? 0;
+
+  /* Contracts carrying greeks is the binding input: IV, delta and gamma all
+     come from them, and a contract without greeks contributes nothing to any
+     estimate. Log-scaled, because 200 -> 400 matters far more than
+     2000 -> 2200. Full marks from 1,500. */
+  const depth = greeks <= 0 ? 0
+    : Math.max(0, Math.min(1, (Math.log10(greeks) - 1.7) / (Math.log10(1500) - 1.7)));
+
+  /* Expiries beyond 20 days: the term structure, and the ladder rankExpiries
+     has to choose from. One usable expiry is a corner, not a curve. */
+  const span = Math.max(0, Math.min(1, ((exps || 0) - 1) / 4));
+
+  const raw = 0.75 * depth + 0.25 * span;
+  const confidence = +(CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * raw).toFixed(3);
+  return {
+    confidence, from: "chain", greeks, expiriesOver20d: exps,
+    depth: +depth.toFixed(2), span: +span.toFixed(2),
+    thin: confidence < 0.85,
+  };
+}

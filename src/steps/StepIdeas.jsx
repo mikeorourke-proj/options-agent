@@ -3,7 +3,7 @@ import RunLog from "../lib/runlog.js";
 import { api, mapLimit } from "../lib/api.js";
 import { searchUniverse, leveredFor, appropriateness, ETF_UNIVERSE } from "../data/etf-universe.js";
 import { measuredPurity } from "../lib/correlation.js";
-import { analyzeChain, realisedVol, realisedVolAvailable } from "../lib/vol.js";
+import { analyzeChain, realisedVol, realisedVolAvailable, chainConfidence } from "../lib/vol.js";
 import { suggestStructures } from "../lib/strategy.js";
 import { evaluate } from "../lib/pricing.js";
 import { scalePlan, targets, scoreShares } from "../lib/shares.js";
@@ -112,7 +112,17 @@ async function buildMenu(theme, catalystDate, horizon) {
         RunLog.info("calc", `purity.${primary.t}`, { against: pureRef.t, stated: primary.pur,
           measured: mp.from === "measured" ? mp.purity : null, beta: mp.beta, r: mp.r,
           sessions: mp.sessions, used: purity, from: purityFrom, reason: mp.reason });
-      } catch { /* leave the stated value; a missing reference is not a failure */ }
+      } catch (e) {
+        RunLog.warn("calc", `purity.${primary.t}`, { against: pureRef.t,
+          error: String(e?.message || e), used: purity, from: "stated" });
+      }
+    } else if ((primary.pur ?? 1) < 0.99) {
+      /* Not a failure, a structural limit worth seeing: a thematic anchor
+         has no pure vehicle because its purest fund IS a proxy. "power" and
+         "cyber" have none; "gold" has GLD. Without this line the absence of
+         a purity.* entry is indistinguishable from a call that threw. */
+      RunLog.info("calc", `purity.${primary.t}`, { stated: primary.pur, used: purity,
+        from: "stated", reason: `no pure vehicle in the universe for ${JSON.stringify(primary.a || [])}` });
     }
     const rv = realisedVol(bars?.bars || [], 30);
     if (liq !== "X") {
@@ -122,6 +132,9 @@ async function buildMenu(theme, catalystDate, horizon) {
          scales the DRIFT only — the width already carries the proxy's own
          beta as variance. */
       vol.purity = purity; vol.purityFrom = purityFrom;
+      const cc = chainConfidence(chain?.quality);
+      vol.confidence = cc.confidence; vol.confidenceFrom = cc.from;
+      RunLog.info("calc", `confidence.${primary.t}`, cc);
       /* Candidates from the matrix, then priced against the real chain and
          ranked on view-conditional economics. Risk-neutral EV is zero for
          every structure, so the distribution is shifted by the move the

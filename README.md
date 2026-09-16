@@ -192,6 +192,30 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- CHAIN QUALITY SHRINKS THE EDGE (0.27.0) — vol.js chainConfidence().
+  Every view-conditional number is read off the chain, and on CIBR (91
+  contracts with greeks across 3 expiries) those are estimates with wide
+  error bars while SPY's (2,765 across 17) are measurements. The ranking
+  treated them identically. Now EV is shrunk toward zero in proportion to
+  how little the estimate rests on, so a precise 4.0 can outrank a
+  speculative 5.4.
+  Depth (contracts WITH GREEKS, log-scaled, full marks at 1,500) weighted
+  0.75, expiries beyond 20 days weighted 0.25, floored at 0.65.
+  Calibration: SPY/SMH/QQQ 1.00, IGV 0.858, GRID 0.772, CIBR 0.718,
+  FXY 0.690. CIBR fixture: EV 4.59 -> 3.30, score 0.682 -> 0.659.
+  Applied to BOTH scoring paths — exempting options would have reintroduced
+  the apples-to-oranges problem the clocks fix removed. expectancyRaw and
+  confidence are kept alongside so the effect stays legible.
+  CONVEXITY USES THE RAW FIGURE on both sides: it measures payoff SHAPE, and
+  shrinking only its numerator would make a thin chain look like a capped
+  payoff — a different defect wearing the same number.
+  The floor is a judgement, not a measurement, until the ledger can
+  calibrate it.
+- purity.* now LOGS when there is no pure reference. Thematic anchors have
+  none because their purest fund IS a proxy ("power", "cyber"); only anchors
+  with a physical underlying have one ("gold" -> GLD). Previously the
+  absence of a log line was indistinguishable from a call that threw.
+
 - PURITY SCALES THE DRIFT (0.26.0). mu = purity x DRIFT[conviction] x sd.
   Exhibit 1 already printed "GDX: indirect proxy (0.60) — carries its own
   beta" and the ranking then scored GDX as though a bearish gold view moved

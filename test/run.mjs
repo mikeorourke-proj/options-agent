@@ -80,7 +80,7 @@ function score(c) {
       target: r(tgt?.struct, 4), targetFrom: tgt?.structFrom ?? null,
       volFrom: tgt?.volFrom ?? null, range: [r(tgt?.dn, 2), r(tgt?.up, 2)],
       score: r(sh?.score), expectancy: r(sh?.expectancy, 2), evOnRisk: r(sh?.evOnRisk),
-      pop: r(sh?.pop, 1), pStopped: r(sh?.pStopped, 1), purity: sh?.purity ?? null,
+      pop: r(sh?.pop, 1), pStopped: r(sh?.pStopped, 1), purity: sh?.purity ?? null, confidence: sh?.confidence ?? null, expectancyRaw: r(sh?.expectancyRaw, 2),
       riskPct: r(sh?.riskPct, 2), riskSigma: r(sh?.riskSigma), rankedFrom: sh?.rankedFrom ?? null,
       parts: sh?.parts ? Object.fromEntries(Object.entries(sh.parts).map(([k, v]) => [k, r(v)])) : null,
     };
@@ -148,6 +148,7 @@ function econ(c) {
       maxGain: pr.uncapped ? "uncapped" : +pr.maxGain.toFixed(2),
       breakevens: pr.breakevens, legs: legs.length,
       carryDays: e.carryDays,
+      evRaw: e.evRaw, confidence: e.confidence,
       ev: +e.ev.toFixed(3), evOnRisk: +e.evOnRisk.toFixed(4), pop: +e.pop.toFixed(1),
       score: +e.score.toFixed(3),
       parts: e.parts ? Object.fromEntries(Object.entries(e.parts).map(([k, x]) => [k, r(x)])) : null,

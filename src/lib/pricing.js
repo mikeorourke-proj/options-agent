@@ -261,8 +261,19 @@ export function scoreEconomics(pr, legs, spot, v, {
   }
   evIdeal /= wsum;
 
+  /* Same shrink as the shares leg, from the same chain reading. An option
+     structure rests on the chain even more heavily — strikes, marks and
+     greeks all come from it — so exempting it would have reintroduced the
+     apples-to-oranges problem the clocks fix just removed. */
+  const conf = Math.max(0, Math.min(1, v.confidence ?? 1));
+  const evRaw = ev;
+  ev *= conf;
   const evOnRisk  = ev / pr.risk;                                   // core
-  const convexity = evIdeal > 0 ? Math.max(0, Math.min(1, ev / evIdeal)) : 0.5;
+  /* Convexity compares against the RAW figure on both sides. It measures
+     payoff SHAPE — how much of the modelled move the structure keeps — and
+     shrinking only the numerator would have made a thin chain look like a
+     capped payoff, which is a different defect wearing the same number. */
+  const convexity = evIdeal > 0 ? Math.max(0, Math.min(1, evRaw / evIdeal)) : 0.5;
 
   /* Theta is charged for the days you must hold before the trade can be
      judged. With a dated catalyst that is the days to the event. Without
@@ -302,6 +313,7 @@ export function scoreEconomics(pr, legs, spot, v, {
     ev: Math.round(ev), evOnRisk: +evOnRisk.toFixed(3),
     pop: +(pWin * 100).toFixed(1), convexity: +convexity.toFixed(2),
     carryPct: +(carry * 100).toFixed(1), execPct: +(exec * 100).toFixed(1),
+    evRaw: +evRaw.toFixed(2), confidence: +conf.toFixed(3),
     impliedMove: +(mu / sd || 0).toFixed(2), sdPct: +(sd * 100).toFixed(1),
     riskDef, undated, carryDays: Math.round(dToCat),
     /* The clock actually used, reported rather than assumed. The harness

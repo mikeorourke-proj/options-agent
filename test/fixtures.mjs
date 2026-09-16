@@ -127,6 +127,18 @@ export const CASES = [
     execution: "immediate", stopMode: "flat", liq: "A", purity: 1.0,
     why: "the flat 5% alternative, with execution forced by the analyst rather than by proximity" },
 
+  /* CIBR on 16 Sep: 91 contracts with greeks across 3 expiries, against
+     SPY's 2,765 across 17 — and until now they ranked on the same footing. */
+  { id: "CIBR.bearish.thin-chain", note: "2026-09-16",
+    spot: 82.40, direction: "bearish", conviction: "medium", horizonDays: 28,
+    vol: { ticker: "CIBR", confidence: 0.718, confidenceFrom: "chain",
+           iv30: 29.7, rv30: 28.1, rr25: -2.26, termSlope: 1.02,
+           callWall: 90, putWall: 78,
+           callWalls: [{ strike: 90, oi: 3100 }, { strike: 95, oi: 900 }],
+           putWalls:  [{ strike: 78, oi: 4200 }, { strike: 75, oi: 1500 }] },
+    execution: "scaled", stopMode: "wall", liq: "C", purity: 0.9,
+    why: "thin chain — the edge must shrink toward zero, not be trusted at face value" },
+
   { id: "SLV.bearish.long-horizon", note: "synthetic",
     spot: 60.18, direction: "bearish", conviction: "low", horizonDays: 90,
     vol: { ticker: "SLV", iv30: 44.5, rv30: 47.2, rr25: -4.53, termSlope: 0.964,
