@@ -21,6 +21,10 @@ export const STOP_WALL = 0.01;   // preferred stop: 1% beyond the wall
 export const STOP_FLAT = 0.05;   // alternative: flat 5% from the entry
 const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
 const pdf = z => Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+/* Without a wall the ladder is sized by volatility: half a sigma over the
+   hold, capped so a very high-vol name does not ladder halfway to the moon. */
+const NOWALL_BAND_SD = 0.5;
+const NOWALL_BAND_MAX = 0.08;
 const clamp01 = x => Math.max(0, Math.min(1, Number.isFinite(x) ? x : 1));
 
 /* Five equal-distance executions from the last sale into the wall being
@@ -28,7 +32,7 @@ const clamp01 = x => Math.max(0, Math.min(1, Number.isFinite(x) ? x : 1));
    put wall on a bullish one. Inside NEAR_WALL of that wall there is no room
    left to ladder, so proximity forces immediate regardless of what the
    analyst selected, and the position goes on at current levels. */
-export function scalePlan(spot, v, direction, { mode = "wall", execution = "scaled" } = {}) {
+export function scalePlan(spot, v, direction, { mode = "wall", execution = "scaled", horizonDays = 28 } = {}) {
   const bear = direction === "bearish";
   const sgn  = bear ? 1 : -1;
   if (!spot) return null;
@@ -46,17 +50,53 @@ export function scalePlan(spot, v, direction, { mode = "wall", execution = "scal
      beyond, so the position goes on at current levels with the flat stop.
      The leg is marked so the note can say the levels are not wall-derived. */
   if (!wall) {
-    const entry = spot;
-    const stop  = entry * (1 + sgn * STOP_FLAT);
-    RunLog.info("calc", "plan.no.wall",
-                { ticker: v.ticker, direction, spot, stopMode: "flat", pct: STOP_FLAT * 100 });
+    /* No wall does NOT mean no ladder. Scaling needs a price BAND, not a
+       wall, and without a wall there is nothing forcing the position on
+       today — if anything there is less reason to hurry, since no
+       structural level is about to turn price back. The old code went
+       immediate here, which had the logic backwards: a leg with resistance
+       helping the entry got to ladder, and a leg with nothing got hurried in
+       at market.
+
+       So the band comes from volatility instead: half a standard deviation
+       over the hold, in the adverse direction. The stop stays flat, because
+       there is still no wall to stop beyond, and it is measured from the
+       weighted entry like every other scaled leg. */
+    const vol = v.iv30 ?? v.rv30;
+    const sd = vol != null ? (vol / 100) * Math.sqrt(Math.max(horizonDays, 1) / 365) : null;
+    const band = sd != null ? Math.min(sd * NOWALL_BAND_SD, NOWALL_BAND_MAX) : null;
+
+    if (band == null || execution === "immediate") {
+      const entry = spot;
+      const stop  = entry * (1 + sgn * STOP_FLAT);
+      RunLog.info("calc", "plan.no.wall", { ticker: v.ticker, direction, spot,
+        stopMode: "flat", pct: STOP_FLAT * 100,
+        why: band == null ? "no volatility read — cannot size a band" : "analyst set immediate" });
+      return {
+        single: true, execution: "immediate", noWall: true, mode: "flat", spot,
+        reason: band == null
+          ? "no option chain and no volatility read — the position goes on at current levels"
+          : "analyst set immediate",
+        wall: null, rungs: [{ px: spot, w: 1 }], entry, stop, stopWall: null, stopFlat: stop,
+        entryImprovementPct: 0, wallFrom: "none",
+        riskPct: (Math.abs(stop - entry) / entry) * 100, distToWallPct: null,
+      };
+    }
+
+    const top = spot * (1 + sgn * band);
+    const rungs = WEIGHTS.map((w, k) => ({ px: spot + (top - spot) * k / 4, w }));
+    const entry = rungs.reduce((acc, r) => acc + r.px * r.w, 0);
+    const stop = entry * (1 + sgn * STOP_FLAT);
+    RunLog.info("calc", "plan.no.wall", { ticker: v.ticker, direction, spot,
+      bandPct: +(band * 100).toFixed(2), sdPct: sd != null ? +(sd * 100).toFixed(2) : null,
+      top: +top.toFixed(2), entry: +entry.toFixed(2), stopMode: "flat", pct: STOP_FLAT * 100 });
     return {
-      single: true, execution: "immediate", noWall: true, mode: "flat",
-      reason: "no usable option chain — no wall to scale into, so the position goes on at current levels",
-      wall: null, rungs: [{ px: spot, w: 1 }], entry, stop, stopWall: null, stopFlat: stop,
-      entryImprovementPct: 0,
+      single: false, execution: "scaled", noWall: true, mode: "flat", spot,
+      reason: `no open-interest wall, so the ladder runs over ${(band * 100).toFixed(1)}% — half a standard deviation over the hold`,
+      wall: null, wallFrom: "sigma", rungs, entry, stop, stopWall: null, stopFlat: stop,
+      entryImprovementPct: ((entry - spot) / spot) * 100 * sgn,
       riskPct: (Math.abs(stop - entry) / entry) * 100,
-      distToWallPct: null,
+      distToWallPct: null, bandPct: +(band * 100).toFixed(2),
     };
   }
 

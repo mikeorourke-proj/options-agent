@@ -6,7 +6,7 @@
    The draft prompt reads this model; the print view renders it.
    ═══════════════════════════════════════════════════════════════════ */
 import RunLog from "./runlog.js";
-import { orderByExpectancy, TIE_ETF, TIE_OPT } from "./ordering.js";
+import { orderByExpectancy, TIE_ETF, TIE_OPT, MIN_EV_ON_RISK } from "./ordering.js";
 import { leveredFor } from "../data/etf-universe.js";
 import { analyzeCorrelation, correlationNote } from "./correlation.js";
 
@@ -31,8 +31,8 @@ export function analystMeta(settings, parsed) {
   return {
     title: settings.title || parsed?.sourceTitle || "Tactical Note",
     subtitle: settings.subtitle || "",
-    executeWindow: settings.executeWindow || "5 to 10 days",
-    holdWindow: settings.holdWindow || "4 to 6 weeks",
+    executeWindow: settings.executeWindow || "about a week",
+    holdWindow: settings.holdWindow || "3 to 4 weeks",
     sector: settings.sector || "Cross-Asset / Macro",
   };
 }
@@ -95,18 +95,60 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
     };
   });
 
-  // Two ordered sections, no stated criterion.
+  /* THE SEQUENCE. Immediate first, then by score.
+
+     "Immediate" now means one thing only: the wall is inside the 2% band, so
+     there is no room to ladder. A leg with no wall at all SCALES over a
+     volatility band — scaling needs a price band, not a wall, and without a
+     wall nothing is forcing the position on today. Before that change,
+     immediate-first would have promoted exactly the legs with no structure
+     behind them: GRID led its note on 16 Sep for precisely that reason.
+
+     So the top of the note is now legs whose entry has real
+     resistance or support helping it, ranked among themselves by score.
+     Expectancy stays the tiebreak inside a band, as before.
+
+     EV/risk below MIN_EV_ON_RISK is excluded from carrying — the view is
+     worth less than what is being risked for it. Excluded legs are RETAINED
+     with a reason rather than dropped silently, so the omission is visible
+     and can be overruled. */
+  const carried = themes.filter(t => t.etf?.share);
+  const weak = carried.filter(t => (t.etf.share.evOnRisk ?? 0) < MIN_EV_ON_RISK)
+    .map(t => ({ tk: t.etf.tk, themeId: t.id, evOnRisk: t.etf.share.evOnRisk,
+                 why: `EV/risk ${(t.etf.share.evOnRisk ?? 0).toFixed(2)} is below ${MIN_EV_ON_RISK} — the view is worth less than the risk taken for it` }));
+  if (weak.length) RunLog.warn("calc", "etf.excluded.weak", { legs: weak });
+  const eligible = carried.filter(t => (t.etf.share.evOnRisk ?? 0) >= MIN_EV_ON_RISK);
+
   const etfOrder = orderByExpectancy(
-    themes.filter(t => t.etf?.share).map(t => ({ label: t.etf.tk, themeId: t.id, ev: t.etf.share.expectancy })),
+    eligible.map(t => ({ label: t.etf.tk, themeId: t.id, ev: t.etf.share.expectancy,
+                         immediate: t.etf.plan?.execution === "immediate",
+                         score: t.etf.share.score ?? 0 })),
     { key: r => r.ev, band: TIE_ETF, sourceRank: r => srcRank[r.themeId] ?? 99, label: "note.order.etf" });
+
+  /* Immediate legs move to the front, each group keeping the expectancy
+     order the tie logic just produced, then re-sorted by score within the
+     group — the analyst's stated preference. */
+  const byGroup = [...etfOrder].sort((a, b) =>
+    (b.immediate ? 1 : 0) - (a.immediate ? 1 : 0) || (b.score - a.score));
+  RunLog.info("calc", "note.order.etf.grouped", {
+    order: byGroup.map(r => `${r.label}:${r.immediate ? "immediate" : "scaled"}:${r.score}`),
+    excluded: weak.map(w => w.tk) });
+
+  /* The derivatives panel follows the ETF sequence rather than ranking
+     independently. An option is the same idea expressed differently — the
+     right tool when spot is not where you want to buy — so reading the note
+     theme by theme beats reading it instrument by instrument. Within one
+     theme, structures keep their economic order. */
+  const etfRank = Object.fromEntries(byGroup.map((r, i) => [r.themeId, i]));
   const optOrder = orderByExpectancy(
     themes.flatMap(t => t.options.map(o => ({
       label: `${t.etf?.tk} ${o.name.toLowerCase()}`, themeId: t.id, structId: o.id,
       evPerRisk: o.econ.ev / Math.max(1, o.pricing.risk) }))),
-    { key: r => r.evPerRisk, band: TIE_OPT, sourceRank: r => srcRank[r.themeId] ?? 99, label: "note.order.derivatives" });
+    { key: r => r.evPerRisk, band: TIE_OPT, sourceRank: r => srcRank[r.themeId] ?? 99, label: "note.order.derivatives" })
+    .sort((a, b) => (etfRank[a.themeId] ?? 99) - (etfRank[b.themeId] ?? 99));
 
-  const orderedThemes = etfOrder.map(r => themes.find(t => t.id === r.themeId))
-    .concat(themes.filter(t => !etfOrder.some(r => r.themeId === t.id)));
+  const orderedThemes = byGroup.map(r => themes.find(t => t.id === r.themeId))
+    .concat(themes.filter(t => !byGroup.some(r => r.themeId === t.id)));
 
   const dirs = [...new Set(themes.map(t => t.direction))];
   const meta = {
@@ -131,7 +173,7 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
                      riskPct: t.etf.share?.riskPct })));
       return c && { ...c, sentence: correlationNote(c) };
     })(),
-    meta, themes: orderedThemes, etfOrder, optOrder,
+    meta, themes: orderedThemes, etfOrder: byGroup, optOrder, weakLegs: weak,
     contra: Boolean(parsed.contra),
     risks: parsed.risks || [],
     prose: settings.prose || { summary: "", themes: {}, execution: "" },

@@ -39,3 +39,11 @@ export function orderByExpectancy(items, { key, band, sourceRank, label = "order
   });
   return out;
 }
+
+
+/* Below this the view is worth less than the risk taken for it, and the leg
+   does not carry. Deliberately a BACKSTOP rather than a filter: on 16 Sep
+   the weakest leg in the note scored 0.35 and the strongest 0.77, so nothing
+   came close. It exists to catch a broken leg — a degenerate wall, a stop
+   inside the noise — not to trim a list. */
+export const MIN_EV_ON_RISK = 0.25;

@@ -74,6 +74,24 @@ export const CASES = [
     execution: "immediate", stopMode: "flat", liq: "X", purity: 0.95,
     why: "grade X, no walls, 23 sessions of history — the shares-only fallback path" },
 
+  /* GRID, 16 Sep: no wall at all. It used to be forced IMMEDIATE, which had
+     the logic backwards — a leg with resistance helping the entry got to
+     ladder while a leg with nothing got hurried in at market. It now scales
+     over half a sigma. */
+  { id: "GRID.bearish.no-wall-scaled", note: "2026-09-16",
+    spot: 172.99, direction: "bearish", conviction: "medium", horizonDays: 24,
+    vol: { ticker: "GRID", iv30: 23.2, rv30: 22.4, callWall: null, putWall: null,
+           purity: 0.75, confidence: 0.772, confidenceFrom: "chain" },
+    execution: "scaled", stopMode: "flat", liq: "B",
+    why: "no wall — must ladder over a volatility band, not go immediate" },
+
+  { id: "GRID.bearish.no-wall-forced-immediate", note: "2026-09-16",
+    spot: 172.99, direction: "bearish", conviction: "medium", horizonDays: 24,
+    vol: { ticker: "GRID", iv30: 23.2, rv30: 22.4, callWall: null, putWall: null,
+           purity: 0.75, confidence: 0.772, confidenceFrom: "chain" },
+    execution: "immediate", stopMode: "flat", liq: "B",
+    why: "the analyst can still force it — that path must survive" },
+
   { id: "HYG.bearish.auto-immediate", note: "2026-09-08",
     spot: 79.18, direction: "bearish", conviction: "medium", horizonDays: 28,
     vol: { ticker: "HYG", iv30: 9.4, rv30: 8.1, rr25: -2.10, termSlope: 0.97,

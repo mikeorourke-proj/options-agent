@@ -192,6 +192,36 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- A LEG WITH NO WALL NOW SCALES (0.28.0). It used to be forced immediate,
+  which had the logic backwards: a leg with resistance helping the entry got
+  to ladder, while a leg with no structure at all was hurried in at market.
+  Scaling needs a price BAND, not a wall, and without a wall nothing is
+  forcing the position on today. The band is half a sigma over the hold,
+  capped at 8%. GRID: band 2.97%, entry 1.86% better than spot, EV 1.73 ->
+  1.90 and P(stopped) 26.4% -> 14.1%, because scaling into strength puts the
+  stop further from spot. The analyst can still force immediate.
+- THEME ORDER: immediate first, then by score. Safe only BECAUSE of the
+  change above -- "immediate" now means one thing, that the wall is inside
+  the 2% band, so the top of the note is legs whose entry has real
+  resistance or support behind it. Before it, immediate-first would have
+  promoted the legs with no structure at all; GRID led its 16 Sep note for
+  exactly that reason.
+- EV/RISK BELOW 0.25 DOES NOT CARRY (ordering.js MIN_EV_ON_RISK). A backstop,
+  not a filter: on 16 Sep the weakest leg was 0.35 and the strongest 0.77, so
+  nothing came close. Excluded legs are RETAINED on the note object as
+  weakLegs with a reason and logged as etf.excluded.weak, never dropped
+  silently.
+- The DERIVATIVES panel follows the ETF sequence instead of ranking
+  independently. An option is the same idea expressed differently -- the
+  right tool when spot is not where you want to buy -- so the note reads
+  theme by theme. Structures keep their economic order within a theme.
+- DEFAULTS: execute "about a week", hold "3 to 4 weeks", and hzDays for
+  "weeks" is 24 (was 28). The shorter horizon narrows the distribution ~8%,
+  which lowers every expectancy, raises P(stopped) relative to the move, and
+  leaves more option structures marked with life left rather than settled.
+  Fixtures pass horizonDays explicitly so they isolate the code change from
+  the default change.
+
 - CHAIN QUALITY SHRINKS THE EDGE (0.27.0) — vol.js chainConfidence().
   Every view-conditional number is read off the chain, and on CIBR (91
   contracts with greeks across 3 expiries) those are estimates with wide

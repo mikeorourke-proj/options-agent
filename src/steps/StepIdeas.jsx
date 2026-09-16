@@ -55,7 +55,11 @@ async function buildMenu(theme, catalystDate, horizon) {
   /* Order by how well each fund expresses the theme, not by how much it
      trades. Purity dominates, liquidity is log-scaled so size cannot
      overwhelm relevance, and decay is charged against the horizon. */
-  const hzDays = { days: 10, weeks: 28, months: 90 }[horizon] || 28;
+  /* "weeks" now means the 3-to-4 week default hold, not 4-to-6. Shorter
+   horizon narrows the distribution ~8%, which lowers every expectancy,
+   raises P(stopped) relative to the move, and leaves more option structures
+   marked with life left rather than settled. */
+const hzDays = { days: 10, weeks: 24, months: 90 }[horizon] || 24;
   const ranked = priced.filter(e => !e.dead && e.price > 0)
     .map(e => { const a = appropriateness(e, { horizonDays: hzDays }); return { ...e, fit: a.score, fitWhy: a.why }; })
     .sort((a, b) => b.fit - a.fit);
@@ -157,7 +161,7 @@ async function buildMenu(theme, catalystDate, horizon) {
          1.1 sigma away and another a third of a sigma. */
       const conv = theme.conviction || "medium";
       plan = scalePlan(primary.price, { ...vol, ticker: primary.t }, theme.direction,
-                       { execution: theme.execution || "scaled", mode: theme.stopMode || "wall" });
+                       { execution: theme.execution || "scaled", mode: theme.stopMode || "wall", horizonDays: hzDays });
       tgt  = targets(primary.price, vol, theme.direction);
       shareScore = plan && tgt
         ? scoreShares(plan, tgt, { ...vol, ticker: primary.t },
@@ -187,7 +191,7 @@ async function buildMenu(theme, catalystDate, horizon) {
               rvWindow: rvA?.window ?? (rv != null ? 30 : null),
               putWall: null, callWall: null,
               purity, purityFrom };
-      plan = scalePlan(primary.price, vol, theme.direction, { execution: "immediate", mode: "flat" });
+      plan = scalePlan(primary.price, vol, theme.direction, { execution: "immediate", mode: "flat", horizonDays: hzDays });
       tgt  = targets(primary.price, vol, theme.direction, hzDays);
       shareScore = plan && tgt
         ? scoreShares(plan, tgt, vol, { direction: theme.direction,
@@ -313,7 +317,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
       const t2 = { ...m, [k]: val };
       if (!t2.primary?.price || !t2.vol) return t2;
       const plan = scalePlan(t2.primary.price, { ...t2.vol, ticker: t2.primary.t }, t2.direction,
-                             { execution: t2.execution || "scaled", mode: t2.stopMode || "wall" });
+                             { execution: t2.execution || "scaled", mode: t2.stopMode || "wall", horizonDays: hzDays });
       const tgt = targets(t2.primary.price, t2.vol, t2.direction);
       const sh = plan && tgt ? scoreShares(plan, tgt, { ...t2.vol, ticker: t2.primary.t },
                                             { direction: t2.direction, conviction: t2.conviction || "medium", liq: t2.primary.liq }) : null;

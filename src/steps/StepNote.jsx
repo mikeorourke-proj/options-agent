@@ -228,11 +228,11 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
         <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
           <div style={{ flex: 1, minWidth: 150 }}>
             <div className="sec-label">Execute</div>
-            <input type="text" spellCheck="true" value={s.executeWindow || ""} onChange={e => set("executeWindow", e.target.value)} placeholder="5 to 10 days" />
+            <input type="text" spellCheck="true" value={s.executeWindow || ""} onChange={e => set("executeWindow", e.target.value)} placeholder="about a week" />
           </div>
           <div style={{ flex: 1, minWidth: 150 }}>
             <div className="sec-label">Hold</div>
-            <input type="text" spellCheck="true" value={s.holdWindow || ""} onChange={e => set("holdWindow", e.target.value)} placeholder="4 to 6 weeks" />
+            <input type="text" spellCheck="true" value={s.holdWindow || ""} onChange={e => set("holdWindow", e.target.value)} placeholder="3 to 4 weeks" />
           </div>
           <div style={{ flex: 1, minWidth: 180 }}>
             <div className="sec-label">Sector line</div>

@@ -66,7 +66,7 @@ function score(c) {
     const [ew, ewFrom] = entryWall(c.spot, c.vol, c.direction);
     const [xw, xwFrom] = exitWall(c.spot, c.vol, c.direction);
     const plan = scalePlan(c.spot, c.vol, c.direction,
-                           { execution: c.execution, mode: c.stopMode });
+                           { execution: c.execution, mode: c.stopMode, horizonDays: c.horizonDays });
     const tgt = targets(c.spot, c.vol, c.direction, c.horizonDays);
     const sh = plan && tgt
       ? scoreShares(plan, tgt, c.vol, { direction: c.direction, conviction: c.conviction,
@@ -75,6 +75,7 @@ function score(c) {
     return {
       entryWall: ew, entryWallFrom: ewFrom, exitWall: xw, exitWallFrom: xwFrom,
       execution: plan?.execution ?? null, noWall: plan?.noWall ?? false,
+      bandPct: plan?.bandPct ?? null, entryImprovementPct: r(plan?.entryImprovementPct, 2),
       planEntry: r(plan?.entry, 4), stop: r(plan?.stop, 4),
       rungs: plan?.rungs?.length ?? 0,
       target: r(tgt?.struct, 4), targetFrom: tgt?.structFrom ?? null,

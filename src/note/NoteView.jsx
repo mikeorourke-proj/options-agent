@@ -189,7 +189,11 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                   put at 0.635 and a put spread at 0.55 on 15 Sep; neither was
                   ticked, and the note would have told the client there was no
                   chain. `alternatives` holds what was priced and passed over. */}
-              {optRows.length === 0 && <tr><td colSpan={4} className="note">
+              {/* The panel follows the ETF sequence rather than ranking
+                independently: an option is the same idea expressed
+                differently — the right tool when spot is not where you want
+                to buy — so the note reads theme by theme. */}
+            {optRows.length === 0 && <tr><td colSpan={4} className="note">
                 {etfRows.some(t => t.alternatives?.length)
                   ? "no derivatives carried \u2014 priced alternatives are in Exhibit 6"
                   : "no tradable chain on the selected vehicles"}</td></tr>}
