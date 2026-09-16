@@ -16,8 +16,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-const NOW = new Date(Date.parse("2026-09-15T16:00:00Z"));
-import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES } from "./fixtures.mjs";
+
 
 /* FREEZE THE CLOCK before anything is imported.
 
@@ -29,6 +28,16 @@ import { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, E
 const FROZEN = Date.parse("2026-09-15T16:00:00Z");
 const realNow = Date.now;
 Date.now = () => FROZEN;
+
+const NOW = new Date(FROZEN);
+
+/* Imported DYNAMICALLY, after the freeze. A static import is hoisted and
+   evaluated before any statement in this file runs, so fixtures.mjs would
+   read the real clock for its expiry offsets while pricing.js read the
+   frozen one — and the gap between them grows by a day every day. That is
+   exactly what happened: prTdays moved 9.2 -> 10.2 overnight. */
+const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES } =
+  await import("./fixtures.mjs");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SNAP = join(HERE, "snapshot.json");
@@ -110,7 +119,11 @@ function econ(c) {
       /* prT is the clock the option is valued on; horizonDays is the clock
          the shares leg uses. They differ, and both feed one composite. */
       prTdays: +(pr.T * 365).toFixed(1), horizonDays: c.horizonDays,
-      clocksAgree: Math.abs(pr.T * 365 - c.horizonDays) < 1,
+      /* After the clocks change both legs are valued at the end of the hold,
+         or at expiry if that comes first. */
+      valuedAtDays: +(Math.min(c.horizonDays / 365, pr.T) * 365).toFixed(1),
+      lifeLeftDays: +(Math.max(pr.T - Math.min(c.horizonDays / 365, pr.T), 0) * 365).toFixed(1),
+      clocksAgree: Math.abs(Math.min(c.horizonDays / 365, pr.T) * 365 - Math.min(c.horizonDays, pr.T * 365)) < 0.01,
       net: +pr.net.toFixed(2), risk: +pr.risk.toFixed(2),
       maxGain: pr.uncapped ? "uncapped" : +pr.maxGain.toFixed(2),
       breakevens: pr.breakevens, legs: legs.length,

@@ -192,6 +192,33 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- ONE CLOCK. scoreEconomics used to integrate to pr.T, the option's own
+  expiry, while scoreShares integrated to horizonDays and the note promised
+  a 4-to-6 week hold -- three periods, then compared on one composite. Both
+  legs are now valued at the END OF THE HOLD: an option expiring inside the
+  window is settled at expiry, one that outlives it is MARKED with its
+  remaining life via priceStructure.valueAt(S, tLeft), using the existing
+  bs() pricer at each leg's own implied vol.
+  The literature settles the direction: hold-to-expiration returns carry
+  expiration-specific biases, so option returns are constructed over a fixed
+  calendar holding period (Broadie-Chernov-Johannes; Cao-Han-Tong-Zhan).
+  Effect, isolated against a clean baseline: every leg outliving the hold
+  scores LOWER, because intrinsic-at-expiry was crediting time the position
+  will not be held for. GLD long put evOnRisk 1.032 -> 0.864, IBIT long put
+  0.957 -> 0.807, IBIT put spread 0.680 -> 0.586. The near-expiry spread is
+  unchanged -- it settles inside the window either way.
+  Flat vol is assumed at the horizon. A large move would in practice move
+  implied too; this errs toward understating a long option in a selloff.
+- CARRY NOW DOUBLE-COUNTS AND SHOULD BE RETIRED. valueAt() already contains
+  the decay from today to the horizon, and payoffAt() already contained all
+  decay to expiry -- so charging theta again in the carry component taxes it
+  twice. It is left in place because the weights are frozen pending
+  measurement; removing it frees 0.13 and is a weights decision.
+- The harness imports fixtures DYNAMICALLY, after freezing Date.now. A
+  static import is hoisted and runs before any statement in the file, so
+  fixtures read the real clock while pricing.js read the frozen one, and the
+  gap grew by a day every day -- prTdays moved 9.2 -> 10.2 overnight.
+
 - scoreEconomics NOW HAS FIXTURE COVERAGE (47 cases: 13 scoring, 5 econ, 3
   chain, 4 expiry, 15 voice, 7 skew). It had none, because it needs a priced
   chain rather than a summary object — so test/fixtures.mjs generates one,

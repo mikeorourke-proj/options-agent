@@ -788,31 +788,35 @@
  "econ:IBIT.put-spread.near-expiry": {
   "prTdays": 9.2,
   "horizonDays": 28,
-  "clocksAgree": false,
-  "net": 105.5,
-  "risk": 105.5,
-  "maxGain": 344.5,
+  "valuedAtDays": 9.2,
+  "lifeLeftDays": 0,
+  "clocksAgree": true,
+  "net": 106.5,
+  "risk": 106.5,
+  "maxGain": 343.5,
   "breakevens": [
-   43.94
+   43.93
   ],
   "legs": 2,
-  "ev": 97,
-  "evOnRisk": 0.917,
+  "ev": 96,
+  "evOnRisk": 0.899,
   "pop": 60.6,
-  "score": 0.727,
+  "score": 0.723,
   "parts": {
-   "evOnRisk": 0.667,
+   "evOnRisk": 0.657,
    "pop": 0.625,
-   "convexity": 0.396,
+   "convexity": 0.39,
    "carry": 1,
-   "exec": 0.943,
+   "exec": 0.944,
    "riskDef": 1
   }
  },
  "econ:IBIT.put-spread.far-expiry": {
   "prTdays": 37.2,
   "horizonDays": 28,
-  "clocksAgree": false,
+  "valuedAtDays": 28,
+  "lifeLeftDays": 9.2,
+  "clocksAgree": true,
   "net": 163,
   "risk": 163,
   "maxGain": 287,
@@ -820,14 +824,14 @@
    43.36
   ],
   "legs": 2,
-  "ev": 111,
-  "evOnRisk": 0.68,
-  "pop": 65.2,
-  "score": 0.656,
+  "ev": 96,
+  "evOnRisk": 0.586,
+  "pop": 67.4,
+  "score": 0.646,
   "parts": {
-   "evOnRisk": 0.531,
-   "pop": 0.695,
-   "convexity": 0.14,
+   "evOnRisk": 0.478,
+   "pop": 0.729,
+   "convexity": 0.136,
    "carry": 1,
    "exec": 0.847,
    "riskDef": 1
@@ -836,23 +840,25 @@
  "econ:IBIT.long-put.far-expiry": {
   "prTdays": 37.2,
   "horizonDays": 28,
-  "clocksAgree": false,
-  "net": 227,
-  "risk": 227,
+  "valuedAtDays": 28,
+  "lifeLeftDays": 9.2,
+  "clocksAgree": true,
+  "net": 228,
+  "risk": 228,
   "maxGain": "uncapped",
   "breakevens": [
-   42.72
+   42.71
   ],
   "legs": 1,
-  "ev": 219,
-  "evOnRisk": 0.966,
-  "pop": 60.6,
-  "score": 0.725,
+  "ev": 184,
+  "evOnRisk": 0.807,
+  "pop": 62.9,
+  "score": 0.701,
   "parts": {
-   "evOnRisk": 0.695,
-   "pop": 0.625,
-   "convexity": 0.488,
-   "carry": 0.822,
+   "evOnRisk": 0.604,
+   "pop": 0.661,
+   "convexity": 0.461,
+   "carry": 0.823,
    "exec": 0.953,
    "riskDef": 1
   }
@@ -860,22 +866,24 @@
  "econ:GLD.long-put.low-vol": {
   "prTdays": 37.2,
   "horizonDays": 28,
-  "clocksAgree": false,
-  "net": 1304,
-  "risk": 1304,
+  "valuedAtDays": 28,
+  "lifeLeftDays": 9.2,
+  "clocksAgree": true,
+  "net": 1308,
+  "risk": 1308,
   "maxGain": "uncapped",
   "breakevens": [
-   391.43
+   391.39
   ],
   "legs": 1,
-  "ev": 1354,
-  "evOnRisk": 1.038,
+  "ev": 1130,
+  "evOnRisk": 0.864,
   "pop": 60.6,
-  "score": 0.766,
+  "score": 0.73,
   "parts": {
-   "evOnRisk": 0.736,
+   "evOnRisk": 0.636,
    "pop": 0.625,
-   "convexity": 0.513,
+   "convexity": 0.483,
    "carry": 1,
    "exec": 0.957,
    "riskDef": 1
@@ -884,24 +892,26 @@
  "econ:TLT.long-call.bullish": {
   "prTdays": 37.2,
   "horizonDays": 28,
-  "clocksAgree": false,
-  "net": 188.5,
-  "risk": 188.5,
+  "valuedAtDays": 28,
+  "lifeLeftDays": 9.2,
+  "clocksAgree": true,
+  "net": 189.5,
+  "risk": 189.5,
   "maxGain": "uncapped",
   "breakevens": [
-   90.29
+   90.3
   ],
   "legs": 1,
-  "ev": 146,
-  "evOnRisk": 0.774,
+  "ev": 127,
+  "evOnRisk": 0.668,
   "pop": 56,
-  "score": 0.658,
+  "score": 0.639,
   "parts": {
-   "evOnRisk": 0.585,
+   "evOnRisk": 0.525,
    "pop": 0.553,
-   "convexity": 0.409,
-   "carry": 0.767,
-   "exec": 0.96,
+   "convexity": 0.41,
+   "carry": 0.769,
+   "exec": 0.961,
    "riskDef": 1
   }
  }

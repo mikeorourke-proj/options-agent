@@ -188,6 +188,22 @@ export function priceStructure(legs, spot, expiry) {
     theta, minOI, spreadCost, T, legDetail,
     priceSource: srcs.has("quote") ? "quote" : srcs.has("last") ? "last trade" : "model",
     payoffAt: S => payoff(legs, S) - net,
+
+    /* Mark-to-market at a HORIZON, with tLeft still to run, rather than
+       settlement at expiry. The note promises a 4-to-6 week hold; an option
+       that outlives it is sold, not exercised, so its value then is what
+       matters and intrinsic-at-expiry is the wrong quantity.
+
+       Vol is held at each leg's own implied — the standard flat-vol
+       assumption for scenario analysis. It is an assumption: a large move in
+       the underlying would in practice move implied too, and this ignores
+       that. It errs toward understating a long option's value in a selloff. */
+    valueAt: (S, tLeft) => legs.reduce((acc, l) => {
+      const iv = l.c?.implied_volatility;
+      const px = iv > 0 ? bs(S, l.k, tLeft, iv, l.type)
+                        : Math.max(0, l.type === "call" ? S - l.k : l.k - S);
+      return acc + l.qty * 100 * px;
+    }, 0) - net,
   };
 }
 
@@ -197,10 +213,29 @@ const DRIFT = { high: 1.0, medium: 0.6, low: 0.3 };
 export function scoreEconomics(pr, legs, spot, v, {
   direction, conviction = "medium", catalystDate, rv, horizonDays = 42,
 }) {
-  const T = pr.T;
+  /* ONE CLOCK. This used to integrate to pr.T, the option's own expiry,
+     while scoreShares integrated to horizonDays and the note promised a
+     4-to-6 week hold — three different periods, then compared on one
+     composite. The same IBIT put spread scored 0.727 on a 9-day expiry and
+     0.656 on a 37-day one, a gap driven by the valuation horizon rather
+     than by merit.
+
+     The option-returns literature settled this: hold-to-expiration returns
+     carry expiration-specific biases, so returns are constructed over a
+     fixed calendar holding period (Broadie-Chernov-Johannes; Cao-Han-Tong-
+     Zhan). Both legs are now valued at the END OF THE HOLD.
+
+     An option that expires inside the hold is settled at expiry, which is
+     the earlier date; one that outlives the hold is marked with its
+     remaining life. The distribution runs to whichever comes first. */
+  const H = Math.max(horizonDays, 1) / 365;
+  const valueAt = Math.min(H, pr.T);                 // when the position is valued
+  const tLeft = Math.max(pr.T - valueAt, 0);         // life still to run then
+  const T = valueAt;
   const sig = ((v.iv30 ?? rv ?? 25) / 100);
   const sd = sig * Math.sqrt(T);
   const dir = direction === "bearish" ? -1 : direction === "bullish" ? 1 : 0;
+  const plAt = S => tLeft > 0 ? pr.valueAt(S, tLeft) : pr.payoffAt(S);
 
   // The view: expected move, in implied standard deviations
   const mu = dir * (DRIFT[conviction] ?? 0.6) * sd;
@@ -211,7 +246,7 @@ export function scoreEconomics(pr, legs, spot, v, {
   for (let z = -3.6; z <= 3.6; z += 0.06) {
     const S = median * Math.exp(sd * z);
     const w = pdf(z);
-    const pl = pr.payoffAt(S);
+    const pl = plAt(S);
     ev += w * pl; wsum += w;
     if (pl > 0) pWin += w;
   }
