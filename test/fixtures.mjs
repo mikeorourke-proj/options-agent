@@ -250,6 +250,13 @@ export const VOICE_CASES = [
     body: "We are bearish on GLD. The wall leaves no room to scale, so look to sell at current levels. The stop-loss at 404.30 ends the trade, 3.3% of risk." },
   { id: "immediate.real-ladder", subject: "Gold", expect: "flag",
     body: "We are bearish on GLD. Look for the opportunity to scale sales from current levels to 400.00 targeting a weighted average execution of 396.10." },
+  /* GRID, 16 Sep: a leg with NO WALL AT ALL cannot say "the wall leaves no
+     room to scale" — there is no wall — so it must say "no wall to scale
+     into", which the guard was flagging. Both phrasings are sanctioned. */
+  { id: "immediate.no-chain-phrasing", subject: "Gold", expect: "clean",
+    body: "We are bearish on GLD. There is no wall to scale into, so look to sell at current levels. The stop-loss is a flat 5% from entry." },
+  { id: "immediate.nothing-to-scale", subject: "Gold", expect: "clean",
+    body: "We are bearish on GLD. With nothing to scale into, the position goes on at current levels." },
   { id: "immediate.tranche-elsewhere", subject: "Gold", expect: "flag",
     body: "We are bearish on GLD. The position goes on at current levels; the tranches would fill only on strength." },
   { id: "scaled.house-phrasing", subject: "Silver", expect: "clean",
@@ -405,4 +412,10 @@ export const ECON_CASES = [
     vol: { ticker: "TLT", iv30: 15.2, rv30: 14.1, callWall: 95, putWall: 85 },
     structure: "long_call", expiry: dayFrom(37),
     why: "the bullish side, which no published note has exercised" },
+
+  { id: "GLD.long-put.catalyst-past-hold", spot: 404.47, direction: "bearish",
+    conviction: "medium", horizonDays: 28, rv: 26.8, iv: 0.275,
+    vol: { ticker: "GLD", iv30: 27.5, rv30: 26.8, callWall: 430, putWall: 400 },
+    structure: "long_put", expiry: dayFrom(56), catalystDate: dayFrom(49),
+    why: "catalyst 49 days out on a 28-day hold — carry must charge the days HELD, not the days to the event" },
 ].map(c => ({ ...c, contracts: chainFor(c.spot, c.expiry, c.iv) }));

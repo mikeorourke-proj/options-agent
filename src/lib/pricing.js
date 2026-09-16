@@ -269,9 +269,13 @@ export function scoreEconomics(pr, legs, spot, v, {
      one there is no "before" — the option decays across the whole holding
      window, which is exactly why an undated thesis favours the underlying.
      The old half-expiry default understated that. */
-  const dToCat = catalystDate
-    ? Math.max(0, (new Date(catalystDate) - Date.now()) / 864e5)
-    : Math.min(T * 365, horizonDays);
+  /* Capped at the valuation window. A catalyst 49 days out on a 28-day
+     hold used to charge theta for all 49 — days the position is not held.
+     One clock applies to the carry as well as the payoff. */
+  const dToCat = Math.min(
+    catalystDate ? Math.max(0, (new Date(catalystDate) - Date.now()) / 864e5)
+                 : horizonDays,
+    T * 365);
   const carry = pr.debit > 0 ? Math.max(0, -pr.theta * dToCat) / pr.debit : 0;
   const undated = !catalystDate;
 
@@ -300,6 +304,12 @@ export function scoreEconomics(pr, legs, spot, v, {
     carryPct: +(carry * 100).toFixed(1), execPct: +(exec * 100).toFixed(1),
     impliedMove: +(mu / sd || 0).toFixed(2), sdPct: +(sd * 100).toFixed(1),
     riskDef, undated, carryDays: Math.round(dToCat),
+    /* The clock actually used, reported rather than assumed. The harness
+       reads these instead of re-deriving them, so a regression back to
+       expiry-based valuation shows up as valuedAtDays jumping to the
+       option's own life — an observation, not a tautology. */
+    valuedAtDays: +(T * 365).toFixed(1),
+    lifeLeftDays: +(tLeft * 365).toFixed(1),
   };
 }
 

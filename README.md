@@ -192,6 +192,40 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- QC PASS (0.23.3), three repairs:
+  clocksAgree was a TAUTOLOGY -- the harness re-derived min(horizon, expiry)
+  with the same formula the code uses, so it could never fail.
+  scoreEconomics now RETURNS valuedAtDays/lifeLeftDays and the harness reads
+  them; a simulated regression to expiry-based valuation flips clocksAgree
+  false with valuedAtDays jumping 28 -> 37.2. Observed, not assumed.
+  CARRY IS CAPPED AT THE VALUATION WINDOW. A catalyst 49 days out on a
+  28-day hold charged theta for all 49 -- days the position is not held.
+  One clock applies to the carry as well as the payoff. Covered by
+  GLD.long-put.catalyst-past-hold (50 cases now); reverting the cap flags
+  carryDays 28 -> 48.
+  Verified the clocks fix APPLIES IN PRODUCTION: StepIdeas passes
+  horizonDays in ctx (line 103), so the app and the harness run the same
+  clock. Also verified the levered rail panel's data path: compose reads
+  primary.shareScore via its fallback, so stop and risk populate.
+
+- The sanctioned-phrase list covers WALL-LESS legs too. v0.22.3 exempted
+  "no room to scale" for the near-wall immediate case, but a leg with NO
+  WALL AT ALL cannot say that honestly -- there is no wall -- and
+  scalePlan's own reason for it reads "no wall to scale into", which the
+  drafter echoes. GRID tripped the guard on 16 Sep for using the only
+  honest phrasing available. SANCTIONED now covers "no wall to scale into",
+  "nothing to scale into" and "without a wall to scale into", and draft rule
+  7 gives the no-chain leg its own sentence instead of leaving the drafter
+  to improvise around a wall that does not exist.
+- INTERIM IMBALANCE, expected and temporary: after the clocks change the
+  shares leg wins 3 of 4 head-to-heads against the best option on the same
+  theme (SMH 0.713 v 0.587, CIBR 0.683 v 0.570, VXX 0.804 v 0.495; SPY is
+  the exception at 0.719 v 0.722). That is NOT a finding about shares. The
+  options side is now valued honestly at the hold horizon while the shares
+  side is still on the two-point model with an un-stopped tail and no
+  barrier. It should rebalance when the quadrature lands. Do not read
+  anything into shares-versus-options rankings until it does.
+
 - ONE CLOCK. scoreEconomics used to integrate to pr.T, the option's own
   expiry, while scoreShares integrated to horizonDays and the note promised
   a 4-to-6 week hold -- three periods, then compared on one composite. Both

@@ -189,9 +189,11 @@ VOICE — every rule is checked mechanically after you write:
    Give the structure its own sentence rather than trailing it off the stop with "with":
    "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
    NO CHAIN. A leg carrying "noChain" has no tradeable option market, so it has no walls and no
-   implied range. Never mention a wall for it — there is not one. Say the position is shares
-   only, that the stop-loss is a flat percentage from entry because there is no wall to stop
-   beyond, and give the range as the model labels it in rangeBasis. Do not treat the absence of
+   implied range. Never mention a wall for it — there is not one, so it cannot "leave no room to
+   scale" either. Write it as: "We are bearish on GRID. There is no wall to scale into, so look
+   to sell at current levels." Then say the position is shares only, that the stop-loss is a flat
+   percentage from entry because there is no wall to stop beyond, and give the range as the model
+   labels it in rangeBasis. Do not treat the absence of
    a chain as a reason to soften the view; it is an execution fact, not an argument.
 8. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
@@ -442,9 +444,14 @@ const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|run
    LADDER flags the word "scale" inside it. So the drafter wrote precisely
    what the prompt demanded and the guard called it a violation, three runs
    in a row. The template arrived in v0.20.0; this check predates it.
-   Neutralise the sanctioned phrase before matching. Anything else carrying
-   a ladder word still flags. */
-const SANCTIONED = /\bno room to scale\b/gi;
+   Neutralise the sanctioned phrases before matching. Anything else carrying
+   a ladder word still flags.
+
+   Widened once more after GRID: a leg with NO WALL AT ALL cannot say "the
+   wall leaves no room to scale" — there is no wall — and scalePlan's own
+   reason for that case reads "no wall to scale into", which the drafter
+   echoes. The guard was flagging the only honest phrasing available. */
+const SANCTIONED = /\b(no room to scale|no wall to scale(?: into)?|nothing to scale(?: into)?|without a wall to scale(?: into)?)\b/gi;
 
 /* Every theme paragraph opens with the same two sentences: the view, then the
    execution. This is checked rather than trusted because both halves can fail

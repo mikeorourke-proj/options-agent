@@ -26,7 +26,6 @@ import { dirname, join } from "node:path";
    that — they move the drift from days to hours. Pinning the clock makes the
    whole suite reproducible, and no production code has to know about it. */
 const FROZEN = Date.parse("2026-09-15T16:00:00Z");
-const realNow = Date.now;
 Date.now = () => FROZEN;
 
 const NOW = new Date(FROZEN);
@@ -114,19 +113,23 @@ function econ(c) {
     const pr = priceStructure(legs, c.spot, c.expiry);
     if (!pr) return { ERROR: "priceStructure returned null" };
     const e = scoreEconomics(pr, legs, c.spot, c.vol, {
-      direction: c.direction, conviction: c.conviction, rv: c.rv, horizonDays: c.horizonDays });
+      direction: c.direction, conviction: c.conviction, rv: c.rv,
+      horizonDays: c.horizonDays, catalystDate: c.catalystDate });
     return {
       /* prT is the clock the option is valued on; horizonDays is the clock
          the shares leg uses. They differ, and both feed one composite. */
       prTdays: +(pr.T * 365).toFixed(1), horizonDays: c.horizonDays,
-      /* After the clocks change both legs are valued at the end of the hold,
-         or at expiry if that comes first. */
-      valuedAtDays: +(Math.min(c.horizonDays / 365, pr.T) * 365).toFixed(1),
-      lifeLeftDays: +(Math.max(pr.T - Math.min(c.horizonDays / 365, pr.T), 0) * 365).toFixed(1),
-      clocksAgree: Math.abs(Math.min(c.horizonDays / 365, pr.T) * 365 - Math.min(c.horizonDays, pr.T * 365)) < 0.01,
+      /* OBSERVED from scoreEconomics, not re-derived here. The first
+         version of this check recomputed min(horizon, expiry) with the same
+         formula the code uses, which made it a tautology that could never
+         fail. Now a regression back to expiry-based valuation shows up as
+         valuedAtDays jumping to the option's own life. */
+      valuedAtDays: e.valuedAtDays, lifeLeftDays: e.lifeLeftDays,
+      clocksAgree: Math.abs(e.valuedAtDays - Math.min(c.horizonDays, pr.T * 365)) < 0.15,
       net: +pr.net.toFixed(2), risk: +pr.risk.toFixed(2),
       maxGain: pr.uncapped ? "uncapped" : +pr.maxGain.toFixed(2),
       breakevens: pr.breakevens, legs: legs.length,
+      carryDays: e.carryDays,
       ev: +e.ev.toFixed(3), evOnRisk: +e.evOnRisk.toFixed(4), pop: +e.pop.toFixed(1),
       score: +e.score.toFixed(3),
       parts: e.parts ? Object.fromEntries(Object.entries(e.parts).map(([k, x]) => [k, r(x)])) : null,

@@ -632,6 +632,18 @@
   ],
   "correct": true
  },
+ "voice:immediate.no-chain-phrasing": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:immediate.nothing-to-scale": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
  "voice:immediate.tranche-elsewhere": {
   "expect": "flag",
   "flagged": true,
@@ -798,6 +810,7 @@
    43.93
   ],
   "legs": 2,
+  "carryDays": 9,
   "ev": 96,
   "evOnRisk": 0.899,
   "pop": 60.6,
@@ -824,6 +837,7 @@
    43.36
   ],
   "legs": 2,
+  "carryDays": 28,
   "ev": 96,
   "evOnRisk": 0.586,
   "pop": 67.4,
@@ -850,6 +864,7 @@
    42.71
   ],
   "legs": 1,
+  "carryDays": 28,
   "ev": 184,
   "evOnRisk": 0.807,
   "pop": 62.9,
@@ -876,6 +891,7 @@
    391.39
   ],
   "legs": 1,
+  "carryDays": 28,
   "ev": 1130,
   "evOnRisk": 0.864,
   "pop": 60.6,
@@ -902,6 +918,7 @@
    90.3
   ],
   "legs": 1,
+  "carryDays": 28,
   "ev": 127,
   "evOnRisk": 0.668,
   "pop": 56,
@@ -912,6 +929,33 @@
    "convexity": 0.41,
    "carry": 0.769,
    "exec": 0.961,
+   "riskDef": 1
+  }
+ },
+ "econ:GLD.long-put.catalyst-past-hold": {
+  "prTdays": 56.2,
+  "horizonDays": 28,
+  "valuedAtDays": 28,
+  "lifeLeftDays": 28.2,
+  "clocksAgree": true,
+  "net": 1587,
+  "risk": 1587,
+  "maxGain": "uncapped",
+  "breakevens": [
+   388.6
+  ],
+  "legs": 1,
+  "carryDays": 28,
+  "ev": 1072,
+  "evOnRisk": 0.676,
+  "pop": 65.2,
+  "score": 0.706,
+  "parts": {
+   "evOnRisk": 0.529,
+   "pop": 0.695,
+   "convexity": 0.448,
+   "carry": 1,
+   "exec": 0.955,
    "riskDef": 1
   }
  }
