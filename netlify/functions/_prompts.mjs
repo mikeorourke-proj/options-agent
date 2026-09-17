@@ -669,3 +669,56 @@ export function enforce(parsed, { vocab = [], anchors = [], sourceText = "", con
   }
   return { dropped, quoteHits, attrib, badAnchors, restated, conflicts };
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   checkSourcedClaims — did the draft invent a market fact?
+
+   Every other guard here polices HOW the note says something. None asked
+   whether a factual claim came from the source at all.
+
+   On 17 Sep the summary opened "an unexpected hike restores its
+   inflation-fighting credibility". The hike was expected. That word is not
+   decoration — an unexpected hike restores credibility far more forcefully
+   than an expected one, so the invented fact was carrying the argument.
+
+   The words below are CHECKABLE: each asserts something about how a market
+   received an event, and the source either says it or does not. They are
+   grouped by meaning, so a draft writing "unexpected" is satisfied by a
+   source saying "caught markets off guard" — checking the literal word
+   would flag every legitimate paraphrase.
+
+   This FLAGS, it does not block. A source can imply surprise without using
+   any of these words, and the analyst is the one who knows. But an
+   unsourced claim of this kind should never reach a client silently. */
+const CLAIM_GROUPS = [
+  { id: "surprise",   draft: /\b(unexpected|unanticipated|surprise[ds]?|surprising|shock(?:ed|ing)?|caught .{0,20}off guard|out of nowhere)\b/i,
+    source: /\b(unexpected|unanticipated|surprise[ds]?|surprising|shock(?:ed|ing)?|off guard|unforeseen|caught .{0,20}(?:off guard|flat-?footed)|did not expect|no one expected)\b/i },
+  { id: "expected",   draft: /\b(as expected|widely expected|fully priced|priced in|telegraphed|well[- ]flagged|consensus had)\b/i,
+    source: /\b(expected|anticipated|priced|telegraph\w*|flagged|consensus|forecast\w*|looked for)\b/i },
+  { id: "unanimity",  draft: /\b(unanimous(?:ly)?|dissent(?:ed|ing|s)?|split (?:vote|decision)|divided (?:vote|committee))\b/i,
+    source: /\b(unanimous\w*|dissent\w*|split|divided|vote[ds]?|\d+\s*[-to]+\s*\d+)\b/i },
+  { id: "magnitude",  draft: /\b(record|unprecedented|first time since|largest since|biggest since|steepest since|most since)\b/i,
+    source: /\b(record|unprecedented|first time|largest|biggest|steepest|most since|highest since|lowest since)\b/i },
+  { id: "emergency",  draft: /\b(emergency|inter[- ]?meeting|unscheduled|crisis (?:cut|hike|move))\b/i,
+    source: /\b(emergency|inter[- ]?meeting|unscheduled|crisis)\b/i },
+];
+
+export function checkSourcedClaims(paras, sourceText = "") {
+  const src = String(sourceText || "");
+  const hits = {};
+  if (!src.trim()) return hits;              // nothing to check against
+  for (const [k, body] of Object.entries(paras || {})) {
+    const text = String(body || "");
+    for (const g of CLAIM_GROUPS) {
+      const m = text.match(g.draft);
+      if (!m) continue;
+      if (g.source.test(src)) continue;      // the source supports it
+      (hits[k] ||= []).push({
+        id: "unsourced", phrase: m[0],
+        msg: `"${m[0]}" is a claim about how the market received the event, and nothing in the source says it. Check it before this goes out.`,
+      });
+    }
+  }
+  return hits;
+}

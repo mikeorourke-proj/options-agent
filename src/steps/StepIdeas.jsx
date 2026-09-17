@@ -179,10 +179,22 @@ async function buildMenu(theme, catalystDate, horizon) {
       const conv = theme.conviction || "medium";
       plan = scalePlan(primary.price, { ...vol, ticker: primary.t }, theme.direction,
                        { execution: theme.execution || "scaled", mode: theme.stopMode || "wall", horizonDays: hzDays });
-      tgt  = targets(primary.price, vol, theme.direction);
+      /* THE HORIZON, which this call omitted. scoreShares and targets both
+         default to 42 days, so every primary with a tradable chain has been
+         scored over six weeks while the note promised three to four, the
+         option structures were valued at 24, and the shares-only branch
+         twenty lines below passed 24 correctly.
+
+         The clocks fix in v0.23.1 put options and shares on one clock inside
+         scoreEconomics and never checked that the CALLER agreed. It surfaced
+         only when v0.31.1 made setPref pass the horizon: toggling any
+         setting silently re-scored the leg from 42 days to 24, moving IBIT
+         from EV 10.34 / P(stopped) 11.4% to 8.32 / 5.3% on a change that
+         cannot affect either. */
+      tgt  = targets(primary.price, vol, theme.direction, hzDays);
       shareScore = plan && tgt
         ? scoreShares(plan, tgt, { ...vol, ticker: primary.t },
-                      { direction: theme.direction, conviction: conv, liq })
+                      { direction: theme.direction, conviction: conv, liq, horizonDays: hzDays })
         : null;
 
       RunLog.info("ui", `structures.${primary.t}`, {

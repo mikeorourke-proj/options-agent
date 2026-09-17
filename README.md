@@ -192,6 +192,49 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- checkSourcedClaims (0.35.0) — the first guard that asks whether a CLAIM
+  came from the source, rather than how it was phrased. On 17 Sep the
+  summary opened "an unexpected hike restores its inflation-fighting
+  credibility" when the hike had been fully priced. That word carries the
+  argument: an unexpected hike restores credibility far more forcefully than
+  an expected one, so the invented fact was doing the work of the thesis.
+  Five checkable groups — surprise, expected, unanimity, magnitude,
+  emergency — each asserting something about how a market received an event,
+  which the source either says or does not.
+  Matched by MEANING, not literal word: a draft writing "unexpected" is
+  satisfied by a source saying "caught markets off guard". Checking the exact
+  word would flag every legitimate paraphrase.
+  It FLAGS, never blocks: a source can imply surprise without using any of
+  these words, and the analyst is the one who knows. But an unsourced claim
+  of this kind must not reach a client silently.
+  The source now travels with the draft job — everything else in
+  draftContext is the MODEL, and only the source can answer "did the
+  document actually say that".
+  68 cases; the fixtures pin both directions, including the same sentence
+  passing against a source that supports it.
+
+- buildMenu WAS SCORING SHARES OVER 42 DAYS (fixed 0.34.1). Its main chained
+  branch called scoreShares and targets WITHOUT horizonDays, so both fell
+  through to the 42-day default — while the note promised 3 to 4 weeks, the
+  option structures were valued at 24, and the shares-only branch twenty
+  lines below passed 24 correctly.
+  The clocks work in v0.23.1 put options and shares on one clock INSIDE
+  scoreEconomics and never checked that the CALLER agreed. So the very
+  defect that work existed to remove survived on the shares side for eleven
+  versions.
+  It surfaced only because v0.31.1 made setPref pass the horizon: after that,
+  toggling any setting silently re-scored the leg from 42 days to 24, moving
+  IBIT from EV 10.34 / P(stopped) 11.4% to 8.32 / 5.3% on a change that
+  cannot affect either. A leg's score depended on whether it had been
+  touched.
+  Cost, on the 17 Sep legs: EV overstated 15-24% and P(stopped) understated
+  by roughly half — GLD 19.5% -> 11.1%, IBIT 11.4% -> 5.3%, SLV 31% -> 21.2%.
+  Every scoreShares, targets and scalePlan call in StepIdeas now passes a
+  horizon, verified by sweeping the file rather than by eye.
+  LESSON, twice over now: a default parameter hides a missing argument. Both
+  this and the setPref bug were silent because the callee had a sensible
+  fallback.
+
 - CONVICTION IS READ AND CAN BE SET (0.34.0). Until now it could be set by
   NOBODY: the extractor never returned it and there was no UI control, so
   `theme.conviction` was always undefined, every theme fell back to "medium",

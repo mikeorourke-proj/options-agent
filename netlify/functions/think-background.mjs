@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { getStore } from "@netlify/blobs";
 import { srvLog } from "./_runlog.mjs";
-import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate, checkExecutionGeneric, checkThemeOpening } from "./_prompts.mjs";
+import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate, checkExecutionGeneric, checkThemeOpening, checkSourcedClaims } from "./_prompts.mjs";
 
 const API = "https://api.anthropic.com/v1/messages";
 
@@ -21,7 +21,7 @@ export default async (request) => {
 
   let payload = {};
   try { payload = await request.json(); } catch {}
-  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdfKey, pdfName, contra = false } = payload;
+  const { jobId, task = "themes", text = "", vocab = [], anchors = [], note, today, pdfKey, pdfName, contra = false, sourceText = "" } = payload;
   if (!jobId) { L.error("no jobId", new Error("missing jobId")); return; }
 
   const put = (doc) => store.setJSON(jobId, { ...doc, jobId, task, at: new Date().toISOString() });
@@ -188,6 +188,11 @@ export default async (request) => {
         const gen = checkExecutionGeneric(paras, ctx);
         if (gen.length) voice.execution = [...(voice.execution || []), ...gen];
         for (const [k, h] of Object.entries(checkThemeOpening(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
+        /* The only check that asks whether a CLAIM came from the source
+           rather than how it was phrased. Needs the source text, which the
+           draft context does not carry, so it comes from the job. */
+        for (const [k, h] of Object.entries(checkSourcedClaims(paras, sourceText)))
+          voice[k] = [...(voice[k] || []), ...h];
       } catch (e) { L.warn("immediate.check.skipped", { message: e.message }); }
       if (Object.keys(voice).length) L.warn("voice.violation", voice);
     }

@@ -1279,5 +1279,53 @@
  "corr:too-few-bars": {
   "view": null,
   "sentence": null
+ },
+ "claim:invented.surprise": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "unexpected"
+  ],
+  "correct": true
+ },
+ "claim:surprise.supported": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "claim:expected.supported": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "claim:invented.unanimity": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "unanimous"
+  ],
+  "correct": true
+ },
+ "claim:invented.magnitude": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "largest since"
+  ],
+  "correct": true
+ },
+ "claim:no.claims": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "claim:no.source": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
  }
 }

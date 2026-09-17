@@ -528,3 +528,48 @@ export const CORR_CASES = [
     legs: [{ ticker: "NCLD", direction: "bearish", riskPct: 5, bars: corrSeries(0.9, 0.05, 25, 7).slice(0, 12) },
            { ticker: "SMH", direction: "bearish", riskPct: 13.1, bars: corrSeries(0.92, 0.020, 300, 3) }] },
 ];
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   Sourced claims — did the draft invent a market fact?
+
+   Every other draft guard polices HOW something is said. None asked whether
+   a factual claim came from the source at all. On 17 Sep the summary opened
+   "an unexpected hike restores its inflation-fighting credibility" when the
+   hike had been fully priced — and that word carries the argument, since an
+   unexpected hike restores credibility far more forcefully than an expected
+   one.
+
+   Matching is by MEANING, not by literal word: a draft saying "unexpected"
+   is satisfied by a source saying "caught markets off guard". Checking the
+   exact word would flag every legitimate paraphrase.
+   ═══════════════════════════════════════════════════════════════════ */
+export const PRICED_SOURCE =
+  "The Federal Reserve raised rates by 25 basis points today, a move markets had fully priced " +
+  "going in. Chair Powell said the committee remains focused on returning inflation to target.";
+export const SURPRISE_SOURCE =
+  "The hike caught markets off guard; almost no one expected a move today.";
+
+export const CLAIM_CASES = [
+  { id: "invented.surprise", source: PRICED_SOURCE, expect: "flag",
+    why: "the 17 Sep case — source says fully priced, draft says unexpected",
+    body: "The Fed has acted rather than spoken, and an unexpected hike restores its inflation-fighting credibility." },
+  { id: "surprise.supported", source: SURPRISE_SOURCE, expect: "clean",
+    why: "same sentence, a source that supports it — must NOT flag",
+    body: "The Fed has acted rather than spoken, and an unexpected hike restores its inflation-fighting credibility." },
+  { id: "expected.supported", source: PRICED_SOURCE, expect: "clean",
+    why: "the draft agrees with the source",
+    body: "The Fed hiked as expected, and acting rather than speaking restores its credibility." },
+  { id: "invented.unanimity", source: PRICED_SOURCE, expect: "flag",
+    why: "nothing in the source describes the vote",
+    body: "The unanimous decision signals a committee that has stopped debating." },
+  { id: "invented.magnitude", source: PRICED_SOURCE, expect: "flag",
+    why: "no superlative in the source",
+    body: "This is the largest since the 2022 cycle and marks a decisive turn." },
+  { id: "no.claims", source: PRICED_SOURCE, expect: "clean",
+    why: "prose making no checkable claim about reception",
+    body: "The Fed hiked and the committee signalled more to come; the long end should stabilise." },
+  { id: "no.source", source: "", expect: "clean",
+    why: "nothing to check against — must not flag everything",
+    body: "An unexpected, unanimous, record hike." },
+];

@@ -77,7 +77,11 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     const t = RunLog.timer("llm", "draft");
     try {
       const ctx = draftContext(note);
-      const res = await api.thinkLong("draft", JSON.stringify(ctx), {},
+      /* The source goes with the draft so the server can check whether a
+         market claim in the prose came from the document at all. Everything
+         else in draftContext is the MODEL; this is the only thing that can
+         answer "did the source actually say that". */
+      const res = await api.thinkLong("draft", JSON.stringify(ctx), { sourceText: parsed?.sourceText || "" },
         (status, polls, secs) => setPhase(`${status} · ${secs}s`));
       if (!res?.parsed) throw new Error(res?.parseError || "no draft returned");
       const p = res.parsed;
