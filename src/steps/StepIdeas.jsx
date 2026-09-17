@@ -25,6 +25,27 @@ const grade = q => {
 
 /* One theme's expression menu. Ranking is by dollar ADV — the only
    liquidity measure comparable across a $402 GLD and an $82 IAU. */
+/* ONE definition of the hold, at module scope.
+
+   It used to be a const inside buildMenu, which meant setPref — the
+   settings-recompute that runs when execution or stop mode is changed on the
+   Themes screen — could not see it. v0.28.0 added `horizonDays: hzDays` to
+   setPref's scalePlan call and the reference threw: six
+   "hzDays is not defined" errors on 16 Sep, one per toggle, and the recompute
+   silently failed each time.
+
+   The throw also exposed something older. setPref was already calling
+   targets() and scoreShares() with NO horizon at all, so they fell back to
+   the 42-day default while everything else in the app used 24 — a leg
+   re-planned by changing its stop mode was being scored over a different
+   hold from the one it was built with.
+
+   "weeks" is the 3-to-4 week default hold. The shorter horizon narrows the
+   distribution ~8% against the old 28, which lowers every expectancy, raises
+   P(stopped) relative to the move, and leaves more option structures marked
+   with life left rather than settled. */
+export const horizonDays = h => ({ days: 10, weeks: 24, months: 90 }[h] || 24);
+
 async function buildMenu(theme, catalystDate, horizon) {
   const t = RunLog.timer("ui", `menu.${theme.id}`);
 
@@ -55,11 +76,7 @@ async function buildMenu(theme, catalystDate, horizon) {
   /* Order by how well each fund expresses the theme, not by how much it
      trades. Purity dominates, liquidity is log-scaled so size cannot
      overwhelm relevance, and decay is charged against the horizon. */
-  /* "weeks" now means the 3-to-4 week default hold, not 4-to-6. Shorter
-   horizon narrows the distribution ~8%, which lowers every expectancy,
-   raises P(stopped) relative to the move, and leaves more option structures
-   marked with life left rather than settled. */
-const hzDays = { days: 10, weeks: 24, months: 90 }[horizon] || 24;
+  const hzDays = horizonDays(horizon);
   const ranked = priced.filter(e => !e.dead && e.price > 0)
     .map(e => { const a = appropriateness(e, { horizonDays: hzDays }); return { ...e, fit: a.score, fitWhy: a.why }; })
     .sort((a, b) => b.fit - a.fit);
@@ -260,7 +277,7 @@ const hzDays = { days: 10, weeks: 24, months: 90 }[horizon] || 24;
   ].sort((a, b) => b.score - a.score);
   if (allExpr.length) RunLog.info("ui", `ranked.${theme.id}`, { order: allExpr.map(e => `${e.label}:${e.score}`) });
 
-  return { ...theme, primary: { ...primary, liq, plan, tgt, shareScore, closes,
+  return { ...theme, horizon, primary: { ...primary, liq, plan, tgt, shareScore, closes,
                                 purity, purityFrom, purityDetail },
            secondary: secondaryScored, levered, vol, structures, optionsBlocked, allExpr };
 }
@@ -280,6 +297,43 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
     })();
     /* eslint-disable-next-line */
   }, []);
+
+  /* FLIP A THEME'S DIRECTION.
+
+     The extractor reads direction from prose, and prose can carry two
+     arguments at once. On 17 Sep it returned a BEARISH long-Treasuries leg
+     inside a note whose other three legs were bearish precisely because a
+     credible hike removes the inflation premium — and the inflation premium
+     is most of what duration pays for. The same thesis that makes you
+     bearish gold makes you bullish long bonds. There was a coherent
+     alternative in the prose (record hyperscaler and corporate supply
+     competing for capital, a term-premium story), but it is a different
+     thesis from the one the rest of the note rests on.
+
+     The correlation flag caught it — TLT at 0.13 against the others, "either
+     diversifies the view or does not express it" — and there was no way to
+     act on that without re-extracting the whole source.
+
+     A flip re-runs the theme rather than patching it: direction sets the
+     ladder's direction, which wall is entry and which is exit, the sign of
+     the drift, and whether puts or calls are priced. Patching the ETF leg
+     alone would leave option structures built for the opposite view. */
+  async function flipDirection(id) {
+    const m = menus.find(x => x.id === id);
+    if (!m) return;
+    const to = m.direction === "bearish" ? "bullish" : "bearish";
+    setMerging(`flip::${id}`);
+    RunLog.info("ui", "theme.direction.flip", { id, from: m.direction, to, ticker: m.primary?.t });
+    try {
+      const built = await buildMenu({ ...m, direction: to }, null, m.horizon || "weeks");
+      const next = menus.map(x => (x.id === id ? built : x));
+      setMenus(next); setMenuCache(next);
+      /* Selections referenced the old structures, which were priced for the
+         opposite view; drop this theme's picks rather than carry them over. */
+      setPicks(p => ({ ...p, sel: Object.fromEntries(
+        Object.entries(p.sel || {}).filter(([, v]) => v.themeId !== id)) }));
+    } finally { setMerging(null); }
+  }
 
   /* Combine every theme sharing a driver into one. The debasement complex
      is one trade expressed three ways, not three trades — combining unions
@@ -358,11 +412,16 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
       if (m.id !== id) return m;
       const t2 = { ...m, [k]: val };
       if (!t2.primary?.price || !t2.vol) return t2;
+      /* The same hold the leg was BUILT with. Passing nothing here let
+         targets() and scoreShares() fall back to 42 days, so changing a stop
+         mode quietly re-scored the leg over a different horizon. */
+      const hz = horizonDays(t2.horizon || "weeks");
       const plan = scalePlan(t2.primary.price, { ...t2.vol, ticker: t2.primary.t }, t2.direction,
-                             { execution: t2.execution || "scaled", mode: t2.stopMode || "wall", horizonDays: hzDays });
-      const tgt = targets(t2.primary.price, t2.vol, t2.direction);
+                             { execution: t2.execution || "scaled", mode: t2.stopMode || "wall", horizonDays: hz });
+      const tgt = targets(t2.primary.price, t2.vol, t2.direction, hz);
       const sh = plan && tgt ? scoreShares(plan, tgt, { ...t2.vol, ticker: t2.primary.t },
-                                            { direction: t2.direction, conviction: t2.conviction || "medium", liq: t2.primary.liq }) : null;
+                                            { direction: t2.direction, conviction: t2.conviction || "medium",
+                                              liq: t2.primary.liq, horizonDays: hz }) : null;
       return { ...t2, primary: { ...t2.primary, plan, tgt, shareScore: sh } };
     });
     setMenus(next); setMenuCache(next);
@@ -483,7 +542,21 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
               const why = forced
                 ? `${cap(p.reason || "this leg goes on at current levels")}. Clicking scaled will not override it.`
                 : "ETF execution";
-              return (
+              return (<>
+                {/* Direction sits with the other leg controls because it is
+                    the same kind of decision — how the position is put on —
+                    and because an extraction can get it wrong. It re-runs the
+                    theme rather than patching it: the ladder, the walls, the
+                    drift sign and whether puts or calls are priced all turn
+                    on it. */}
+                <span className="legtoggle" title="The extractor reads direction from prose, which can carry two arguments at once. Flipping re-prices the whole theme.">
+                  <button className={m.direction === "bearish" ? "on" : ""}
+                          disabled={merging === `flip::${m.id}`}
+                          onClick={() => m.direction !== "bearish" && flipDirection(m.id)}>bearish</button>
+                  <button className={m.direction === "bullish" ? "on" : ""}
+                          disabled={merging === `flip::${m.id}`}
+                          onClick={() => m.direction !== "bullish" && flipDirection(m.id)}>bullish</button>
+                </span>
                 <span className={`legtoggle ${forced ? "forced" : ""}`} title={why}>
                   <button className={!forced && (m.execution || "scaled") === "scaled" ? "on" : ""}
                           onClick={() => setPref(m.id, "execution", "scaled")}>scaled</button>
@@ -492,7 +565,7 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                     immediate{forced ? " · auto" : ""}
                   </button>
                 </span>
-              );
+              </>);
             })()}
             {(() => {
               /* With no chain there is no wall to stop beyond, so the wall

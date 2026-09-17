@@ -203,7 +203,14 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               {etfRows.map(t => (
                 <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
                   <td>{t.etf.plan?.single ? "current" : f(t.etf.plan?.entry)}</td><td className="r">{f(t.etf.plan?.stop)}</td>
-                  <td>{f(t.etf.share?.riskPct, 1)}%</td>
+                  {/* The PLAN's risk, measured from the weighted average
+                      execution — which is what the caption promises and what
+                      the drafter is given. share.riskPct is the RANKING risk,
+                      measured from spot so legs compare on one footing; it is
+                      internal and must not reach the page. Printing it here
+                      put 8.2% in the table against "3.6% of risk" in the Gold
+                      paragraph of the 17 Sep note. */}
+                  <td>{f(t.etf.plan?.riskPct, 1)}%</td>
                   <td className="g">{t.vol?.putWall ?? "—"}</td><td className="r">{t.vol?.callWall ?? "—"}</td></tr>
               ))}
             </tbody></table>
@@ -368,7 +375,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>
             <td className="c">{p?.single ? "current levels" : `${f(p?.entry)} (${pct(p?.entryImprovementPct)})`}</td>
-            <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}{g?.volFrom === "realised" ? " \u2020" : ""}</td><td className="c">{f(p?.stop)}{p?.noWall ? " \u2020" : ""}</td><td className="c">{f(s?.riskPct, 1)}%</td></tr>; })}
+            <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}{g?.volFrom === "realised" ? " \u2020" : ""}</td><td className="c">{f(p?.stop)}{p?.noWall ? " \u2020" : ""}</td><td className="c">{f(p?.riskPct, 1)}%</td></tr>; })}
         </tbody></table>
         <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution, or from current levels on an immediate leg.<br />
           1σ is the range over the holding period — the market's own measure of a normal move, not a price objective.

@@ -192,6 +192,68 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- THE EXECUTION OVERRIDE WAS BROKEN, not mis-clicked (fixed in 0.31.1).
+  setPref threw on every toggle because of the hzDays scope regression, so
+  the button lit up and nothing re-planned underneath. Clicking immediate on
+  a scaled leg now works: GLD entry 414.37 -> 396.64, IBIT 46.19 -> 43.18.
+  A forced-immediate leg still cannot be forced back to scaled — proximity
+  to the wall means there is no room to ladder — but scaled -> immediate is
+  always the analyst's to override.
+- THE NOTE PRINTED TWO DIFFERENT RISK FIGURES. The rail and Exhibit 4 read
+  share.riskPct (measured from SPOT, the ranking figure) while the drafter
+  was given plan.riskPct (measured from the WEIGHTED ENTRY) — so the 17 Sep
+  note put 8.2% in the table against "3.6% of risk" in the Gold paragraph,
+  and the tables contradicted their own caption, which promises risk from
+  the weighted average execution.
+  v0.30.0 moved draftContext onto the plan figure and did not move the
+  RENDERING with it. Both now read plan.riskPct.
+  The distinction to keep: plan.riskPct is execution economics and is
+  PUBLISHED; share.riskPct is measured from spot so legs compare on one
+  footing and is INTERNAL. On an immediate leg they converge, because the
+  entry is spot — which is why this only showed up on a scaled leg.
+
+- A THEME'S DIRECTION CAN BE FLIPPED (0.32.0), from the leg controls on the
+  Themes step. The extractor reads direction from prose and prose can carry
+  two arguments at once: on 17 Sep it returned a BEARISH long-Treasuries leg
+  inside a note whose other three legs were bearish precisely because a
+  credible hike removes the inflation premium — and that premium is most of
+  what duration pays for. The same thesis that makes you bearish gold makes
+  you bullish long bonds. A coherent alternative was in the prose (record
+  hyperscaler and corporate supply competing for capital, a term-premium
+  story), but it is a different thesis from the one the rest of the note
+  rests on, and the note presented them as one.
+  THE CORRELATION FLAG CAUGHT IT — "TLT at 0.13 … either diversifies the
+  view or does not express it" — and there was no way to act on it short of
+  re-extracting the source. Two outliers out of four looked like noise when
+  I flagged it the day before; it was signal.
+  A flip RE-RUNS the theme rather than patching it: direction sets the
+  ladder's direction, which wall is entry and which is exit, the sign of the
+  drift, and whether puts or calls are priced. Patching the ETF leg alone
+  would leave option structures built for the opposite view. Selections for
+  that theme are dropped, since they referenced the old structures.
+  TLT on the same chain: bearish is immediate (wall 1.99% away) at 3.01%
+  risk, EV 1.65%, P(stopped) 20.8%; bullish scales to the 79 put wall at
+  3.90% risk, EV 1.81%, P(stopped) 11.4%.
+
+- hzDays IS AT MODULE SCOPE (0.31.1), as horizonDays(h). It used to be a
+  const inside buildMenu, so setPref — the settings-recompute that runs when
+  execution or stop mode is changed on the Themes screen — could not see it.
+  v0.28.0 added `horizonDays: hzDays` to setPref's scalePlan call and the
+  reference THREW: six "hzDays is not defined" errors on 16 Sep, one per
+  toggle, and the recompute silently failed each time.
+  The throw exposed something older and quieter. setPref was ALREADY calling
+  targets() and scoreShares() with no horizon at all, so they fell back to
+  the 42-day default while everything else used 24 — changing a stop mode
+  re-scored the leg over a different hold from the one it was built with.
+  Both fixed: one definition, and the menu now retains its horizon so
+  setPref re-plans on the hold the leg was built with.
+- Theme grouping confirmed live: note.order.etf.grouped read
+  ["TLT:immediate:0.709", "NCLD:immediate:0.699", "GLD:scaled:0.714",
+  "IBIT:scaled:0.707"] — immediate first, score within each group, and the
+  higher-scoring GLD correctly sits BELOW the immediate pair.
+- The execution-paragraph valve works: 281.4mm -> dropped 104 words ->
+  247.5mm, a four-theme note fitting with 27mm to spare.
+
 - PAGE 1 DROPS THE EXECUTION PARAGRAPH BEFORE IT COMPLAINS (0.31.0). Four
   themes overflowed on 16 Sep — 281.8mm against a 275mm limit, over by 6.8mm
   — which is the four-theme case the geometry predicted.
