@@ -333,3 +333,8 @@ button.ghost {
 .ledger-detail th { text-align: left; font-weight: 500; opacity: .6; padding: 2px 4px; }
 .ledger-detail td { padding: 2px 4px; border-top: 1px solid var(--hair, #f0f0f0); }
 .ledger-detail td.r { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* A theme whose subject and direction disagree. Amber, not red: it is not an
+   error the tool can fix, it is a question only the analyst can answer. */
+.conflict { font-size: 11px; background: #fdf3e0; border: 1px solid #e8c98a;
+            color: #7a5410; border-radius: 4px; padding: 2px 7px; cursor: help; }

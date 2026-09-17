@@ -192,6 +192,85 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- CONVICTION IS READ AND CAN BE SET (0.34.0). Until now it could be set by
+  NOBODY: the extractor never returned it and there was no UI control, so
+  `theme.conviction` was always undefined, every theme fell back to "medium",
+  and every leg got the same 0.6-sigma drift. The dial we discussed at
+  length — 0.3 / 0.6 / 1.0 — had only ever used its middle value.
+  That directly discards the document's own emphasis. A note calling
+  something "a mild negative for equities" and "a major negative for the
+  investor class" who hold crypto and precious metals has stated three
+  different convictions; the tool priced them identically.
+  Two changes: the extractor now returns conviction, with the schema and a
+  rule telling it to read the document's intensity rather than its own
+  enthusiasm and warning against inflating everything to high; and the
+  Themes step carries a low/medium/high control beside direction and
+  execution. enforce() validates the value, because anything outside the
+  three silently falls back to medium inside scoreShares — the exact failure
+  the field exists to end.
+  Effect on IBIT, one chain: EV 2.47% / 5.01% / 8.37%, evOnRisk 0.202 /
+  0.408 / 0.682, P(stopped) 14.5% / 9.3% / 4.7%, score 0.621 / 0.695 / 0.785.
+- WATCH: MIN_EV_ON_RISK (0.25) will now BITE. It was set as a backstop when
+  the weakest live leg was 0.35 — but everything was medium conviction then.
+  A low-conviction leg lands near 0.20 and will be excluded from carrying.
+  That may be correct (a low-conviction idea IS worth less than the risk
+  taken for it) but it was not the behaviour the threshold was chosen
+  against, and it should be watched on the first note that uses low.
+
+- A SUBJECT THAT CONTRADICTS ITS DIRECTION IS A CONFLICT, NOT A TIDY-UP
+  (0.33.1). The first version of the position-word rule stripped the word
+  whichever way it pointed, so "Long Gold" on a BEARISH theme silently became
+  "BEARISH Gold" — resolving a disagreement between two fields in favour of
+  one of them and destroying the only evidence that anything was wrong. On
+  17 Sep it was the DIRECTION field that was wrong, so that assumption is
+  not safe in either direction.
+  Three outcomes now, not one:
+    tenor      "Long US Treasuries" + bearish -> Long-Dated US Treasuries.
+               The word means maturity and says nothing about direction.
+    agreement  "Selling Volatility" + bearish -> Volatility. The badge says
+               it already; repeating it reads as a double negative.
+    conflict   "Long Gold" + bearish, "Overweight Semis" + bearish,
+               "Selling Volatility" + BULLISH -> left untouched and RAISED.
+  A conflict rides on the parsed object as well as the log, so it reaches the
+  Themes step and sits beside the direction toggle that resolves it, rather
+  than in a log nobody opens mid-session. Amber, not red: the tool cannot
+  know which field is wrong, and only the analyst can.
+
+- SUBJECTS CANNOT CARRY A POSITION WORD (0.33.0). The direction badge already
+  says which way a trade runs, so a subject of "Long US Treasuries" printed
+  as "BEARISH Long US Treasuries" on 17 Sep — which reads as bearish on a
+  LONG POSITION when Long meant long-DATED.
+  Two changes. The themes prompt now forbids Long / Short / Overweight /
+  Underweight / Buying / Selling in a subject and says to write Long-Dated
+  where maturity is meant. And enforce() CORRECTS it, because a prompt rule
+  is a request and this reaches the printed page: where the word qualifies a
+  maturity-bearing instrument it becomes explicit (Long US Treasuries ->
+  Long-Dated US Treasuries), everywhere else it is removed (Long Gold ->
+  Gold, Selling Volatility -> Volatility). Logged in `restated`.
+  TENOR PHRASES ARE EXEMPT: "Short Duration Credit" and "Long End Rates"
+  already qualify a maturity noun and nobody reads them as positions. The
+  first pass rewrote them to "Short-Dated Duration Credit", redundant and
+  wrong.
+- EV WAS PRINTED TWICE on the Themes stats line, v0.25.1 to v0.32.1. A
+  coloured EV span already ended the line and the new one was added ahead of
+  it. Removed the duplicate.
+  The line's risk is now labelled "risk from spot", because it is the RANKING
+  figure — the denominator EV/risk uses — while the note prints risk from the
+  weighted entry. On a scaled leg the line also shows what the note will
+  print, so the two can never silently disagree again.
+
+- EV WAS PRINTED TWICE on the Themes stats line, v0.25.1 to v0.32.1. A
+  coloured EV span already ended the line and the new one was added ahead of
+  it without noticing.
+- The Themes line now says "risk FROM SPOT", and on a scaled leg adds "note
+  prints X% from entry". The screen is the RANKING view, so its risk is the
+  spot-based denominator EV/risk actually uses and the one that puts every
+  leg on a single footing; the note prints risk from the weighted entry,
+  which is execution economics and what its caption promises. On an
+  immediate leg they are identical, which is why the divergence only shows
+  on a scaled leg — and why it went unnoticed until GLD and IBIT were both
+  laddered.
+
 - THE EXECUTION OVERRIDE WAS BROKEN, not mis-clicked (fixed in 0.31.1).
   setPref threw on every toggle because of the hzDays scope regression, so
   the button lit up and nothing re-planned underneath. Clicking immediate on

@@ -199,6 +199,14 @@ export default async (request) => {
     if (checks.quoteHits.length) L.warn("evidence.quoted", { themes: checks.quoteHits });
     if (checks.attrib.length)    L.warn("attribution.suspected", { fields: checks.attrib });
     if (checks.badAnchors?.length) L.warn("anchor.invalid", { themes: checks.badAnchors });
+    /* Carried on the PARSED OBJECT, not only logged: a conflict between a
+       theme's subject and its direction is the analyst's to resolve, so it
+       has to reach the Themes step rather than sit in a log nobody opens
+       mid-session. */
+    if (checks.conflicts?.length) {
+      L.warn("direction.conflict", { themes: checks.conflicts });
+      if (parsed && typeof parsed === "object") parsed.conflicts = checks.conflicts;
+    }
     if (truncated)               L.warn("output.truncated", { outTok: body.usage?.output_tokens });
 
     /* Diagnostics must never be able to discard a good result: themes is an

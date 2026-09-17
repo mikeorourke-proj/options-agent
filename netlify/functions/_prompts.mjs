@@ -35,7 +35,8 @@ Return ONLY a JSON object, no preamble, no markdown fences:
     {
       "id": "<kebab-case, e.g. bearish-gold>",
       "direction": "bullish" | "bearish" | "neutral",
-      "subject": "<2-4 words naming what the view is on, e.g. Gold, Semiconductors, US Treasuries>",
+      "conviction": "<high | medium | low — read the document's OWN intensity, not your enthusiasm. A source that calls something \"a major negative\" for one asset and \"a mild negative\" for another is stating two different convictions and they must not come back the same. high = the document's central claim, stated forcefully (major, sharply, decisively, the key point); medium = argued plainly, no intensifier; low = hedged, secondary, or an implication the document gestures at rather than asserts. If the document gives you nothing to judge by, say medium.>",
+      "subject": "<2-4 words naming what the view is on, e.g. Gold, Semiconductors, US Treasuries. NEVER a position word — no Long, Short, Overweight, Underweight, Buying, Selling. The direction is carried separately and a subject of \"Long US Treasuries\" prints as \"BEARISH Long US Treasuries\", which reads as bearish on a long position. Where you mean maturity, say Long-Dated.>",
       "anchorTag": "<the ONE vocabulary tag naming the asset this theme trades>",
       "tags": ["<2-5 terms from the supplied vocabulary ONLY, including anchorTag>"],
       "cluster": "<kebab-case id shared by every theme driven by the SAME argument>",
@@ -94,6 +95,14 @@ CRITICAL RULES
 10. CLUSTER. Themes that follow from the SAME underlying argument share one cluster id.
    A piece arguing the debasement trade is exhausted yields bearish gold, bearish silver and
    bearish crypto -- three themes, one cluster, because one argument drives all three.
+
+10b. CONVICTION IS READ, NOT ASSUMED. It is the largest single lever in the scoring — it
+   shifts the whole distribution by 0.3, 0.6 or 1.0 sigma — so returning "medium" for
+   everything discards the document's own emphasis and prices four different views
+   identically. A note saying a development is "a mild negative for equities" but "a major
+   negative for the investor class who hold crypto and precious metals" has given you three
+   convictions, not one. Read them. Do not inflate: high is for the document's central
+   claim, and a document usually has one or two, not six.
 
 11. LENGTH. At most 6 themes, most tradeable first. "evidence" and "rationale" are ONE
    sentence each. Do not pad.
@@ -543,13 +552,87 @@ export function checkImmediate(paras, ctx) {
    is usually the one being rebutted, so evidence drawn from inside
    quotation marks is both an attribution risk and an inversion risk. */
 export function enforce(parsed, { vocab = [], anchors = [], sourceText = "", contra = false } = {}) {
-  const dropped = [], quoteHits = [], attrib = [], badAnchors = [], restated = [];
-  if (!parsed || !Array.isArray(parsed.themes)) return { dropped, quoteHits, attrib, badAnchors, restated };
+  const dropped = [], quoteHits = [], attrib = [], badAnchors = [], restated = [], conflicts = [];
+  if (!parsed || !Array.isArray(parsed.themes)) return { dropped, quoteHits, attrib, badAnchors, restated, conflicts };
 
   const ok = new Set(vocab);
   const quoted = [...String(sourceText).matchAll(/[\u201C"']([^\u201D"']{25,})[\u201D"']/g)].map(m => m[1]);
   const inQuote = ev => quoted.some(q => q.includes(ev.slice(0, 60)) || ev.includes(q.slice(0, 60)));
   const ATTRIB = /\b(said|stated|wrote|according to|noted that|argues|reports)\b/i;
+
+  /* A subject carrying a position word collides with the direction badge.
+     "Long US Treasuries" printed as "BEARISH Long US Treasuries" on 17 Sep,
+     which reads as bearish on a long position when Long meant long-DATED.
+
+     Where the position word qualifies a maturity-bearing instrument it means
+     tenor, so it becomes explicit: Long -> Long-Dated. Everywhere else it is
+     a direction word doing a subject's job and is removed, since the badge
+     already says which way the trade runs. */
+  const MATURITY = /\b(treasur\w*|bonds?|gilts?|bunds?|jgbs?|notes?|duration|credit|coupons?)\b/i;
+  const POSITION = /^(long|short|overweight|underweight|buying|selling|bullish|bearish)\s+/i;
+  for (const th of parsed.themes) {
+    const before = String(th.subject || "");
+    /* "Short Duration Credit" and "Long End Rates" are TENOR phrases — the
+       word already qualifies a maturity noun and nobody reads them as
+       positions. Leave them alone; rewriting gave "Short-Dated Duration
+       Credit", which is both redundant and wrong. */
+    const TENOR_NEXT = /^(duration|dated|end|maturity|tenor|bond)\b/i;
+    const m = TENOR_NEXT.test(before.replace(POSITION, "")) ? null : before.match(POSITION);
+    if (m) {
+      const word = m[1].toLowerCase();
+      const rest = before.slice(m[0].length);
+
+      /* Maturity first: "Long US Treasuries" is a TENOR, not a position, and
+         says nothing about direction. Make it explicit and stop. */
+      if ((word === "long" || word === "short") && MATURITY.test(rest)) {
+        const after = `${word === "long" ? "Long-Dated" : "Short-Dated"} ${rest}`;
+        th.subject = after;
+        restated.push({ from: before, to: after, why: `"${m[1]}" here means maturity, not a position` });
+        continue;
+      }
+
+      /* Otherwise the word IS a position, and it either agrees with the
+         theme's direction or contradicts it. Those are not the same event
+         and must not be handled the same way.
+
+         Agreement is redundancy — the badge says it already, so the word
+         goes. Disagreement is a CONFLICT between two fields, and the tool
+         has no basis for deciding which is right. The first version of this
+         stripped the word either way, which silently resolved "Long Gold" +
+         bearish in favour of the direction field and destroyed the only
+         evidence that anything was wrong. On 17 Sep the direction field was
+         the one that was wrong, so that assumption is not safe.
+
+         A conflict is left ON THE SUBJECT and raised, so it is visible
+         rather than tidied away. The direction toggle on the Themes step is
+         how it gets resolved. */
+      const implied = /^(long|overweight|buying|bullish)$/.test(word) ? "bullish" : "bearish";
+      if (implied !== th.direction) {
+        conflicts.push({ id: th.id, subject: before, direction: th.direction, implied,
+          why: `the subject says "${m[1]}" but the theme is ${th.direction} — one of the two is wrong, and only you can say which` });
+        continue;
+      }
+      if (rest && rest !== before) {
+        th.subject = rest;
+        restated.push({ from: before, to: rest,
+          why: `"${m[1]}" agrees with the ${th.direction} badge and repeating it reads as a double negative` });
+      }
+    }
+  }
+
+  /* Conviction has to be one of three values because DRIFT indexes on it;
+     anything else silently falls back to medium inside scoreShares, which is
+     the failure this whole field exists to end. */
+  const CONV = new Set(["high", "medium", "low"]);
+  for (const th of parsed.themes) {
+    if (th.conviction && !CONV.has(String(th.conviction).toLowerCase())) {
+      restated.push({ from: `conviction ${th.conviction}`, to: "medium",
+        why: "conviction must be high, medium or low — DRIFT indexes on it" });
+      th.conviction = "medium";
+    } else if (th.conviction) {
+      th.conviction = String(th.conviction).toLowerCase();
+    }
+  }
 
   const okAnchor = new Set(anchors);
   for (const th of parsed.themes) {
@@ -584,5 +667,5 @@ export function enforce(parsed, { vocab = [], anchors = [], sourceText = "", con
       if (m) attrib.push(`${th.id}.${f}:${m[0]}`);
     }
   }
-  return { dropped, quoteHits, attrib, badAnchors, restated };
+  return { dropped, quoteHits, attrib, badAnchors, restated, conflicts };
 }

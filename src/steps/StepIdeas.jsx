@@ -318,6 +318,9 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
      ladder's direction, which wall is entry and which is exit, the sign of
      the drift, and whether puts or calls are priced. Patching the ETF leg
      alone would leave option structures built for the opposite view. */
+  /* Conflicts ride on the parsed object from enforce(). */
+  const conflictFor = id => (parsed?.conflicts || []).find(c => c.id === id) || null;
+
   async function flipDirection(id) {
     const m = menus.find(x => x.id === id);
     if (!m) return;
@@ -543,6 +546,14 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                 ? `${cap(p.reason || "this leg goes on at current levels")}. Clicking scaled will not override it.`
                 : "ETF execution";
               return (<>
+                {/* A subject and a direction that disagree — "Long Gold" on a
+                    bearish theme. The tool cannot know which field is wrong,
+                    so it says so here, beside the control that fixes it. */}
+                {conflictFor(m.id) && (
+                  <span className="conflict" title={conflictFor(m.id).why}>
+                    subject says &ldquo;{conflictFor(m.id).subject}&rdquo;
+                  </span>
+                )}
                 {/* Direction sits with the other leg controls because it is
                     the same kind of decision — how the position is put on —
                     and because an extraction can get it wrong. It re-runs the
@@ -556,6 +567,19 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                   <button className={m.direction === "bullish" ? "on" : ""}
                           disabled={merging === `flip::${m.id}`}
                           onClick={() => m.direction !== "bullish" && flipDirection(m.id)}>bullish</button>
+                </span>
+                {/* CONVICTION, which until v0.34.0 could not be set by anyone.
+                    The extractor never returned it and there was no control,
+                    so every theme fell back to medium and every leg got the
+                    same 0.6 sigma drift — a document calling one thing a
+                    major negative and another a mild negative priced both
+                    identically. It is the largest single lever in the
+                    scoring, so it belongs on the leg controls. */}
+                <span className="legtoggle" title="Shifts the whole distribution: 0.3 sigma low, 0.6 medium, 1.0 high. Read from the document's own emphasis; override where you disagree.">
+                  {["low", "medium", "high"].map(c => (
+                    <button key={c} className={(m.conviction || "medium") === c ? "on" : ""}
+                            onClick={() => setPref(m.id, "conviction", c)}>{c}</button>
+                  ))}
                 </span>
                 <span className={`legtoggle ${forced ? "forced" : ""}`} title={why}>
                   <button className={!forced && (m.execution || "scaled") === "scaled" ? "on" : ""}
@@ -639,12 +663,25 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                         inside the noise? 0.2σ and 1.0σ are different trades at
                         the same percentage. And evOnRisk is what the composite
                         actually ranks on, so it belongs on the line. */}
-                    <span>risk <b>{m.primary.shareScore.riskPct}%</b> ({m.primary.shareScore.riskSigma}σ)</span>
-                    <span>EV <b>{m.primary.shareScore.expectancy}%</b></span>
-                    <span>EV/risk <b>{m.primary.shareScore.evOnRisk}</b></span>
-                    <span>P(stopped) <b>{m.primary.shareScore.pStopped}%</b></span>
+                    {/* This line is the RANKING view, so its risk is measured
+                        from spot — the denominator EV/risk actually uses, and
+                        the one that puts every leg on a single footing. The
+                        NOTE prints risk from the weighted entry instead,
+                        because that is execution economics and what its
+                        caption promises. On an immediate leg the two are the
+                        same; on a scaled leg they are not, so the label says
+                        which this is.
+                        EV appeared TWICE here from v0.25.1 to v0.32.1: a
+                        coloured span already ended the line and the new one
+                        was added ahead of it without noticing. */}
+                    <span>risk from spot <b>{m.primary.shareScore.riskPct}%</b> ({m.primary.shareScore.riskSigma}σ)</span>
                     <span>EV <b style={{ color: m.primary.shareScore.expectancy >= 0 ? "var(--green)" : "var(--red)" }}>
                       {m.primary.shareScore.expectancy}%</b></span>
+                    <span>EV/risk <b>{m.primary.shareScore.evOnRisk}</b></span>
+                    <span>P(stopped) <b>{m.primary.shareScore.pStopped}%</b></span>
+                    {m.primary.plan.execution === "scaled" && m.primary.plan.riskPct != null && (
+                      <span className="mut">note prints <b>{m.primary.plan.riskPct.toFixed(1)}%</b> from entry</span>
+                    )}
                     {m.primary.plan.reason && <span className="planwhy">{m.primary.plan.reason}</span>}
                   </div>
                 )}
