@@ -7,7 +7,6 @@
    ═══════════════════════════════════════════════════════════════════ */
 import RunLog from "./runlog.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT, MIN_EV_ON_RISK } from "./ordering.js";
-import { leveredFor } from "../data/etf-universe.js";
 import { analyzeCorrelation, correlationNote } from "./correlation.js";
 
 /* Round numbers stay round in the prose. toFixed(2) turned a 600 strike into
@@ -125,11 +124,17 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
      with a reason rather than dropped silently, so the omission is visible
      and can be overruled. */
   const carried = themes.filter(t => t.etf?.share);
-  const weak = carried.filter(t => (t.etf.share.evOnRisk ?? 0) < MIN_EV_ON_RISK)
+  /* The analyst can carry a leg the gate would exclude. The gate is a
+     backstop against a broken leg, not a veto over a view — and a thin
+     expected move on a deliberate hedge is a legitimate reason to carry
+     something the ratio dislikes. */
+  const forced = new Set(settings.forceCarry || []);
+  const weak = carried.filter(t => (t.etf.share.evOnRisk ?? 0) < MIN_EV_ON_RISK && !forced.has(t.etf.tk))
     .map(t => ({ tk: t.etf.tk, themeId: t.id, evOnRisk: t.etf.share.evOnRisk,
                  why: `EV/risk ${(t.etf.share.evOnRisk ?? 0).toFixed(2)} is below ${MIN_EV_ON_RISK} — the view is worth less than the risk taken for it` }));
   if (weak.length) RunLog.warn("calc", "etf.excluded.weak", { legs: weak });
-  const eligible = carried.filter(t => (t.etf.share.evOnRisk ?? 0) >= MIN_EV_ON_RISK);
+  const eligible = carried.filter(t => (t.etf.share.evOnRisk ?? 0) >= MIN_EV_ON_RISK || forced.has(t.etf.tk));
+  if (forced.size) RunLog.info("calc", "etf.forced.carry", { legs: [...forced] });
 
   const etfOrder = orderByExpectancy(
     eligible.map(t => ({ label: t.etf.tk, themeId: t.id, ev: t.etf.share.expectancy,

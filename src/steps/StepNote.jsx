@@ -35,8 +35,13 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
      list, so a keystroke in any of them still re-ran both orderings and the
      whole theme mapping. One run logged 38 recomposes in 33 seconds of
      typing a subtitle. */
+  /* forceCarry is the ONE setting that changes the model, so it has to be a
+     dependency — without it the override would never recompose and would
+     silently do nothing. It is safe here where the text fields are not: it
+     changes on an explicit click, never per keystroke. */
+  const forceKey = (s.forceCarry || []).join(",");
   const model = useMemo(() => composeNote({ parsed, picks, menus, settings: s }),
-                        [parsed, picks, menus]);
+                        [parsed, picks, menus, forceKey]);
   const note = useMemo(() => ({
     ...model,
     meta: { ...model.meta, ...analystMeta(s, parsed) },
@@ -81,7 +86,19 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
          market claim in the prose came from the document at all. Everything
          else in draftContext is the MODEL; this is the only thing that can
          answer "did the source actually say that". */
-      const res = await api.thinkLong("draft", JSON.stringify(ctx), { sourceText: parsed?.sourceText || "" },
+      /* BOUNDED. The async background invoke has a body cap — it is what
+         rejected the 1.37 MB PDF for three sessions — and an oversized
+         source here would not merely silence the claim guard: thinkLong
+         throws on a rejected invoke, so it would stop DRAFTING. A Closing
+         Print runs about 3,000 characters; 100,000 is thirty times that and
+         still a small fraction of the cap. Past it, the guard checks the
+         first 100,000 characters and says so. */
+      const SRC_CAP = 100000;
+      const src = parsed?.sourceText || "";
+      if (src.length > SRC_CAP)
+        RunLog.warn("llm", "draft.source.truncated", { chars: src.length, sent: SRC_CAP,
+          why: "claim checks run against the first 100,000 characters only" });
+      const res = await api.thinkLong("draft", JSON.stringify(ctx), { sourceText: src.slice(0, SRC_CAP) },
         (status, polls, secs) => setPhase(`${status} · ${secs}s`));
       if (!res?.parsed) throw new Error(res?.parseError || "no draft returned");
       const p = res.parsed;
@@ -252,6 +269,35 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
         </div>
 
         {err && <div className="err-banner" style={{ marginTop: 12 }}><b>Draft failed.</b> {err}</div>}
+
+        {/* EXCLUDED LEGS, which until v0.35.1 were never shown. The gate
+            dropped them from the note and the only trace was the note object
+            and the ledger, so a selected leg simply vanished. They are listed
+            here with the reason, and each can be carried anyway: the gate is
+            a backstop against a broken leg, not a veto over a view. */}
+        {note.weakLegs?.length > 0 && (
+          <div className="note" style={{ marginTop: 12 }}>
+            <b>Not carried — expected value is below the risk taken.</b>
+            <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+              {note.weakLegs.map(w => (
+                <li key={w.tk}>
+                  <b>{w.tk}</b>: {w.why}{" "}
+                  <button className="ghost" style={{ padding: "1px 8px" }}
+                          onClick={() => set("forceCarry", [...(s.forceCarry || []), w.tk])}>
+                    carry anyway
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {(s.forceCarry || []).length > 0 && (
+          <div className="mut" style={{ marginTop: 6, fontSize: 12 }}>
+            Carried against the gate: {s.forceCarry.join(", ")}{" "}
+            <button className="ghost" style={{ padding: "1px 8px" }}
+                    onClick={() => set("forceCarry", [])}>restore the gate</button>
+          </div>
+        )}
         {voice && (
           <div className="note" style={{ marginTop: 12 }}>
             <b>Voice checks flagged the draft.</b> Edit before printing:

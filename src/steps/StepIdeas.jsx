@@ -331,16 +331,38 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
      the drift, and whether puts or calls are priced. Patching the ETF leg
      alone would leave option structures built for the opposite view. */
   /* Conflicts ride on the parsed object from enforce(). */
-  const conflictFor = id => (parsed?.conflicts || []).find(c => c.id === id) || null;
+  /* A conflict is resolved the moment the direction agrees with what the
+     subject implies. The list comes from extraction and is never rebuilt, so
+     reading it raw left the amber flag standing beside the very toggle that
+     had just fixed it. */
+  const conflictFor = id => {
+    const c = (parsed?.conflicts || []).find(x => x.id === id);
+    const m = menus.find(x => x.id === id);
+    return c && m && m.direction !== c.implied ? c : null;
+  };
 
-  async function flipDirection(id) {
+  /* REBUILD A THEME from scratch with a changed input.
+
+     Direction and conviction both move EVERY expression on a theme, not just
+     the shares leg: direction decides the ladder, the walls and puts versus
+     calls; conviction shifts the drift that prices every option AND is an
+     input to suggestStructures, so it can change which structures are
+     offered at all. Both therefore rebuild the menu.
+
+     Conviction used to go through setPref, which re-plans the shares leg
+     only. After a conviction change the "All expressions ranked" panel
+     compared a re-scored shares leg against option scores still priced at
+     the old conviction — the same two-paths-one-updated defect as the
+     42-day horizon. Execution and stop mode stay on setPref, correctly,
+     because they touch the shares leg and nothing else. */
+  async function rebuildTheme(id, patch, logAs) {
     const m = menus.find(x => x.id === id);
     if (!m) return;
-    const to = m.direction === "bearish" ? "bullish" : "bearish";
     setMerging(`flip::${id}`);
-    RunLog.info("ui", "theme.direction.flip", { id, from: m.direction, to, ticker: m.primary?.t });
+    RunLog.info("ui", logAs, { id, ticker: m.primary?.t,
+      ...Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, { from: m[k], to: v }])) });
     try {
-      const built = await buildMenu({ ...m, direction: to }, null, m.horizon || "weeks");
+      const built = await buildMenu({ ...m, ...patch }, null, m.horizon || "weeks");
       const next = menus.map(x => (x.id === id ? built : x));
       setMenus(next); setMenuCache(next);
       /* Selections referenced the old structures, which were priced for the
@@ -349,6 +371,12 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
         Object.entries(p.sel || {}).filter(([, v]) => v.themeId !== id)) }));
     } finally { setMerging(null); }
   }
+  const flipDirection = id => {
+    const m = menus.find(x => x.id === id);
+    return m && rebuildTheme(id, { direction: m.direction === "bearish" ? "bullish" : "bearish" },
+                             "theme.direction.flip");
+  };
+  const setConviction = (id, c) => rebuildTheme(id, { conviction: c }, "theme.conviction");
 
   /* Combine every theme sharing a driver into one. The debasement complex
      is one trade expressed three ways, not three trades — combining unions
@@ -590,7 +618,8 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
                 <span className="legtoggle" title="Shifts the whole distribution: 0.3 sigma low, 0.6 medium, 1.0 high. Read from the document's own emphasis; override where you disagree.">
                   {["low", "medium", "high"].map(c => (
                     <button key={c} className={(m.conviction || "medium") === c ? "on" : ""}
-                            onClick={() => setPref(m.id, "conviction", c)}>{c}</button>
+                            disabled={merging === `flip::${m.id}`}
+                            onClick={() => (m.conviction || "medium") !== c && setConviction(m.id, c)}>{c}</button>
                   ))}
                 </span>
                 <span className={`legtoggle ${forced ? "forced" : ""}`} title={why}>

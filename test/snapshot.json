@@ -1327,5 +1327,38 @@
   "flagged": false,
   "hits": [],
   "correct": true
+ },
+ "compose:order.immediate-first-then-score": {
+  "order": [
+   "IBIT:immediate",
+   "SLV:immediate",
+   "GLD:scaled"
+  ],
+  "printed": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
+  "excluded": [
+   "UUP"
+  ],
+  "nothingSilentlyDropped": true
+ },
+ "compose:gate.force-carry": {
+  "order": [
+   "IBIT:immediate",
+   "SLV:immediate",
+   "GLD:scaled",
+   "UUP:scaled"
+  ],
+  "printed": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
+  "excluded": [],
+  "nothingSilentlyDropped": true
  }
 }

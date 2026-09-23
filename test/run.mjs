@@ -35,7 +35,7 @@ const NOW = new Date(FROZEN);
    read the real clock for its expiry offsets while pricing.js read the
    frozen one — and the gap between them grows by a day every day. That is
    exactly what happened: prTdays moved 9.2 -> 10.2 overnight. */
-const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES, CORR_CASES, CLAIM_CASES } =
+const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES, CORR_CASES, CLAIM_CASES, COMPOSE_CASES } =
   await import("./fixtures.mjs");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -54,6 +54,7 @@ const { scalePlan, targets, scoreShares, entryWall, exitWall } =
 const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.js");
 const { buildLegs, priceStructure, scoreEconomics } = await import("../src/lib/pricing.js");
 const { analyzeCorrelation, correlationNote } = await import("../src/lib/correlation.js");
+const { composeNote } = await import("../src/lib/compose.js");
 const { checkVoice, checkImmediate, checkThemeOpening, checkExecutionGeneric, checkSourcedClaims } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
@@ -102,6 +103,24 @@ function chain(c) {
       callLadder: (v.callWalls || []).map(w => w.strike),
       putLadder: (v.putWalls || []).map(w => w.strike),
       iv30: v.iv30, contracts: v.contracts, ok: v.ok,
+    };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
+function compose(c) {
+  hush();
+  try {
+    const n = composeNote({ parsed: c.parsed, picks: c.picks, menus: c.menus, settings: c.settings });
+    return {
+      order: (n.etfOrder || []).map(r => `${r.label}:${r.immediate ? "immediate" : "scaled"}`),
+      printed: (n.themes || []).map(t => t.etf?.tk),
+      excluded: (n.weakLegs || []).map(w => w.tk),
+      /* The invariant the QC pass found broken in the UI: anything gated out
+         must be REPORTED, never merely absent. Every selected leg is either
+         in the order or in weakLegs. */
+      nothingSilentlyDropped: c.menus.every(m =>
+        (n.etfOrder || []).some(r => r.label === m.primary.t) ||
+        (n.weakLegs || []).some(w => w.tk === m.primary.t)),
     };
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
@@ -225,12 +244,13 @@ const now = {
   ...Object.fromEntries(ECON_CASES.map(c => ["econ:" + c.id, econ(c)])),
   ...Object.fromEntries(CORR_CASES.map(c => ["corr:" + c.id, corr(c)])),
   ...Object.fromEntries(CLAIM_CASES.map(c => ["claim:" + c.id, claim(c)])),
+  ...Object.fromEntries(COMPOSE_CASES.map(c => ["compose:" + c.id, compose(c)])),
 };
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length} cases -> test/snapshot.json`);
-  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && !k.startsWith("corr:") && !k.startsWith("claim:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("corr:") && v.warnsUpward === false) || (k.startsWith("claim:") && v.correct === false) || (k.startsWith("chain:") && !v.ok));
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases -> test/snapshot.json`);
+  const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && !k.startsWith("corr:") && !k.startsWith("claim:") && !k.startsWith("compose:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("corr:") && v.warnsUpward === false) || (k.startsWith("claim:") && v.correct === false) || (k.startsWith("compose:") && v.nothingSilentlyDropped === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
     for (const [id, v] of broken) console.log("  " + id.padEnd(32) + (v.ERROR ? "THREW: " + v.ERROR : "no expectancy"));
@@ -256,7 +276,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

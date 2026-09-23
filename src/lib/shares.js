@@ -13,7 +13,7 @@
    a question with an answer.
    ═══════════════════════════════════════════════════════════════════ */
 import RunLog from "./runlog.js";
-import { N, NORM, WEIGHTS_SCORE, nz } from "./pricing.js";
+import { NORM, WEIGHTS_SCORE, nz } from "./pricing.js";
 
 export const WEIGHTS   = [0.10, 0.15, 0.20, 0.25, 0.30];
 export const NEAR_WALL = 0.02;   // inside this there is no room to ladder

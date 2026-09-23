@@ -573,3 +573,44 @@ export const CLAIM_CASES = [
     why: "nothing to check against — must not flag everything",
     body: "An unexpected, unanimous, record hike." },
 ];
+
+/* ═══════════════════════════════════════════════════════════════════
+   composeNote — the note's final ORDER and what it EXCLUDES.
+
+   This decides what a client reads first and what never reaches the page,
+   and until v0.35.1 none of it was under test. The QC pass that added these
+   found two claims about it that were false: excluded legs were said to be
+   "retained with a reason" and overridable, when nothing rendered them and
+   no override existed.
+
+   Pinned here: immediate legs lead, score orders within each group, a leg
+   below MIN_EV_ON_RISK is excluded and REPORTED, and forceCarry lets the
+   analyst carry it anyway.
+   ═══════════════════════════════════════════════════════════════════ */
+const composeLeg = (id, tk, { execution = "scaled", score, ev, evOnRisk, direction = "bearish" }) => ({
+  id, subject: tk, direction, basis: "stated", evidence: "", rationale: "",
+  execution, stopMode: "wall", secondary: [], levered: [], structures: [],
+  vol: { iv30: 30, rv30: 30, callWall: null, putWall: null },
+  primary: { t: tk, price: 100, liq: "A",
+    plan: { execution, spot: 100, entry: 100, stop: 105, riskPct: 5, rungs: [{ px: 100, w: 1 }] },
+    tgt: { dn: 90, up: 110, struct: 95 },
+    shareScore: { score, expectancy: ev, evOnRisk, riskPct: 5, pStopped: 20, pop: 60 } },
+});
+const pickAll = menus => ({ sel: Object.fromEntries(menus.map(m =>
+  [`${m.id}:${m.primary.t}`, { themeId: m.id, ticker: m.primary.t, kind: "primary" }])) });
+
+const COMPOSE_MENUS = [
+  composeLeg("gold",  "GLD",  { execution: "scaled",    score: 0.81, ev: 5.5, evOnRisk: 0.76 }),
+  composeLeg("silver","SLV",  { execution: "immediate", score: 0.71, ev: 4.9, evOnRisk: 0.53 }),
+  composeLeg("crypto","IBIT", { execution: "immediate", score: 0.78, ev: 7.7, evOnRisk: 0.62 }),
+  composeLeg("dollar","UUP",  { execution: "scaled",    score: 0.57, ev: 0.24, evOnRisk: 0.044 }),
+];
+
+export const COMPOSE_CASES = [
+  { id: "order.immediate-first-then-score",
+    why: "IBIT and SLV are immediate and lead; GLD scores highest overall but is scaled, so it follows; UUP is gated out",
+    menus: COMPOSE_MENUS, settings: {} },
+  { id: "gate.force-carry",
+    why: "UUP at EV/risk 0.044 is below the gate; forceCarry must put it back in the note",
+    menus: COMPOSE_MENUS, settings: { forceCarry: ["UUP"] } },
+].map(c => ({ ...c, parsed: { themes: c.menus.map(m => ({ id: m.id })) }, picks: pickAll(c.menus) }));

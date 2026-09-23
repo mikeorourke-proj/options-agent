@@ -192,6 +192,42 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- QC PASS 0.35.1 — run against the UPLOADED zip, which after a container
+  reset was the only surviving copy of the code. Build, 68 fixtures and a
+  syntax sweep were green going in; the defects below all passed them.
+  CONVICTION DID NOT REACH THE OPTIONS. The control added in 0.34.0 routed
+  through setPref, which re-plans the shares leg only — but conviction moves
+  the drift that prices every option and is an input to suggestStructures.
+  After a conviction change, "All expressions ranked" compared a re-scored
+  shares leg against options priced at the old conviction. Same
+  two-paths-one-updated defect as the 42-day horizon. Direction and
+  conviction now both go through rebuildTheme(); execution and stop mode stay
+  on setPref, correctly, since they touch the shares leg alone.
+  EXCLUDED LEGS WERE DROPPED SILENTLY. In 0.28.0 I said gated legs were
+  "retained with a reason" and overridable. weakLegs was written to the note
+  object and the ledger and RENDERED NOWHERE; there was no override. A
+  selected leg below MIN_EV_ON_RISK simply vanished. The note builder now
+  lists them with the reason and a "carry anyway" button; compose honours
+  settings.forceCarry. forceCarry is in the model's useMemo deps — the other
+  settings are deliberately excluded to stop per-keystroke recomposes, and
+  without it the override would have silently done nothing.
+  THE CONFLICT FLAG NEVER CLEARED. It read a list computed at extraction, so
+  flipping direction resolved the conflict and left the amber flag beside
+  the toggle that fixed it. It now checks the CURRENT direction.
+  THE DRAFT SOURCE IS BOUNDED at 100,000 characters. An oversized source
+  would not merely silence the claim guard — thinkLong throws on a rejected
+  invoke, so it would stop drafting. Real sources run ~3,000.
+  Verified, not assumed: sourceText does reach the server (api.thinkLong
+  spreads extra into the body), so the claim guard is live; every
+  horizon-sensitive call passes a horizon; lint finds no real undefined
+  references (the 4 it reports are the Netlify runtime global and a
+  typeof-guarded BUILD_ID). Dead imports removed, including N in shares.js,
+  a leftover of the two-point model the quadrature replaced.
+  composeNote WAS UNTESTED — the logic deciding what a client reads first and
+  what never reaches the page. Now pinned (70 cases), with the invariant that
+  nothing is silently dropped: every selected leg is either ordered or
+  reported. Removing the override flips it false.
+
 - checkSourcedClaims (0.35.0) — the first guard that asks whether a CLAIM
   came from the source, rather than how it was phrased. On 17 Sep the
   summary opened "an unexpected hike restores its inflation-fighting

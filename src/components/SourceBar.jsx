@@ -1,4 +1,3 @@
-import RunLog from "../lib/runlog.js";
 
 /* Persistent header: what was parsed, and what is currently selected. */
 export default function SourceBar({ parsed, picks, onEdit }) {
