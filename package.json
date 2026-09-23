@@ -1,14 +1,15 @@
 {
   "name": "jones-tactical-note",
-  "version": "0.35.1",
+  "version": "0.36.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/run.mjs",
-    "test:record": "node test/run.mjs --record"
+    "test": "node test/run.mjs && npm run --silent test:render",
+    "test:record": "node test/run.mjs --record",
+    "test:render": "esbuild test/render.jsx --bundle --platform=node --format=esm --jsx=automatic --loader:.css=empty --log-level=error --external:react --external:react-dom --outfile=test/.render.mjs && node test/.render.mjs && rm -f test/.render.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "^8.0.0",

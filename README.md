@@ -192,6 +192,31 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- PAGE 2 REORDERED (0.36.0) to lead with what the client acts on:
+  1 Positioning Map, 2 ETF Expression, 3 Derivatives Expression,
+  4 Structure Notes, 5 Vehicle Screening, 6 Levered and Inverse
+  Alternatives, 7 Option Leg Detail.
+  EXHIBIT NUMBERS ARE COMPUTED (NoteView exNo), in page order, from what
+  renders. The derivatives exhibits exist only when an option is carried and
+  used to sit at the END, so a shares-only note simply stopped at 4. They now
+  sit in the MIDDLE, and fixed numbers would print a shares-only note as
+  Exhibits 1, 2, 5, 6.
+  Fixed a DEAD CROSS-REFERENCE found while moving them: the rail's "priced
+  alternatives are in Exhibit 6" appeared only when NO derivatives were
+  carried — exactly when Structure Notes does not render — so it pointed at
+  an exhibit that was never on the page. It now reads "shares only — no
+  derivatives carried alongside".
+  EXPIRIES READ AS DATES in the rail panel and the Derivatives Expression
+  exhibit: "10-30" -> "October 30th", matching the prose. Parsed from the
+  string, never through Date, so no timezone can shift the day; 11th-13th
+  handled. Option Leg Detail keeps the compact form — it is a ten-column
+  execution table.
+  test/render.jsx RENDERS THE NOTE (npm test runs it after the fixtures) and
+  checks exhibit names and numbering in three configurations plus the rail
+  expiry. It is the only test that renders JSX, so it is the only one that
+  could catch a numbering regression; reverting to fixed numbers fails two
+  of its three cases.
+
 - QC PASS 0.35.1 — run against the UPLOADED zip, which after a container
   reset was the only surviving copy of the code. Build, 68 fixtures and a
   syntax sweep were green going in; the defects below all passed them.

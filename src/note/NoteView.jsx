@@ -47,12 +47,42 @@ function Para({ lead, text, onChange, k, accepted, onAccept }) {
   );
 }
 
+
+/* "2026-10-30" -> "October 30th". The note's prose already writes expiries in
+   words, so the two derivatives tables printing "10-30" beside it read as a
+   different date format for the same thing. Parsed from the string, never
+   through Date, so no timezone can shift the day. */
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+function longExpiry(iso) {
+  const [, m, d] = String(iso || "").split("-").map(Number);
+  if (!m || !d) return iso || "";
+  const sfx = d % 100 >= 11 && d % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[d % 10] || "th");
+  return `${MONTHS[m - 1]} ${d}${sfx}`;
+}
+
 export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
   const { meta, themes, etfOrder, optOrder, risks, prose } = note;
   const T = Object.fromEntries(themes.map(t => [t.id, t]));
   const etfRows = etfOrder.map(r => T[r.themeId]).filter(Boolean);
   const optRows = optOrder.map(r => ({ t: T[r.themeId], o: T[r.themeId]?.options.find(x => x.id === r.structId) }))
                           .filter(x => x.t && x.o);
+
+  /* EXHIBIT NUMBERS ARE ASSIGNED BY WHAT RENDERS, in page order.
+     Three exhibits exist only when an option is carried and one only when a
+     levered fund is listed. They used to sit at the end, so a shares-only
+     note simply stopped at 4. In the current order they sit in the MIDDLE,
+     and fixed numbers would print a shares-only note as Exhibits 1, 2, 5, 6. */
+  const hasOpts = optRows.length > 0;
+  const EX_ORDER = [
+    ["map", true], ["etf", true], ["deriv", hasOpts], ["notes", hasOpts],
+    ["screen", true], ["lev", etfRows.some(t => t.levered.length)], ["legs", hasOpts],
+  ];
+  const exNo = key => {
+    let n = 0;
+    for (const [k, shown] of EX_ORDER) { if (shown) n++; if (k === key) return n; }
+    return null;
+  };
   const subjLine = meta.subjects.join("  ·  ");
 
   /* Page 1 is a fixed sheet: the analyst block, the disclaimer and the footer
@@ -232,7 +262,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <div className="rh">Derivatives Expression</div>
             <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "Net" : "Debit"}</th><th>Max gain</th></tr></thead><tbody>
               {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{t.etf.tk}</td>
-                <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {o.expiry.slice(5)}</td>
+                <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {longExpiry(o.expiry)}</td>
                 <td>${f(Math.abs(o.pricing.net) / 100)}{o.pricing.net < 0 ? " cr" : ""}</td>
                 <td className="g">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td></tr>)}
               {/* "No tradable chain" and "none carried" are different statements
@@ -246,7 +276,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                 to buy — so the note reads theme by theme. */}
             {optRows.length === 0 && <tr><td colSpan={4} className="note">
                 {etfRows.some(t => t.alternatives?.length)
-                  ? "no derivatives carried \u2014 priced alternatives are in Exhibit 6"
+                  ? "shares only \u2014 no derivatives carried alongside"
                   : "no tradable chain on the selected vehicles"}</td></tr>}
             </tbody></table>
 
@@ -321,29 +351,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
       <div className="page">
         <div className="rhead">Institutional Tactical Note — {meta.title}<span>{meta.date}</span></div>
 
-        <div className="exhblk"><div className="exh first">Exhibit 1: Vehicle Screening</div>
-        <table className="x"><thead><tr><th>Theme</th><th>Selected</th><th>Alternatives considered</th><th>Why not selected</th></tr></thead><tbody>
-          {etfRows.map(t => <tr key={t.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
-            <td>{t.screening.considered.join(" · ") || "—"}</td><td>{t.screening.whyNot || "no second vehicle with a usable chain"}</td></tr>)}
-        </tbody></table>
-        <div className="src">Vehicles selected on directness of exposure, options liquidity, dollar volume, and structural decay over the holding period.</div>
-        </div>
-
-        {etfRows.some(t => t.levered.length) && (
-          <div className="exhblk"><div className="exh">Exhibit 2: Levered and Inverse Alternatives — Not Recommended at This Horizon</div>
-          <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th>Leverage</th><th>Gamma X(X−1)</th><th>Suitability at {meta.holdWindow}</th></tr></thead><tbody>
-            {etfRows.flatMap(t => t.levered.map(l => <tr key={l.tk}><td>{t.etf.tk}</td><td>{l.tk}</td>
-              <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma}</td>
-              <td>days only — daily reset decay compounds over {meta.holdWindow}</td></tr>))}
-          </tbody></table>
-          <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets.
-            {etfRows.some(t => t.leveredCarried?.length)
-              ? " The funds listed above are the ones passed over; anything carried appears under Levered ETF Expression on page 1."
-              : " None is carried here."}</div>
-          </div>
-        )}
-
-        <div className="exhblk"><div className="exh">Exhibit 3: Positioning Map — Spot, Scale Range and Walls</div>
+        <div className="exhblk"><div className="exh first">Exhibit {exNo("map")}: Positioning Map — Spot, Scale Range and Walls</div>
         <div className="pm">
           {etfRows.map(t => {
             const v = t.vol, p = t.etf.plan; if (!v?.putWall || !v?.callWall || !p) return null;
@@ -369,7 +377,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           {etfRows.some(t => t.etf.plan?.noWall) && <> {etfRows.filter(t => t.etf.plan?.noWall).map(t => t.etf.tk).join(", ")} {etfRows.filter(t => t.etf.plan?.noWall).length > 1 ? "are" : "is"} absent from this map: with no option chain there are no walls to plot against.</>}</div>
         </div>
 
-        <div className="exhblk"><div className="exh">Exhibit 4: ETF Expression</div>
+        <div className="exhblk"><div className="exh">Exhibit {exNo("etf")}: ETF Expression</div>
         <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target Entry</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
@@ -391,10 +399,10 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             5 was not, so a shares-only note printed one lone table of column
             headers over an empty body. */}
         {optRows.length > 0 && (
-        <div className="exhblk"><div className="exh">Exhibit 5: Derivatives Expression</div>
+        <div className="exhblk"><div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression</div>
         <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Structure</th><th>Expiry</th><th>Legs</th><th>Net</th><th>Max gain</th><th>Breakeven</th><th>POP</th></tr></thead><tbody>
           {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
-            <td>{o.name}</td><td className="c">{o.expiry.slice(5)}</td><td className="c">{o.legText}</td>
+            <td>{o.name}</td><td className="c">{longExpiry(o.expiry)}</td><td className="c">{o.legText}</td>
             <td className="c">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
             <td className="c">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td>
             <td className="c">{o.pricing.breakevens.join(" / ") || "—"}</td><td className="c">{f(o.econ.pop, 1)}%</td></tr>)}
@@ -403,7 +411,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         </div>)}
 
         {optRows.length > 0 && <>
-          <div className="exhblk"><div className="exh">Exhibit 6: Structure Notes</div>
+          <div className="exhblk"><div className="exh">Exhibit {exNo("notes")}: Structure Notes</div>
           <table className="x"><thead><tr><th>Theme</th><th>Structure</th><th>Note</th></tr></thead><tbody>
             {optRows.flatMap(({ t, o }) => [
               <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td>{o.name}</td><td>{o.why}</td></tr>,
@@ -413,7 +421,32 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           <div className="src">The first structure under each theme is the one carried; the second is the nearest alternative.</div>
 
           </div>
-          <div className="exhblk"><div className="exh">Exhibit 7: Option Leg Detail</div>
+        </>}
+
+        <div className="exhblk"><div className="exh">Exhibit {exNo("screen")}: Vehicle Screening</div>
+        <table className="x"><thead><tr><th>Theme</th><th>Selected</th><th>Alternatives considered</th><th>Why not selected</th></tr></thead><tbody>
+          {etfRows.map(t => <tr key={t.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
+            <td>{t.screening.considered.join(" · ") || "—"}</td><td>{t.screening.whyNot || "no second vehicle with a usable chain"}</td></tr>)}
+        </tbody></table>
+        <div className="src">Vehicles selected on directness of exposure, options liquidity, dollar volume, and structural decay over the holding period.</div>
+        </div>
+
+        {etfRows.some(t => t.levered.length) && (
+          <div className="exhblk"><div className="exh">Exhibit {exNo("lev")}: Levered and Inverse Alternatives — Not Recommended at This Horizon</div>
+          <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th>Leverage</th><th>Gamma X(X−1)</th><th>Suitability at {meta.holdWindow}</th></tr></thead><tbody>
+            {etfRows.flatMap(t => t.levered.map(l => <tr key={l.tk}><td>{t.etf.tk}</td><td>{l.tk}</td>
+              <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma}</td>
+              <td>days only — daily reset decay compounds over {meta.holdWindow}</td></tr>))}
+          </tbody></table>
+          <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets.
+            {etfRows.some(t => t.leveredCarried?.length)
+              ? " The funds listed above are the ones passed over; anything carried appears under Levered ETF Expression on page 1."
+              : " None is carried here."}</div>
+          </div>
+        )}
+
+        {optRows.length > 0 && <>
+          <div className="exhblk"><div className="exh">Exhibit {exNo("legs")}: Option Leg Detail</div>
           <table className="x"><thead><tr><th></th><th>Action</th><th>Qty</th><th>Expiry</th><th>Strike</th><th>Type</th><th>Mark</th><th>Moneyness</th><th>Delta</th><th>OI</th></tr></thead><tbody>
             {optRows.flatMap(({ t, o }) => o.pricing.legDetail.map((L, i) => <tr key={t.id + o.id + i}>
               <td>{i === 0 ? `${t.etf.tk} ${o.name}` : ""}</td><td className="c">{L.action}</td><td className="c">{L.qty}</td>
