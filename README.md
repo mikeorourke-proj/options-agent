@@ -192,6 +192,22 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- VISUAL FIXES (0.36.1), checked by rendering the note in headless Chromium
+  against the real stylesheet, before and after — the first changes in this
+  project verified by looking at the page rather than reading the code.
+  TABLE HEADERS FOLLOW THEIR COLUMNS. Every table.x header was left-aligned
+  while most cells were centred, so "Expiry", "Net" and the rest sat at the
+  left edge of columns whose values were in the middle. Fixed in ETF
+  Expression, Derivatives Expression and Option Leg Detail (th.c).
+  SPOT IS RINGED AND BOLD on the positioning map, with a matching dot on the
+  axis. It is the reference every other mark on a row is measured from, and
+  on an immediate leg it was the only point on the line with no mark of its
+  own.
+  WALL LINES NO LONGER CUT THROUGH THEIR LABELS — they started 2mm down,
+  inside the label, so "380" read as "38|0". Now they start below it and are
+  centred on the strike.
+  test/render.jsx asserts both (spot marker per row, centred headers).
+
 - PAGE 2 REORDERED (0.36.0) to lead with what the client acts on:
   1 Positioning Map, 2 ETF Expression, 3 Derivatives Expression,
   4 Structure Notes, 5 Vehicle Screening, 6 Levered and Inverse

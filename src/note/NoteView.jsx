@@ -368,6 +368,11 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
               {!p.single && p.rungs.map((r, i) => <div className="rung" key={i} style={{ left: Xmm(r.px) }} />)}
               <div className="wall p" style={{ left: Xmm(lo) }} /><span className="lab p" style={{ left: Xmm(lo) }}>{lo}</span>
               <div className="wall c" style={{ left: Xmm(hi) }} /><span className="lab c" style={{ left: Xmm(hi) }}>{hi}</span>
+              {/* SPOT, ringed and bold. It is the reference every other mark on
+                  the row is measured from, and on an immediate leg it was the
+                  only point on the line with no mark of its own — just a grey
+                  number floating above the axis. */}
+              <div className="spot" style={{ left: Xmm(t.etf.price) }} />
               <span className="lab s" style={{ left: Xmm(t.etf.price) }}>{f(t.etf.price)}</span>
               {!p.single && <><div className="avg" style={{ left: Xmm(p.entry) }} /><span className="avgl" style={{ left: Xmm(p.entry) }}>avg {f(p.entry, 0)}</span></>}
             </div>;
@@ -378,7 +383,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         </div>
 
         <div className="exhblk"><div className="exh">Exhibit {exNo("etf")}: ETF Expression</div>
-        <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Execution</th><th>Scale band</th><th>Target Entry</th><th>Implied 1σ range</th><th>Stop out</th><th>Risk</th></tr></thead><tbody>
+        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th className="c">Execution</th><th className="c">Scale band</th><th className="c">Target Entry</th><th className="c">Implied 1σ range</th><th className="c">Stop out</th><th className="c">Risk</th></tr></thead><tbody>
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>
@@ -400,7 +405,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             headers over an empty body. */}
         {optRows.length > 0 && (
         <div className="exhblk"><div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression</div>
-        <table className="x"><thead><tr><th>Theme</th><th>ETF</th><th>Structure</th><th>Expiry</th><th>Legs</th><th>Net</th><th>Max gain</th><th>Breakeven</th><th>POP</th></tr></thead><tbody>
+        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max gain</th><th className="c">Breakeven</th><th className="c">POP</th></tr></thead><tbody>
           {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
             <td>{o.name}</td><td className="c">{longExpiry(o.expiry)}</td><td className="c">{o.legText}</td>
             <td className="c">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
@@ -447,7 +452,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
 
         {optRows.length > 0 && <>
           <div className="exhblk"><div className="exh">Exhibit {exNo("legs")}: Option Leg Detail</div>
-          <table className="x"><thead><tr><th></th><th>Action</th><th>Qty</th><th>Expiry</th><th>Strike</th><th>Type</th><th>Mark</th><th>Moneyness</th><th>Delta</th><th>OI</th></tr></thead><tbody>
+          <table className="x"><thead><tr><th></th><th className="c">Action</th><th className="c">Qty</th><th className="c">Expiry</th><th className="c">Strike</th><th className="c">Type</th><th className="c">Mark</th><th className="c">Moneyness</th><th className="c">Delta</th><th className="c">OI</th></tr></thead><tbody>
             {optRows.flatMap(({ t, o }) => o.pricing.legDetail.map((L, i) => <tr key={t.id + o.id + i}>
               <td>{i === 0 ? `${t.etf.tk} ${o.name}` : ""}</td><td className="c">{L.action}</td><td className="c">{L.qty}</td>
               <td className="c">{o.expiry.slice(5)}</td><td className="c">{L.strike}</td><td className="c">{L.type}</td>

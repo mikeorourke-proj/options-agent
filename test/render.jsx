@@ -43,9 +43,13 @@ for (const [label, o, l] of [["options + levered", true, true], ["shares only, l
   const numbersOk = got.every(([n], i) => n === i + 1);
   const namesOk = got.length === want.length && got.every(([, name], i) => name === want[i]);
   const railDate = o ? html.includes("Put spread \u00b7 October 30th") : true;
-  const ok = numbersOk && namesOk && railDate;
+  /* Every map row gets its own spot marker, and centred columns get centred
+     headers — both visual defects that no data-level test can see. */
+  const spots = (html.match(/class="spot"/g) || []).length === 2;
+  const heads = !o || html.includes('<th class="c">Expiry</th>');
+  const ok = numbersOk && namesOk && railDate && spots && heads;
   if (!ok) bad++;
-  console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${got.map(([n, x]) => `${n}.${x}`).join(" | ")}${o && !railDate ? "  [rail expiry not long-form]" : ""}`);
+  console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${got.map(([n, x]) => `${n}.${x}`).join(" | ")}${o && !railDate ? "  [rail expiry not long-form]" : ""}${!spots ? "  [spot marker missing]" : ""}${!heads ? "  [headers not aligned]" : ""}`);
 }
 if (bad) { console.log(`\n${bad} render check(s) failed`); process.exit(1); }
 console.log("render checks passed");

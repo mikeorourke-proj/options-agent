@@ -135,6 +135,10 @@ table.x tr:nth-child(odd) td { background: var(--n-alt); }
 table.x tr:last-child td { border-bottom: .25mm solid var(--n-navy); }
 table.x td:first-child { font-weight: 700; }
 table.x .c { text-align: center; }
+/* Headers follow their column. Every th was left-aligned over centred cells,
+   so "Expiry", "Net" and the rest sat at the left edge of a column whose
+   values were in the middle. */
+table.x th.c { text-align: center; }
 .src { font-style: italic; color: var(--n-muted); font-size: 6.1pt; margin: 1mm 0 0; line-height: 1.35; }
 
 /* positioning map */
@@ -144,10 +148,16 @@ table.x .c { text-align: center; }
 .pm .ax { position: absolute; left: 14mm; right: 16mm; top: 3.6mm; height: .15mm; background: var(--n-hair); }
 .pm .band { position: absolute; top: 2.9mm; height: 1.5mm; background: #CFE3F5; margin: 0; padding: 0; }
 .pm .rung { position: absolute; top: 2.7mm; height: 1.9mm; width: .25mm; background: #7FA8CE; }
-.pm .wall { position: absolute; top: 2mm; height: 3.3mm; width: .3mm; }
+.pm .wall { position: absolute; top: 2.55mm; height: 2.75mm; width: .3mm; transform: translateX(-50%); }
 .pm .wall.p { background: var(--n-green); } .pm .wall.c { background: var(--n-red); }
 .pm .lab { position: absolute; top: 0; transform: translateX(-50%); font-size: 5.7pt; }
-.pm .lab.p { color: var(--n-green); } .pm .lab.c { color: var(--n-red); } .pm .lab.s { color: #444C57; }
+.pm .lab.p { color: var(--n-green); } .pm .lab.c { color: var(--n-red); }
+/* Spot: bold, ringed, and sitting on a white ground so the axis does not run
+   through it. */
+.pm .lab.s { color: #1F2A36; font-weight: 700; top: -.35mm; line-height: 1; padding: .3mm 1mm;
+             border: .2mm solid #1F2A36; border-radius: 99mm; background: #fff; }
+.pm .spot { position: absolute; top: 2.95mm; width: 1.35mm; height: 1.35mm; transform: translateX(-50%);
+            border-radius: 50%; background: #fff; border: .3mm solid #1F2A36; box-sizing: border-box; z-index: 2; }
 .pm .avg { position: absolute; top: 1.9mm; height: 3.6mm; width: .35mm; background: var(--n-navy); }
 .pm .avgl { position: absolute; top: 5.7mm; transform: translateX(-50%); color: var(--n-navy); font-weight: 700; font-size: 5.7pt; }
 .pm .tgt { position: absolute; right: 0; top: 2.2mm; color: var(--n-blue); }
