@@ -192,6 +192,37 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- FUND ORDER WITHIN A THEME; FROM THE FIRST PRINTED PDF (0.40.0).
+  NEAREST ITS WALL FIRST. Among several funds expressing one view, the one
+  nearest the wall that matters (call wall for a bearish idea, put wall for a
+  bullish one) is listed first: SOXX 2.2% under its call wall against SMH 11%
+  under its own, 5 Oct. environment.js orderByWallProximity; WALL_TIE_PCT = 2,
+  so funds within two points of the group's nearest are tied and keep their
+  incoming order (primary first) — the same leader-and-band rule as theme
+  ordering. No wall goes last. The preference is ORDER ONLY: the note may not
+  call one fund better, and the ranking check flags it if the drafter does.
+  LIKE WITH LIKE. A combined theme can carry two markets. Funds are grouped
+  by market (the universe's first anchor: hy-credit, semis), markets in
+  arrival order, and the nearest-wall rule applies inside each. 5 Oct printed
+  HYG, SMH, SOXX, JNK; it now reads HYG, JNK, SOXX, SMH.
+  THE LEAD FUND DOES NOT MOVE. theme.etf/vol/wall/env stay with the primary,
+  so ordering, the gate and the ledger are untouched by print order. Each
+  option now carries `underlying` (always the primary — structures are priced
+  on its chain); Exhibit 3 printed the theme's first fund, which would have
+  mislabelled a structure the moment another fund printed first.
+  STRUCTURE NOTES DESCRIBE. strategy.js `why` strings print in Exhibit 3 and
+  reach the drafter; "Sell into the 75 put wall" was on a client page. All
+  rewritten in descriptive voice ("The short strike sits on the 75 put
+  wall, which holds 26.3% of near-dated put open interest").
+  THE OPTION IN A SENTENCE. The paragraph read "the November 20, 2026 +1 77P /
+  -1 75P put spread, at a debit of 0.5". The drafter's model now carries the
+  expiry in words (lib/dates.js, shared with the page), the underlying, the
+  strikes as "77/75", and premiums to two decimals; a `notation` voice check
+  flags raw leg notation.
+  TABLE. A long combined theme name set nowrap squeezed every other column of
+  the ETF table onto two and three lines; the theme cell now wraps.
+  125 cases.
+
 - WALLS ON SPARSE CHAINS; EVERY COLUMN IN THE KEY (0.39.2).
   JNK PRINTED NO WALLS AND IT HAD OPEN INTEREST. The 0.39.1 note above says
   JNK had "no open interest at any strike". That was wrong, and it was read

@@ -8,7 +8,7 @@ import StepNote from "./steps/StepNote.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.39.2";
+export const VERSION = "0.40.0";
 
 const STEPS = [
   { id: "source",    label: "Source" },

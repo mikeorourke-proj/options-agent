@@ -210,9 +210,17 @@ VOICE — every rule is checked mechanically after you write:
          implied against realised volatility, the average daily move, where price sits in its
          three-month range, the next concentration of open interest beyond the wall. Choose
          the two or three that matter most for this theme; do not list them all. State them
-         as facts and draw no instruction from them. Then, if an option structure is carried:
-         "Investors who prefer a defined-risk expression could consider the <expiry in words>
-         <legs> <structure>, at a debit of X, a maximum loss of X and a maximum gain of Y."
+         as facts and draw no instruction from them. Then, if an option structure is carried,
+         write it from the model's own fields, exactly as given:
+         "Investors who prefer a defined-risk expression could consider the <expiry>
+         <underlying> <strikes> <structure, lower case>, at a debit of <net>, a maximum loss
+         of <maxLoss> and a maximum gain of <maxGain>." — for example "the November 20th HYG
+         77/75 put spread, at a debit of 0.50, a maximum loss of 0.50 and a maximum gain of
+         1.50". Use expiry as given (no year), name the underlying, and never write raw leg
+         notation such as "+1 77P / -1 75P". Keep both decimals on every premium.
+     ORDER. Where a theme carries several ETFs they are given in a deliberate order. Keep
+     it — in the expression sentence and in the wall sentences — and do not explain it or
+     compare the funds.
    NO WALL. A leg whose etf.wall is noWall has no level to cite — never give one. Where it
    is also noChain there is no option-implied range either; give the range as rangeBasis
    labels it. Do not treat the
@@ -444,6 +452,9 @@ export const VOICE_CHECKS = [
      still caught, by "scale" outside the sanctioned phrase. */
   { id: "instruction", re: /\b(?:look(?:ing)? to (?:buy|sell)|scale (?:sales|purchases)|(?:investors|clients|traders|readers|we) (?:should|must|need to)|we would (?:buy|sell|scale)|weighted[- ]average|position siz\w+|take profits?)\b/i,
     msg: "execution instruction — commentary leaves how to trade to the client" },
+  /* Order-ticket notation in a sentence: "+1 77P / -1 75P". */
+  { id: "notation", re: /[+\-\u2212]\d+\s+\d+(?:\.\d+)?[PC]\b/,
+    msg: "raw leg notation — write the strikes as 77/75" },
   { id: "management", re: /\b(?:stop[- ]loss(?:es)?|stops? (?:at|out|beyond)|stopped out|ends the trade|\d+(?:\.\d+)?% of risk|risk of \d|hold(?:ing)? (?:period|window)|hold for|over the hold|execute (?:over|within))\b/i,
     msg: "trade management — commentary carries no stop, risk figure or holding period" },
   /* Direction, not position. Deliberately anchored on "we would" so it cannot

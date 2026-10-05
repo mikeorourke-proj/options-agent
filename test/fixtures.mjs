@@ -380,6 +380,13 @@ export const VOICE_CASES = [
   { id: "multi.credit-vocabulary", subject: "Credit", expect: "clean",
     body: "Spreads on the lower rungs of the quality ladder have stopped tightening, and the equity tranche of new deals is clearing wider. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." },
 
+  /* The option in a sentence (0.40.0): underlying, expiry in words, strikes
+     as 77/75, premiums to two decimals — never order-ticket notation. */
+  { id: "option.house-wording", subject: "Credit", expect: "clean",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against. Investors who prefer a defined-risk expression could consider the November 20th HYG 77/75 put spread, at a debit of 0.50, a maximum loss of 0.50 and a maximum gain of 1.50." },
+  { id: "option.raw-leg-notation", subject: "Credit", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against. Investors who prefer a defined-risk expression could consider the November 20, 2026 +1 77P / -1 75P put spread, at a debit of 0.5." },
+
   /* Opening shape, unchanged from 0.37. */
   { id: "opening.direction-inverted", subject: "Gold", expect: "flag",
     body: "Haven demand is unwinding as real yields rise. We are bullish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
@@ -423,6 +430,31 @@ export const VOICE_CASES = [
     body: "A rate hike that restores policy credibility steadies Treasuries and removes the case for their substitutes. The havens that gained from doubt about the dollar lose most as that doubt recedes." },
   { id: "summary.instructs", section: "summary", expect: "flag",
     body: "The havens lose their bid as policy credibility returns, and investors should look to sell strength across the metals with a stop-loss above the highs." },
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   The fund nearest its wall is listed first (0.40.0).
+
+   Each case is [ticker, distance to the relevant wall in %, or null for no
+   wall], in the order compose hands them over (primary first). The rule:
+   nearest first; anything within 2 points of the group's nearest is a tie
+   and keeps its incoming order; no wall goes last.
+   ═══════════════════════════════════════════════════════════════════ */
+export const PROX_CASES = [
+  /* 5 Oct, as printed: HYG, SMH, SOXX, JNK. SOXX is 2.2% under its call wall
+     and SMH 11% under its own, so SOXX belongs ahead of SMH. HYG at 2.7% is
+     within the band of SOXX and, being the primary, stays first. */
+  { id: "5oct.soxx-ahead-of-smh", legs: [["HYG", 2.7], ["SMH", 11], ["SOXX", 2.2], ["JNK", null]] },
+  /* A secondary clearly nearer than the primary moves ahead of it. */
+  { id: "secondary-clearly-nearer", legs: [["TLT", 7.9], ["EDV", 1.5]] },
+  { id: "all-tied-keeps-order", legs: [["A", 3.0], ["B", 2.1], ["C", 3.9]] },
+  /* The band is measured from each group's nearest, not chained: 1, 2.9
+     and 4.8 are not one group just because each is within 2 of the last. */
+  { id: "band-does-not-chain", legs: [["A", 4.8], ["B", 2.9], ["C", 1.0]] },
+  { id: "boundary.exactly-two-points", legs: [["A", 4.0], ["B", 2.0]] },
+  { id: "boundary.just-over", legs: [["A", 4.1], ["B", 2.0]] },
+  { id: "no-walls-anywhere", legs: [["A", null], ["B", null]] },
+  { id: "single-fund", legs: [["A", 5]] },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -754,15 +786,34 @@ const composeLeg = (id, tk, { execution = "scaled", score, ev, evOnRisk, directi
 const pickAll = menus => ({ sel: Object.fromEntries(menus.map(m =>
   [`${m.id}:${m.primary.t}`, { themeId: m.id, ticker: m.primary.t, kind: "primary" }])) });
 
-function MULTI_MENU({ chain, callOI = 9000 }) {
+function MULTI_MENU({ chain, callOI = 9000, jnkCall = 95, hygCall = 79, withOption = false }) {
   const m = composeLeg("credit", "HYG", { execution: "scaled", score: 0.66, ev: 1.0, evOnRisk: 0.3 });
-  m.vol = { iv30: 7.2, rv30: 6, callWall: 79, putWall: 75, callWallOI: 129888, putWallOI: 241740 };
+  m.vol = { iv30: 7.2, rv30: 6, callWall: hygCall, putWall: 75, callWallOI: 129888, putWallOI: 241740 };
+  if (withOption) m.structures = [{ id: "ps", name: "Put spread", expiry: "2026-11-20", legText: "+1 77P / -1 75P", why: "x",
+    econ: { ev: 30, score: 0.6 }, pricing: { net: 50, risk: 50, maxGain: 150, maxLoss: -50, maxLossFull: -50, lossUnbounded: false,
+      gainUnbounded: false, uncapped: false, breakevens: [76.5], priceSource: "last trade" } }];
   m.primary.price = 76.9;
   m.secondary = [{ t: "JNK", n: "SPDR High Yield", price: 92.39, liq: "X",
     closes: Array.from({ length: 70 }, (_, i) => 92 + (i % 5) * 0.3),
     shareScore: { score: 0.63, expectancy: 0.6, evOnRisk: 0.3, riskPct: 5 }, plan: {}, tgt: {},
     vol: { iv30: null, rv30: 4.4, rvWindow: 30, putWall: null, callWall: null },
-    ...(chain ? { chainLiq: "C", chainVol: { iv30: 6.1, rv30: 4.4, rr25: -0.8, putWall: 90, callWall: 95, putWallOI: 4100, callWallOI: callOI } } : { chainLiq: "X" }) }];
+    ...(chain ? { chainLiq: "C", chainVol: { iv30: 6.1, rv30: 4.4, rr25: -0.8, putWall: 90, callWall: jnkCall, putWallOI: 4100, callWallOI: callOI } } : { chainLiq: "X" }) }];
+  return m;
+}
+
+function FIVE_OCT_MENU() {
+  const m = composeLeg("credit", "HYG", { execution: "scaled", score: 0.66, ev: 1.0, evOnRisk: 0.3 });
+  m.vol = { iv30: 7.2, rv30: 4.3, callWall: 79, putWall: 75, callWallOI: 129888, putWallOI: 241740 };
+  m.primary.price = 76.9;
+  const sec = (t, price, chainVol, liq) => ({ t, n: t, price, liq: "A", closes: Array.from({ length: 70 }, (_, i) => price * (0.97 + (i % 7) * 0.005)),
+    shareScore: { score: 0.6, expectancy: 1, evOnRisk: 0.3, riskPct: 5 }, plan: {}, tgt: {},
+    vol: { iv30: null, rv30: 30, rvWindow: 30, putWall: null, callWall: null }, chainLiq: liq, chainVol });
+  m.secondary = [
+    sec("SMH", 630.62, { iv30: 31.7, rv30: 31.5, putWall: 630, callWall: 700, putWallOI: 21372, callWallOI: 25345 }, "A"),
+    sec("SOXX", 586.87, { iv30: 36.8, rv30: 35.7, putWall: 500, callWall: 600, putWallOI: 14712, callWallOI: 9911 }, "A"),
+    sec("JNK", 92.39, { iv30: 10, rv30: 4.4, putWall: null, callWall: null,
+      display: { putWall: 92, putWallOI: 8, callWall: 94, callWallOI: 143, putWalls: [], callWalls: [] } }, "C"),
+  ];
   return m;
 }
 
@@ -791,9 +842,28 @@ export const COMPOSE_CASES = [
   { id: "multi.secondary-thin-walls",
     why: "the secondary's chain exists but its call wall holds 180 contracts — treated as no wall",
     menus: [MULTI_MENU({ chain: true, callOI: 180 })], settings: {}, alsoPick: [["credit", "JNK"]] },
+  /* 0.40.0 — print order follows wall proximity, the theme's lead fund does
+     not. JNK's call wall is moved to 0.7% away against HYG's 2.7%: within
+     the 2-point band, so HYG stays first. */
+  { id: "multi.near-tie-primary-stays-first",
+    why: "secondary 0.7% from its wall, primary 2.7% — a tie, so the incoming order holds",
+    menus: [MULTI_MENU({ chain: true, jnkCall: 93 })], settings: {}, alsoPick: [["credit", "JNK"]] },
+  /* HYG's call wall pushed out to 12% away: JNK, 2.8% from its own, now
+     prints first — and the option still belongs to HYG. */
+  { id: "multi.secondary-nearer-prints-first",
+    why: "primary 12% from its wall, secondary 2.8% — the secondary leads the sentence and the table",
+    menus: [MULTI_MENU({ chain: true, hygCall: 86, withOption: true })], settings: {}, alsoPick: [["credit", "JNK"]], pickOption: [["credit", "ps"]] },
+  /* 5 OCT AS RUN: one combined theme, HYG primary, secondaries SMH, SOXX
+     and JNK in that menu order. Printed HYG, SMH, SOXX, JNK. It should
+     read HYG, JNK (credit together), then SOXX, SMH (semiconductors
+     together, SOXX first: 2.2% under its call wall against SMH's 11%). */
+  { id: "multi.5oct-grouped-by-market",
+    why: "credit funds together, semiconductor funds together, nearest wall first inside each",
+    menus: [FIVE_OCT_MENU()], settings: {}, alsoPick: [["credit", "SMH"], ["credit", "SOXX"], ["credit", "JNK"]] },
   { id: "multi.secondary-alone",
     why: "only the secondary is ticked: it is the fund carried, and the primary is not printed",
     menus: [MULTI_MENU({ chain: true })], settings: {}, only: [["credit", "JNK", "secondary"]] },
 ].map(c => ({ ...c, parsed: { themes: c.menus.map(m => ({ id: m.id })) },
   picks: c.only ? { sel: Object.fromEntries(c.only.map(([id, tk, kind]) => [`${id}|${kind}|${tk}`, { themeId: id, ticker: tk, kind }])) }
-       : { sel: { ...pickAll(c.menus).sel, ...Object.fromEntries((c.alsoPick || []).map(([id, tk]) => [`${id}|secondary|${tk}`, { themeId: id, ticker: tk, kind: "secondary" }])) } } }));
+       : { sel: { ...pickAll(c.menus).sel, ...Object.fromEntries((c.alsoPick || []).map(([id, tk]) => [`${id}|secondary|${tk}`, { themeId: id, ticker: tk, kind: "secondary" }])),
+                  ...Object.fromEntries((c.pickOption || []).map(([id, st]) => [`${id}|option|${st}`, { themeId: id, ticker: st, kind: "option" }])) } } }));

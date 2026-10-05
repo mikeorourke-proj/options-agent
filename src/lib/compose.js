@@ -8,7 +8,14 @@
 import RunLog from "./runlog.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT, MIN_EV_ON_RISK } from "./ordering.js";
 import { analyzeCorrelation, correlationNote } from "./correlation.js";
-import { wallContext, wallSentence, expressionSentence, environment, consequentialWalls } from "./environment.js";
+import { wallContext, wallSentence, expressionSentence, environment, consequentialWalls, orderByWallProximity } from "./environment.js";
+import { longExpiry, strikesText } from "./dates.js";
+import { ETF_UNIVERSE } from "../data/etf-universe.js";
+
+/* The market a fund belongs to — "hy-credit", "semis" — from the universe.
+   Used only to keep like with like when one theme carries several markets. */
+const MARKET = Object.fromEntries(ETF_UNIVERSE.map(e => [e.t, e.a?.[0] ?? null]));
+const marketOf = x => x?.a?.[0] ?? MARKET[x?.t] ?? null;
 
 /* Round numbers stay round in the prose. toFixed(2) turned a 600 strike into
    "$600.00", which reads as false precision on a level that is exactly round.
@@ -21,6 +28,7 @@ const fmt = (n, d = 2) => {
   return d > 0 && /\./.test(s) ? s.replace(/\.?0+$/, "") : s;
 };
 const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+const money = n => n == null || !isFinite(n) ? "—" : Number(n).toFixed(2);
 
 /* The five fields the analyst types. Every one is passthrough: none reaches
    an ordering, a price or a plan, and meta is assembled after all of that is
@@ -65,7 +73,11 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
     if (!carriedEtfs.length && m.primary) carriedEtfs = [m.primary];
     const etf = carriedEtfs[0] || null;
     const optSel = chosen.filter(c => c.themeId === id && c.kind === "option");
-    const options = optSel.map(o => (m.structures || []).find(st => st.id === o.ticker)).filter(Boolean);
+    /* Each structure carries the fund it is written on. Structures are
+       priced on the primary's chain only, so that is always the primary —
+       stated here rather than inferred from whichever fund prints first. */
+    const options = optSel.map(o => (m.structures || []).find(st => st.id === o.ticker)).filter(Boolean)
+      .map(o => ({ ...o, underlying: m.primary?.t }));
     const alternatives = (m.structures || []).filter(st => !options.some(o => o.id === st.id));
     const levSel = chosen.filter(c => c.themeId === id && c.kind === "levered").map(c => c.ticker);
 
@@ -77,22 +89,40 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
        Walls too thin to matter are removed here, once, so the sentence, the
        map and the table cannot disagree about whether one exists. */
     const named = carriedEtfs.length > 1;
-    const legs = carriedEtfs.map(x => {
+    const legsIn = carriedEtfs.map(x => {
       const isPrimary = x.t === m.primary?.t;
       const v = consequentialWalls(isPrimary ? m.vol : (x.chainVol || x.vol));
       const w = wallContext(x.price, v, m.direction);
-      return { tk: x.t, name: x.name || x.n, price: x.price, primary: isPrimary,
+      return { tk: x.t, name: x.name || x.n, price: x.price, primary: isPrimary, market: marketOf(x),
                liq: isPrimary ? x.liq : (x.chainLiq || "X"),
                vol: v, wall: w, env: environment({ spot: x.price, vol: v, closes: x.closes }),
                wallSentence: wallSentence(x.t, w, { named }) };
     });
-    const volCarried = legs[0]?.vol ?? m.vol;
-    const wall = legs[0]?.wall ?? null, env = legs[0]?.env ?? null;
+    /* Print order: nearest its wall first (environment.js). The theme's own
+       vol/wall/env stay with the LEAD fund — the primary where it is
+       carried — because ordering, the gate and the ledger are built on
+       that fund and must not move when the print order does. */
+    /* LIKE WITH LIKE FIRST (0.40.0). A combined theme can carry two markets
+       — high yield credit and semiconductors on 5 Oct — and its funds are
+       then two sets of alternatives, not one: HYG or JNK, and SMH or SOXX.
+       Interleaving them by wall distance alone (HYG, SOXX, SMH, JNK) reads
+       as four unrelated tickers. So funds are grouped by market, markets in
+       the order they arrive (the primary's first), and the nearest-wall
+       rule is applied INSIDE each market. A fund the universe cannot place
+       forms a group of its own kind (null) and is unaffected. */
+    const markets = [...new Set(legsIn.map(l => l.market))];
+    const legs = markets.flatMap(mk => orderByWallProximity(legsIn.filter(l => l.market === mk)));
+    if (legs.length > 1 && legs.some((l, i) => l.tk !== legsIn[i].tk))
+      RunLog.info("calc", "funds.ordered", { theme: id, direction: m.direction, rule: "grouped by market, nearest wall first within each",
+        from: legsIn.map(l => l.tk), to: legs.map(l => `${l.tk}[${l.market ?? "?"}]:${l.wall?.none ? "no wall" : l.wall.distancePct + "%"}`) });
+    const leadLeg = legsIn[0];
+    const volCarried = leadLeg?.vol ?? m.vol;
+    const wall = leadLeg?.wall ?? null, env = leadLeg?.env ?? null;
 
     return {
       id, subject: m.subject, direction: m.direction, basis: m.basis,
       legs, expressionSentence: expressionSentence(legs.map(l => l.tk)),
-      wall, env, wallSentence: legs[0]?.wallSentence ?? null,
+      wall, env, wallSentence: leadLeg?.wallSentence ?? null,
       evidence: m.evidence, rationale: m.rationale, catalyst: m.catalyst,
       execution: m.execution || "scaled", stopMode: m.stopMode || "wall",
       etf: etf ? {
@@ -303,14 +333,19 @@ export function draftContext(note) {
       })(),
       vol: t.vol && { rr25: t.vol.rr25, term: t.vol.termSlope },
       options: t.options.map(o => ({
-        structure: o.name, expiry: o.expiry, legs: o.legText,
-        net: fmt(Math.abs(o.pricing.net) / 100), debitOrCredit: o.pricing.net > 0 ? "debit" : "credit",
-        maxGain: (o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : fmt(o.pricing.maxGain / 100),
+        /* As it should read in a sentence: the fund it is written on, the
+           expiry in words, the strikes as "77/75". Premiums keep two
+           decimals — `fmt` drops trailing zeros, right for a 600 strike and
+           wrong for money: "a debit of 0.5" printed on 5 Oct. */
+        underlying: o.underlying || t.etf?.tk, structure: o.name, expiry: longExpiry(o.expiry),
+        ...(strikesText(o.legText) ? { strikes: strikesText(o.legText) } : { legs: o.legText }),
+        net: money(Math.abs(o.pricing.net) / 100), debitOrCredit: o.pricing.net > 0 ? "debit" : "credit",
+        maxGain: (o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : money(o.pricing.maxGain / 100),
         /* Max loss travels with max gain (Rule 2220 balance). POP does NOT
            reach the drafter: it is a projected outcome, which market
            commentary may not carry. It stays on screen and in the ledger. */
         maxLoss: o.pricing.lossUnbounded ? "unlimited"
-          : fmt(Math.abs(Math.min(0, o.pricing.maxLossFull ?? o.pricing.maxLoss)) / 100),
+          : money(Math.abs(Math.min(0, o.pricing.maxLossFull ?? o.pricing.maxLoss)) / 100),
         breakeven: (o.pricing.breakevens || []).join(" / ") || null,
         why: o.why,
       })),

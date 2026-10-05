@@ -254,3 +254,8 @@ table.x th.c { text-align: center; }
 .np.compact .sig { margin-top: 1.6mm; }
 .key.wide div { padding-left: 25mm; text-indent: -25mm; }
 .key.wide div b { width: 25mm; text-indent: 0; }
+/* 0.40.0 — a long theme name ("High-Yield Corporate Credit · Semiconductors")
+   set nowrap pushed every other column of the ETF table onto two and three
+   lines. The theme cell wraps; the numbers do not. */
+.np table.x td:first-child { white-space: normal; max-width: 40mm; }
+.np table.x.lv th { white-space: nowrap; }

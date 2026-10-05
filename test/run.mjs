@@ -35,7 +35,7 @@ const NOW = new Date(FROZEN);
    read the real clock for its expiry offsets while pricing.js read the
    frozen one — and the gap between them grows by a day every day. That is
    exactly what happened: prTdays moved 9.2 -> 10.2 overnight. */
-const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, WALL_CASES, SKEW_CASES, ECON_CASES, CORR_CASES, CLAIM_CASES, COMPOSE_CASES } =
+const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, WALL_CASES, PROX_CASES, SKEW_CASES, ECON_CASES, CORR_CASES, CLAIM_CASES, COMPOSE_CASES } =
   await import("./fixtures.mjs");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +55,7 @@ const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.j
 const { buildLegs, priceStructure, scoreEconomics } = await import("../src/lib/pricing.js");
 const { analyzeCorrelation, correlationNote } = await import("../src/lib/correlation.js");
 const { composeNote, draftContext } = await import("../src/lib/compose.js");
-const { wallContext, wallSentence, environment, consequentialWalls } = await import("../src/lib/environment.js");
+const { wallContext, wallSentence, environment, consequentialWalls, orderByWallProximity } = await import("../src/lib/environment.js");
 const { checkVoice, checkWallSentence, checkThemeOpening, checkSourcedClaims } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
@@ -135,6 +135,11 @@ function compose(c) {
       funds: (n.themes || []).map(t => (t.legs || []).map(l => `${l.tk}${l.primary ? "" : "*"}:${l.liq}`).join(",")),
       expression: (n.themes || []).map(t => t.expressionSentence),
       drafterFunds: draftContext(n).themes.map(t => (t.etfs || []).map(e => e.ticker).join(",")),
+      /* The theme's lead fund (ordering, gate, ledger) must NOT follow the
+         print order, and an option names the fund it is written on. */
+      leadFund: (n.themes || []).map(t => t.etf?.tk),
+      drafterOptions: draftContext(n).themes.flatMap(t => t.options.map(o =>
+        `${o.expiry} ${o.underlying} ${o.strikes ?? o.legs} ${o.structure} ${o.net} / ${o.maxLoss} / ${o.maxGain}`)),
       drafterEtfKeys: Object.keys(draftContext(n).themes[0]?.etf || {}).sort(),
       drafterLeaks: (JSON.stringify(draftContext(n), (k, v) => k === "wallSentence" || k === "risks" ? undefined : v)
         .match(/stop|riskPct|scaleTo|weighted|entry|executeWindow|holdWindow|"execution"|"pop"/gi) || []),
@@ -269,12 +274,20 @@ function wall(c) {
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
 
+function prox(c) {
+  try {
+    const legs = c.legs.map(([tk, d]) => ({ tk, wall: d == null ? { none: true } : { distancePct: d } }));
+    return { order: orderByWallProximity(legs).map(l => l.tk) };
+  } catch (e) { return { ERROR: e.message }; }
+}
+
 const now = {
   ...Object.fromEntries(CASES.map(c => [c.id, score(c)])),
   ...Object.fromEntries(CHAIN_CASES.map(c => ["chain:" + c.id, chain(c)])),
   ...Object.fromEntries(EXPIRY_CASES.map(c => ["expiry:" + c.id, expiry(c)])),
   ...Object.fromEntries(VOICE_CASES.map(c => ["voice:" + c.id, voice(c)])),
   ...Object.fromEntries(WALL_CASES.map(c => ["wall:" + c.id, wall(c)])),
+  ...Object.fromEntries(PROX_CASES.map(c => ["prox:" + c.id, prox(c)])),
   ...Object.fromEntries(SKEW_CASES.map(c => ["skew:" + c.id, skew(c)])),
   ...Object.fromEntries(ECON_CASES.map(c => ["econ:" + c.id, econ(c)])),
   ...Object.fromEntries(CORR_CASES.map(c => ["corr:" + c.id, corr(c)])),
@@ -284,7 +297,7 @@ const now = {
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + WALL_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases -> test/snapshot.json`);
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + WALL_CASES.length + PROX_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases -> test/snapshot.json`);
   const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && !k.startsWith("corr:") && !k.startsWith("claim:") && !k.startsWith("compose:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("corr:") && v.warnsUpward === false) || (k.startsWith("claim:") && v.correct === false) || (k.startsWith("compose:") && v.nothingSilentlyDropped === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
@@ -311,7 +324,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + WALL_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + WALL_CASES.length + PROX_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

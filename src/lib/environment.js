@@ -183,3 +183,31 @@ export function environment({ spot, vol, closes = [] }) {
     vsMa50Pct: ma50 ? r1((spot / ma50 - 1) * 100) : null,
   };
 }
+
+/* THE FUND NEAREST ITS WALL IS LISTED FIRST (0.40.0).
+   A seller wants resistance close overhead and a buyer wants support close
+   beneath, so among several funds expressing one view the one sitting
+   nearest the wall that matters is the more natural place to start: SOXX
+   2.2% under its call wall against SMH 11% under its own, 5 Oct.
+   The preference is expressed as ORDER and nothing else. The note may not
+   call one fund "better" — that is ranking a security — so the order of the
+   sentence and the table carries it, as the order of themes always has.
+   Small differences are not a preference: funds within WALL_TIE_PCT of the
+   group's nearest are tied and keep the order they came in (primary first),
+   the same leader-and-band rule the theme ordering uses. A fund with no
+   wall on the relevant side has nothing to be near and goes last. */
+export const WALL_TIE_PCT = 2;
+export function orderByWallProximity(legs) {
+  const has = [], none = [];
+  (legs || []).forEach((l, i) => (l.wall && !l.wall.none && l.wall.distancePct != null ? has : none).push({ l, i }));
+  has.sort((a, b) => a.l.wall.distancePct - b.l.wall.distancePct || a.i - b.i);
+  const out = [];
+  for (let k = 0; k < has.length;) {
+    const lead = has[k].l.wall.distancePct;
+    let j = k;
+    while (j < has.length && has[j].l.wall.distancePct - lead <= WALL_TIE_PCT) j++;
+    out.push(...has.slice(k, j).sort((a, b) => a.i - b.i));
+    k = j;
+  }
+  return [...out, ...none].map(x => x.l);
+}

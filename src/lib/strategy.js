@@ -39,6 +39,10 @@ export function suggestStructures(view, v, rv, {
   if (!expiry) return [];
   const days = expiry ? dte(expiry) : null;
   const out = [];
+  /* THE `why` STRINGS PRINT (Exhibit 3, Note) and reach the drafter, so they
+     DESCRIBE a structure and never instruct: "the short strike sits on the
+     75 put wall", not "sell into the 75 put wall". Rewritten in 0.40.0 after
+     the imperative form appeared on a client page. */
   const add = (id, name, legs, why, needs = "B") => out.push({ id, name, legs, why, expiry, expiryCandidates, days, needs });
 
   const thin = liq === "C" || liq === "X";
@@ -46,15 +50,15 @@ export function suggestStructures(view, v, rv, {
   if (view === "bullish" && !blind) {
     if (s.cheap || (s.putSkew && !s.rich))
       add("long_call", "Long call", "Buy ~50Δ call",
-          s.cheap ? `Implied ${v.iv30}% is at or under realised ${rv}% — own convexity outright.`
+          s.cheap ? `Implied ${v.iv30}% is at or under realised ${rv}%, so outright convexity is inexpensive.`
                   : `25Δ risk reversal ${v.rr25} — downside is bid, upside is not.`);
     if (s.rich || thin === false)
       add("call_spread", "Call spread", "Buy ~50Δ call / sell the call wall",
-          v.callWall ? `Sell into the ${v.callWall} call wall (${v.callWallConc}% of near-dated call OI).`
-                     : `Implied ${v.iv30}% over realised ${rv}% — fund the long by selling a wing.`);
+          v.callWall ? `The short strike sits on the ${v.callWall} call wall, which holds ${v.callWallConc}% of near-dated call open interest.`
+                     : `Implied ${v.iv30}% over realised ${rv}%; the sold wing offsets part of the premium.`);
     if (s.putSkew && conviction === "high" && !thin)
       add("risk_reversal", "Risk reversal", "Sell ~25Δ put / buy ~25Δ call",
-          `Puts richer than calls by ${Math.abs(v.rr25)} vol pts — collect that to finance upside.`, "A");
+          `Puts are richer than calls by ${Math.abs(v.rr25)} vol points, so the put premium finances the upside.`, "A");
     if (s.backwardation && !thin)
       add("call_calendar", "Call calendar", "Sell front call / buy back call",
           `Front/back ${v.termSlope} — near-term vol is expensive relative to deferred.`, "A");
@@ -67,14 +71,14 @@ export function suggestStructures(view, v, rv, {
                   : `25Δ risk reversal ${v.rr25} — calls bid, puts comparatively neglected.`);
     if (s.rich || s.putSkew)
       add("put_spread", "Put spread", "Buy ~50Δ put / sell the put wall",
-          v.putWall ? `Sell into the ${v.putWall} put wall (${v.putWallConc}% of near-dated put OI) to cut premium.`
-                    : `Implied ${v.iv30}% over realised ${rv}% — spread rather than pay full premium.`);
+          v.putWall ? `The short strike sits on the ${v.putWall} put wall, which holds ${v.putWallConc}% of near-dated put open interest, reducing the premium.`
+                    : `Implied ${v.iv30}% over realised ${rv}%; a spread costs less than the outright.`);
     if (s.putSkew && !thin)
       add("put_backspread", "Put ratio backspread", "Sell 1 near put / buy 2 further puts",
-          `Steep put skew (${v.rr25}) makes the ratio financeable — convex if the move is violent.`, "A");
+          `Steep put skew (${v.rr25}) makes the ratio financeable; the structure is convex in a sharp move.`, "A");
     if (s.rich && conviction !== "high" && !thin)
       add("call_spread_bear", "Bear call spread", "Sell the call wall / buy above",
-          `Credit structure. Wins on time and on a failure to reclaim ${v.callWall ?? "resistance"}.`, "A");
+          `Credit structure. Gains from time decay and from a failure to reclaim ${v.callWall ?? "resistance"}.`, "A");
   }
 
   if (view === "neutral" && !blind) {
@@ -83,18 +87,18 @@ export function suggestStructures(view, v, rv, {
           `Implied over realised by ${s.vrp} pts with pin risk at ${v.maxPain}.`, "A");
     if (s.cheap && !thin)
       add("straddle", "Long straddle", "Buy ATM call and put",
-          `Implied ${v.iv30}% under realised ${rv}% — own the move, direction unspecified.`);
+          `Implied ${v.iv30}% under realised ${rv}%; long volatility with no directional view.`);
   }
 
   /* A directional view must always produce something. Without this a
      bearish theme in a neutral vol regime returned nothing at all. */
   if (view === "bullish" && !out.some(o => o.id === "call_spread"))
     add("call_spread", "Call spread", "Buy ~50Δ call / sell above",
-        v.callWall ? `Baseline structure. Sell into the ${v.callWall} call wall (${v.callWallConc}% of near-dated call OI).`
+        v.callWall ? `Baseline defined-risk structure. The short strike sits on the ${v.callWall} call wall, which holds ${v.callWallConc}% of near-dated call open interest.`
                    : `Baseline defined-risk structure; vol offers no strong steer either way.`);
   if (view === "bearish" && !out.some(o => o.id === "put_spread"))
     add("put_spread", "Put spread", "Buy ~50Δ put / sell below",
-        v.putWall ? `Baseline structure. Sell into the ${v.putWall} put wall (${v.putWallConc}% of near-dated put OI).`
+        v.putWall ? `Baseline defined-risk structure. The short strike sits on the ${v.putWall} put wall, which holds ${v.putWallConc}% of near-dated put open interest.`
                   : `Baseline defined-risk structure; vol offers no strong steer either way.`);
 
   /* Gates. Thin chains cannot support multi-leg structures; low

@@ -1012,6 +1012,20 @@
   "hits": [],
   "correct": true
  },
+ "voice:option.house-wording": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:option.raw-leg-notation": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "notation:+1 77P"
+  ],
+  "correct": true
+ },
  "voice:opening.direction-inverted": {
   "expect": "flag",
   "flagged": true,
@@ -1718,6 +1732,57 @@
    "vsMa50": null
   }
  },
+ "prox:5oct.soxx-ahead-of-smh": {
+  "order": [
+   "HYG",
+   "SOXX",
+   "SMH",
+   "JNK"
+  ]
+ },
+ "prox:secondary-clearly-nearer": {
+  "order": [
+   "EDV",
+   "TLT"
+  ]
+ },
+ "prox:all-tied-keeps-order": {
+  "order": [
+   "A",
+   "B",
+   "C"
+  ]
+ },
+ "prox:band-does-not-chain": {
+  "order": [
+   "B",
+   "C",
+   "A"
+  ]
+ },
+ "prox:boundary.exactly-two-points": {
+  "order": [
+   "A",
+   "B"
+  ]
+ },
+ "prox:boundary.just-over": {
+  "order": [
+   "B",
+   "A"
+  ]
+ },
+ "prox:no-walls-anywhere": {
+  "order": [
+   "A",
+   "B"
+  ]
+ },
+ "prox:single-fund": {
+  "order": [
+   "A"
+  ]
+ },
  "skew:brackets.target": {
   "iv": 30,
   "withinQuotedRange": true,
@@ -2164,6 +2229,12 @@
    "SLV",
    "GLD"
   ],
+  "leadFund": [
+   "IBIT",
+   "SLV",
+   "GLD"
+  ],
+  "drafterOptions": [],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -2232,6 +2303,13 @@
    "GLD",
    "UUP"
   ],
+  "leadFund": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
+  "drafterOptions": [],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -2277,6 +2355,10 @@
   "drafterFunds": [
    "HYG,JNK"
   ],
+  "leadFund": [
+   "HYG"
+  ],
+  "drafterOptions": [],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -2322,6 +2404,10 @@
   "drafterFunds": [
    "HYG,JNK"
   ],
+  "leadFund": [
+   "HYG"
+  ],
+  "drafterOptions": [],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -2367,6 +2453,161 @@
   "drafterFunds": [
    "HYG,JNK"
   ],
+  "leadFund": [
+   "HYG"
+  ],
+  "drafterOptions": [],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": true
+ },
+ "compose:multi.near-tie-primary-stays-first": {
+  "order": [
+   "HYG:scaled"
+  ],
+  "printed": [
+   "HYG"
+  ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
+   "HYG"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
+   "JNK: In JNK, investors looking to trade the idea have call-wall resistance nearby at 93."
+  ],
+  "funds": [
+   "HYG:A,JNK*:C"
+  ],
+  "expression": [
+   "Ways to express the view include HYG and JNK."
+  ],
+  "drafterFunds": [
+   "HYG,JNK"
+  ],
+  "leadFund": [
+   "HYG"
+  ],
+  "drafterOptions": [],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": true
+ },
+ "compose:multi.secondary-nearer-prints-first": {
+  "order": [
+   "HYG:scaled"
+  ],
+  "printed": [
+   "HYG"
+  ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
+   "HYG"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "JNK: In JNK, investors looking to trade the idea have call-wall resistance nearby at 95.",
+   "HYG: With call-wall resistance 11.8% higher in HYG, investors looking to trade the idea may prefer to scale in opportunistically."
+  ],
+  "funds": [
+   "JNK*:C,HYG:A"
+  ],
+  "expression": [
+   "Ways to express the view include JNK and HYG."
+  ],
+  "drafterFunds": [
+   "JNK,HYG"
+  ],
+  "leadFund": [
+   "HYG"
+  ],
+  "drafterOptions": [
+   "November 20th HYG 77/75 Put spread 0.50 / 0.50 / 1.50"
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": true
+ },
+ "compose:multi.5oct-grouped-by-market": {
+  "order": [
+   "HYG:scaled"
+  ],
+  "printed": [
+   "HYG"
+  ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
+   "HYG"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
+   "JNK: JNK's largest call strike holds only 143 contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against.",
+   "SOXX: In SOXX, investors looking to trade the idea have call-wall resistance nearby at 600.",
+   "SMH: With call-wall resistance 11% higher in SMH, investors looking to trade the idea may prefer to scale in opportunistically."
+  ],
+  "funds": [
+   "HYG:A,JNK*:C,SOXX*:A,SMH*:A"
+  ],
+  "expression": [
+   "Ways to express the view include HYG, JNK, SOXX and SMH."
+  ],
+  "drafterFunds": [
+   "HYG,JNK,SOXX,SMH"
+  ],
+  "leadFund": [
+   "HYG"
+  ],
+  "drafterOptions": [],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -2411,6 +2652,10 @@
   "drafterFunds": [
    "JNK"
   ],
+  "leadFund": [
+   "JNK"
+  ],
+  "drafterOptions": [],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",

@@ -3,6 +3,7 @@ import RunLog from "../lib/runlog.js";
 import "../styles/note.css";
 import { APPROVED, MAST, FOOTER, LEGEND, APPENDIX } from "./disclosures.js";
 import { NEAR_WALL_PCT, MIN_WALL_OI } from "../lib/environment.js";
+import { longExpiry } from "../lib/dates.js";
 
 const f = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toFixed(d);
 
@@ -56,19 +57,6 @@ function Para({ lead, text, onChange, k, accepted, onAccept }) {
   );
 }
 
-
-/* "2026-10-30" -> "October 30th". The note's prose already writes expiries in
-   words, so the two derivatives tables printing "10-30" beside it read as a
-   different date format for the same thing. Parsed from the string, never
-   through Date, so no timezone can shift the day. */
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
-                "August", "September", "October", "November", "December"];
-function longExpiry(iso) {
-  const [, m, d] = String(iso || "").split("-").map(Number);
-  if (!m || !d) return iso || "";
-  const sfx = d % 100 >= 11 && d % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[d % 10] || "th");
-  return `${MONTHS[m - 1]} ${d}${sfx}`;
-}
 
 export default function NoteView({ note, layout = "auto", onProse, accepted = {}, onAccept }) {
   const { meta, themes, etfOrder, optOrder, risks, prose } = note;
@@ -238,7 +226,11 @@ export default function NoteView({ note, layout = "auto", onProse, accepted = {}
     <div className="exhblk">
       <div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression — Illustrative Structures</div>
       <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max loss</th><th className="c">Max gain</th><th className="c">Breakeven</th><th>Note</th></tr></thead><tbody>
-        {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td><Arrow d={t.direction} /> {t.subject}</td><td className="c">{t.etf.tk}</td>
+        {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td><Arrow d={t.direction} /> {t.subject}</td>
+          {/* The option's OWN underlying. This printed the theme's first
+              fund, which is the same thing only while that fund is the
+              primary — and funds are now ordered by wall proximity. */}
+          <td className="c">{o.underlying || t.etf.tk}</td>
           <td className="nw">{o.name}</td><td className="c nw">{longExpiry(o.expiry)}</td><td className="c nw">{o.legText}</td>
           <td className="c nw">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
           <td className="c">{maxLossText(o.pricing)}</td>
