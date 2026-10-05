@@ -216,3 +216,39 @@ table.x th.c { text-align: center; }
 
 /* 0.38.0 — distance to a wall, printed small beside the level in the rail. */
 .rail table.etfr i.d { font-style: normal; font-size: 5.9pt; color: var(--n-muted); }
+
+/* ── 0.39.0 — one flow: prose in two columns, exhibits full width beneath ──
+   The right-hand rail is gone; it took 40% of the sheet and mostly repeated
+   the exhibits. `.np` marks the new page so the old column rules, still
+   above for reference, cannot reach it. */
+.np .headline { margin-top: 5mm; }
+.np .prose2 { column-count: 2; column-gap: 7mm; }
+.np .prose2 .para { margin: 0 0 2.2mm; }
+.np .split { display: flex; gap: 7mm; margin-top: 3mm; padding-top: 3mm; border-top: .3mm solid #0276CD; }
+.np .split .half { flex: 1; min-width: 0; }
+.np .split.solo .half { max-width: 96mm; }
+.np .pm .row { height: 6.4mm; }
+.np .pm .row.crowded { height: 8.2mm; }
+.np .pm .ax { left: 11mm; right: 3mm; }
+.np .pm .lab.s.lo { top: 4.9mm; }
+.np .rail .risk { margin: 0 0 1.2mm; }
+.np .rail .risk b { font-size: 6.9pt; }
+.np .rail .rnote { margin-top: 1.6mm; }
+.np .sig { font-size: 6.9pt; line-height: 1.45; margin-top: 2.2mm; padding-top: 1.4mm; border-top: .2mm solid var(--n-hair); }
+.np .sig .em { color: var(--n-blue); }
+.np table.x td, .np table.x th { padding-left: .9mm; padding-right: .9mm; }
+.np table.x td.nw { white-space: nowrap; }
+.np table.x.lv td:nth-child(n+3) { white-space: nowrap; }
+/* One-page mode sets the body a third of a point smaller and closes up the
+   exhibits; it is what lets three themes share a sheet with their tables. */
+.np.compact { font-size: 8.6pt; }
+.np.compact .headline { font-size: 10.6pt; margin-bottom: 2.4mm; }
+.np.compact .exh { margin: 2.8mm 0 1.3mm; }
+.np.compact .exh.first { margin-top: 0; }
+.np.compact table.x td { padding-top: .7mm; padding-bottom: .7mm; }
+.np table.x td:first-child { white-space: nowrap; }
+.np.compact table.x { font-size: 6.4pt; }
+.np.compact table.x th { font-size: 6.2pt; padding-top: .8mm; padding-bottom: .8mm; }
+.np .rail .risk { line-height: 1.25; }
+.np.compact .split { margin-top: 2.2mm; padding-top: 2.4mm; }
+.np.compact .sig { margin-top: 1.6mm; }

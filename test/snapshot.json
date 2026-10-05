@@ -869,7 +869,7 @@
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "wall:Haven demand is unwinding as real yields rise. W",
+   "wall:Investors looking to trade the idea have call-wall resistance nearby at 130.",
    "wall:call-wall resistance nearby at 130"
   ],
   "correct": true
@@ -879,6 +879,52 @@
   "flagged": true,
   "hits": [
    "wall:Scaling"
+  ],
+  "correct": true
+ },
+ "voice:multi.house": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:multi.second-fund-not-named": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:One way to express the view is HYG."
+  ],
+  "correct": true
+ },
+ "voice:multi.second-fund-no-sentence": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "wall:In HYG, investors looking to trade the idea have call-wall resistance nearby at 79."
+  ],
+  "correct": true
+ },
+ "voice:multi.foreign-fund": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:Ways to express the view include HYG, JNK and USHY."
+  ],
+  "correct": true
+ },
+ "voice:multi.first-sentence-reworded": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "wall:HYG has call-wall resistance just above at 79."
+  ],
+  "correct": true
+ },
+ "voice:multi.ranks-the-funds": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "ranking:the better"
   ],
   "correct": true
  },
@@ -894,7 +940,8 @@
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "opening:One way to express the view is IAU"
+   "opening:One way to express the view is IAU.",
+   "opening:One way to express the view is IAU."
   ],
   "correct": true
  },
@@ -1051,6 +1098,7 @@
    "nextLevel": null
   },
   "sentence": "Investors looking to trade the idea have put-wall support nearby at 77.",
+  "named": "In TK, investors looking to trade the idea have put-wall support nearby at 77.",
   "env": {
    "basis": "implied",
    "lo": 73.91,
@@ -1081,6 +1129,7 @@
    "nextLevel": null
   },
   "sentence": "With put-wall support 10% lower, investors looking to trade the idea may prefer to scale in opportunistically.",
+  "named": "With put-wall support 10% lower in TK, investors looking to trade the idea may prefer to scale in opportunistically.",
   "env": {
    "basis": "implied",
    "lo": 91.4,
@@ -1111,6 +1160,7 @@
    "nextLevel": null
   },
   "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 79.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 79.",
   "env": {
    "basis": "implied",
    "lo": 75.12,
@@ -1141,6 +1191,7 @@
    "nextLevel": null
   },
   "sentence": "With call-wall resistance 12.9% higher, investors looking to trade the idea may prefer to scale in opportunistically.",
+  "named": "With call-wall resistance 12.9% higher in TK, investors looking to trade the idea may prefer to scale in opportunistically.",
   "env": {
    "basis": "implied",
    "lo": 556.9,
@@ -1171,6 +1222,7 @@
    "nextLevel": null
   },
   "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 107.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 107.",
   "env": {
    "basis": "implied",
    "lo": 94.27,
@@ -1201,6 +1253,7 @@
    "nextLevel": null
   },
   "sentence": "With call-wall resistance 7.1% higher, investors looking to trade the idea may prefer to scale in opportunistically.",
+  "named": "With call-wall resistance 7.1% higher in TK, investors looking to trade the idea may prefer to scale in opportunistically.",
   "env": {
    "basis": "implied",
    "lo": 94.27,
@@ -1224,9 +1277,11 @@
    "none": true,
    "side": "put",
    "role": "support",
+   "thin": false,
    "hasChain": true
   },
   "sentence": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
+  "named": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
   "env": {
    "basis": "implied",
    "lo": 94.27,
@@ -1250,9 +1305,11 @@
    "none": true,
    "side": "put",
    "role": "support",
+   "thin": false,
    "hasChain": true
   },
   "sentence": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
+  "named": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
   "env": {
    "basis": "implied",
    "lo": 94.27,
@@ -1276,9 +1333,11 @@
    "none": true,
    "side": "call",
    "role": "resistance",
+   "thin": false,
    "hasChain": false
   },
   "sentence": "TK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against.",
+  "named": "TK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against.",
   "env": {
    "basis": "realised",
    "lo": 118.08,
@@ -1309,6 +1368,7 @@
    "nextLevel": 110
   },
   "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 105.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 105.",
   "env": {
    "basis": "implied",
    "lo": 94.27,
@@ -1318,6 +1378,96 @@
    "dCall": 5,
    "sdPut": 0.9,
    "sdCall": 0.9,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:thin.call-wall-400-contracts": {
+  "wall": {
+   "none": true,
+   "side": "call",
+   "role": "resistance",
+   "thin": true,
+   "hasChain": true
+  },
+  "sentence": "TK's option open interest is too thin for its call wall to be meaningful, so there is no wall to frame an entry against.",
+  "named": "TK's option open interest is too thin for its call wall to be meaningful, so there is no wall to frame an entry against.",
+  "env": {
+   "basis": "implied",
+   "lo": 61.27,
+   "hi": 70.73,
+   "pct": 7.2,
+   "dPut": -4.5,
+   "dCall": null,
+   "sdPut": 0.6,
+   "sdCall": null,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:thin.boundary-1000-contracts": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 70,
+   "distancePct": 6.1,
+   "proximity": "nearby",
+   "openInterest": 1000,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 70.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 70.",
+  "env": {
+   "basis": "implied",
+   "lo": 61.27,
+   "hi": 70.73,
+   "pct": 7.2,
+   "dPut": -4.5,
+   "dCall": 6.1,
+   "sdPut": 0.6,
+   "sdCall": 0.8,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:thin.other-side-only": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 70,
+   "distancePct": 6.1,
+   "proximity": "nearby",
+   "openInterest": 8000,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 70.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 70.",
+  "env": {
+   "basis": "implied",
+   "lo": 61.27,
+   "hi": 70.73,
+   "pct": 7.2,
+   "dPut": null,
+   "dCall": 6.1,
+   "sdPut": null,
+   "sdCall": 0.8,
    "ivOverRv": null,
    "avgDay": null,
    "closeLo": null,
@@ -1339,6 +1489,7 @@
    "nextLevel": null
   },
   "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 95.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 95.",
   "env": {
    "basis": "implied",
    "lo": 84.32,
@@ -1369,6 +1520,7 @@
    "nextLevel": null
   },
   "sentence": "Investors looking to trade the idea have put-wall support nearby at 48.",
+  "named": "In TK, investors looking to trade the idea have put-wall support nearby at 48.",
   "env": {
    "basis": "implied",
    "lo": 46.42,
@@ -1810,6 +1962,24 @@
    "GLD: Investors looking to trade the idea have call-wall resistance nearby at 104.",
    "UUP: Investors looking to trade the idea have call-wall resistance nearby at 104."
   ],
+  "funds": [
+   "IBIT:A",
+   "SLV:A",
+   "GLD:A",
+   "UUP:A"
+  ],
+  "expression": [
+   "One way to express the view is IBIT.",
+   "One way to express the view is SLV.",
+   "One way to express the view is GLD.",
+   "One way to express the view is UUP."
+  ],
+  "drafterFunds": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -1848,6 +2018,24 @@
    "GLD: Investors looking to trade the idea have call-wall resistance nearby at 104.",
    "UUP: Investors looking to trade the idea have call-wall resistance nearby at 104."
   ],
+  "funds": [
+   "IBIT:A",
+   "SLV:A",
+   "GLD:A",
+   "UUP:A"
+  ],
+  "expression": [
+   "One way to express the view is IBIT.",
+   "One way to express the view is SLV.",
+   "One way to express the view is GLD.",
+   "One way to express the view is UUP."
+  ],
+  "drafterFunds": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
   "drafterEtfKeys": [
    "averageDailyMovePct",
    "callWall",
@@ -1865,5 +2053,160 @@
   ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
+ },
+ "compose:multi.both-funds-carried": {
+  "order": [
+   "HYG:scaled"
+  ],
+  "printed": [
+   "HYG"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
+   "JNK: In JNK, investors looking to trade the idea have call-wall resistance nearby at 95."
+  ],
+  "funds": [
+   "HYG:A,JNK*:C"
+  ],
+  "expression": [
+   "Ways to express the view include HYG and JNK."
+  ],
+  "drafterFunds": [
+   "HYG,JNK"
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": true
+ },
+ "compose:multi.secondary-without-chain": {
+  "order": [
+   "HYG:scaled"
+  ],
+  "printed": [
+   "HYG"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
+   "JNK: JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against."
+  ],
+  "funds": [
+   "HYG:A,JNK*:X"
+  ],
+  "expression": [
+   "Ways to express the view include HYG and JNK."
+  ],
+  "drafterFunds": [
+   "HYG,JNK"
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": true
+ },
+ "compose:multi.secondary-thin-walls": {
+  "order": [
+   "HYG:scaled"
+  ],
+  "printed": [
+   "HYG"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
+   "JNK: JNK's option open interest is too thin for its call wall to be meaningful, so there is no wall to frame an entry against."
+  ],
+  "funds": [
+   "HYG:A,JNK*:C"
+  ],
+  "expression": [
+   "Ways to express the view include HYG and JNK."
+  ],
+  "drafterFunds": [
+   "HYG,JNK"
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": true
+ },
+ "compose:multi.secondary-alone": {
+  "order": [
+   "JNK:scaled"
+  ],
+  "printed": [
+   "JNK"
+  ],
+  "excluded": [],
+  "wallSentences": [
+   "JNK: Investors looking to trade the idea have call-wall resistance nearby at 95."
+  ],
+  "funds": [
+   "JNK*:C"
+  ],
+  "expression": [
+   "One way to express the view is JNK."
+  ],
+  "drafterFunds": [
+   "JNK"
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
+  "nothingSilentlyDropped": false
  }
 }

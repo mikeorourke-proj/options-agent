@@ -292,6 +292,11 @@ export const VOICE_CTX = { themes: [
       wallSentence: "Investors looking to trade the idea have put-wall support nearby at 77." } },
   { subject: "Grid",   direction: "bearish", etf: { ticker: "GRID", wall: { noWall: true, noChain: true },
       wallSentence: "GRID has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." } },
+  /* 0.39.0 — a theme carrying TWO funds: one with a chain, one without. */
+  { subject: "Credit", direction: "bearish",
+    etfs: [{ ticker: "HYG", wall: { type: "call wall", role: "resistance", level: 79, distancePct: 2.7, direction: "higher", proximity: "nearby" },
+              wallSentence: "In HYG, investors looking to trade the idea have call-wall resistance nearby at 79." },
+           { ticker: "JNK", wall: { noWall: true, noChain: true }, wallSentence: "JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." }] },
 ]};
 
 export const VOICE_CASES = [
@@ -326,6 +331,23 @@ export const VOICE_CASES = [
     body: "Haven demand is unwinding as real yields rise. We are bearish on grid infrastructure. One way to express the view is GRID. Investors looking to trade the idea have call-wall resistance nearby at 130." },
   { id: "wall.scaling-mechanics", subject: "Silver", expect: "flag",
     body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV. With call-wall resistance 12.1% higher, investors looking to trade the idea may prefer to scale in opportunistically. Scaling in five pieces toward 65 would average the entry higher." },
+
+  /* SEVERAL FUNDS UNDER ONE THEME (0.39.0). Every fund ticked is named in
+     the expression sentence and gets its own wall sentence. On 5 Oct JNK
+     was ticked beside HYG and silently dropped; these are the prose-side
+     versions of that failure. */
+  { id: "multi.house", subject: "Credit", expect: "clean",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against. The one-month option-implied range in HYG is 75 to 78." },
+  { id: "multi.second-fund-not-named", subject: "Credit", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. One way to express the view is HYG. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." },
+  { id: "multi.second-fund-no-sentence", subject: "Credit", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. The one-month option-implied range in HYG is 75 to 78." },
+  { id: "multi.foreign-fund", subject: "Credit", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG, JNK and USHY. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." },
+  { id: "multi.first-sentence-reworded", subject: "Credit", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. HYG has call-wall resistance just above at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." },
+  { id: "multi.ranks-the-funds", subject: "Credit", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against. HYG is the better vehicle of the two." },
 
   /* Opening shape, unchanged from 0.37. */
   { id: "opening.direction-inverted", subject: "Gold", expect: "flag",
@@ -398,6 +420,17 @@ export const WALL_CASES = [
   { id: "ladder.next-level", spot: 100, direction: "bearish",
     vol: { putWall: 95, callWall: 105, iv30: 20, callWallOI: 5000,
            callWalls: [{ strike: 105, oi: 5000 }, { strike: 102, oi: 4000 }, { strike: 110, oi: 3000 }] } },
+  /* A WALL NEEDS WEIGHT (0.39.0). The "wall" is just the largest strike, so
+     a thin chain has one too. Under 1,000 contracts it is treated as no
+     wall, and the sentence says why. Exactly 1,000 still counts. */
+  { id: "thin.call-wall-400-contracts", spot: 66, direction: "bearish",
+    vol: { putWall: 63, callWall: 70, iv30: 25, putWallOI: 5200, callWallOI: 400 } },
+  { id: "thin.boundary-1000-contracts", spot: 66, direction: "bearish",
+    vol: { putWall: 63, callWall: 70, iv30: 25, putWallOI: 5200, callWallOI: 1000 } },
+  /* Thin on the side that does NOT matter for the direction: the bearish
+     sentence is about the call wall and is unaffected. */
+  { id: "thin.other-side-only", spot: 66, direction: "bearish",
+    vol: { putWall: 63, callWall: 70, iv30: 25, putWallOI: 300, callWallOI: 8000 } },
   /* Environment from closes: a steady decline ending at the low. */
   { id: "env.at-three-month-low", spot: 90, direction: "bearish", vol: { putWall: 85, callWall: 95, iv30: 22, rv30: 16 },
     closes: ramp(110, 90, 80) },
@@ -678,6 +711,18 @@ const composeLeg = (id, tk, { execution = "scaled", score, ev, evOnRisk, directi
 const pickAll = menus => ({ sel: Object.fromEntries(menus.map(m =>
   [`${m.id}:${m.primary.t}`, { themeId: m.id, ticker: m.primary.t, kind: "primary" }])) });
 
+function MULTI_MENU({ chain, callOI = 9000 }) {
+  const m = composeLeg("credit", "HYG", { execution: "scaled", score: 0.66, ev: 1.0, evOnRisk: 0.3 });
+  m.vol = { iv30: 7.2, rv30: 6, callWall: 79, putWall: 75, callWallOI: 129888, putWallOI: 241740 };
+  m.primary.price = 76.9;
+  m.secondary = [{ t: "JNK", n: "SPDR High Yield", price: 92.39, liq: "X",
+    closes: Array.from({ length: 70 }, (_, i) => 92 + (i % 5) * 0.3),
+    shareScore: { score: 0.63, expectancy: 0.6, evOnRisk: 0.3, riskPct: 5 }, plan: {}, tgt: {},
+    vol: { iv30: null, rv30: 4.4, rvWindow: 30, putWall: null, callWall: null },
+    ...(chain ? { chainLiq: "C", chainVol: { iv30: 6.1, rv30: 4.4, rr25: -0.8, putWall: 90, callWall: 95, putWallOI: 4100, callWallOI: callOI } } : { chainLiq: "X" }) }];
+  return m;
+}
+
 const COMPOSE_MENUS = [
   composeLeg("gold",  "GLD",  { execution: "scaled",    score: 0.81, ev: 5.5, evOnRisk: 0.76 }),
   composeLeg("silver","SLV",  { execution: "immediate", score: 0.71, ev: 4.9, evOnRisk: 0.53 }),
@@ -692,4 +737,20 @@ export const COMPOSE_CASES = [
   { id: "gate.force-carry",
     why: "UUP at EV/risk 0.044 is below the gate; forceCarry must put it back in the note",
     menus: COMPOSE_MENUS, settings: { forceCarry: ["UUP"] } },
-].map(c => ({ ...c, parsed: { themes: c.menus.map(m => ({ id: m.id })) }, picks: pickAll(c.menus) }));
+  /* EVERY TICKED FUND IS CARRIED (0.39.0). HYG and JNK both ticked on 5 Oct;
+     compose took the first and dropped the second without a word. */
+  { id: "multi.both-funds-carried",
+    why: "primary and a ticked secondary both print; the secondary's chain arrived, so it has walls of its own",
+    menus: [MULTI_MENU({ chain: true })], settings: {}, alsoPick: [["credit", "JNK"]] },
+  { id: "multi.secondary-without-chain",
+    why: "the ticked secondary has no usable chain: it is carried, with the no-walls sentence",
+    menus: [MULTI_MENU({ chain: false })], settings: {}, alsoPick: [["credit", "JNK"]] },
+  { id: "multi.secondary-thin-walls",
+    why: "the secondary's chain exists but its call wall holds 180 contracts — treated as no wall",
+    menus: [MULTI_MENU({ chain: true, callOI: 180 })], settings: {}, alsoPick: [["credit", "JNK"]] },
+  { id: "multi.secondary-alone",
+    why: "only the secondary is ticked: it is the fund carried, and the primary is not printed",
+    menus: [MULTI_MENU({ chain: true })], settings: {}, only: [["credit", "JNK", "secondary"]] },
+].map(c => ({ ...c, parsed: { themes: c.menus.map(m => ({ id: m.id })) },
+  picks: c.only ? { sel: Object.fromEntries(c.only.map(([id, tk, kind]) => [`${id}|${kind}|${tk}`, { themeId: id, ticker: tk, kind }])) }
+       : { sel: { ...pickAll(c.menus).sel, ...Object.fromEntries((c.alsoPick || []).map(([id, tk]) => [`${id}|secondary|${tk}`, { themeId: id, ticker: tk, kind: "secondary" }])) } } }));

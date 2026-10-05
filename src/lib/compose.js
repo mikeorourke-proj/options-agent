@@ -8,7 +8,7 @@
 import RunLog from "./runlog.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT, MIN_EV_ON_RISK } from "./ordering.js";
 import { analyzeCorrelation, correlationNote } from "./correlation.js";
-import { wallContext, wallSentence, environment } from "./environment.js";
+import { wallContext, wallSentence, expressionSentence, environment, consequentialWalls } from "./environment.js";
 
 /* Round numbers stay round in the prose. toFixed(2) turned a 600 strike into
    "$600.00", which reads as false precision on a level that is exactly round.
@@ -47,34 +47,52 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
 
   const themes = themeIds.map(id => {
     const m = byId[id];
-    const etfSel = chosen.find(c => c.themeId === id && (c.kind === "primary" || c.kind === "secondary"));
+    /* EVERY TICKED ETF IS CARRIED (0.39.0). Until then this took the first
+       one it found — chosen.find — so ticking JNK beside HYG logged the tick
+       and printed HYG alone, with nothing to say JNK had been dropped. The
+       note now offers the reader each fund the analyst selected.
+       Primary first, then secondaries in the order the menu lists them.
+       A secondary with no score has no realised-vol read and so no range to
+       print; it is skipped WITH a warning rather than printed hollow. */
+    const tickedTk = new Set(chosen.filter(c => c.themeId === id && (c.kind === "primary" || c.kind === "secondary")).map(c => c.ticker));
+    const pool = [m.primary, ...(m.secondary || [])].filter(Boolean);
+    const unscored = pool.filter(x => tickedTk.has(x.t) && !x.shareScore && x.t !== m.primary?.t);
+    if (unscored.length)
+      RunLog.warn("calc", "etf.secondary.unscored", { theme: id, skipped: unscored.map(x => x.t),
+        why: "no realised-vol read — it would print as a leg with no levels" });
+    let carriedEtfs = pool.filter(x => tickedTk.has(x.t) && (x.shareScore || x.t === m.primary?.t));
     // House rule: the ETF line is always present — the asset class is the idea.
-    const etfTk = etfSel?.ticker || m.primary?.t;
-    /* A ticked secondary now carries its own plan, target and score, so it
-       is a real leg rather than a ticker with a price. If it somehow has no
-       score — bars unavailable — fall back to the primary rather than emit a
-       hollow leg that the drafter would still write a paragraph about. */
-    const picked = m.primary?.t === etfTk ? m.primary : (m.secondary || []).find(s => s.t === etfTk);
-    const etf = picked?.shareScore ? picked : (picked && !picked.shareScore ? m.primary : m.primary);
-    if (picked && !picked.shareScore && picked.t !== m.primary?.t)
-      RunLog.warn("calc", "etf.secondary.unscored", { theme: id, picked: picked.t,
-        usedInstead: m.primary?.t, why: "no realised-vol read for the secondary — it would print as a leg with no levels" });
+    if (!carriedEtfs.length && m.primary) carriedEtfs = [m.primary];
+    const etf = carriedEtfs[0] || null;
     const optSel = chosen.filter(c => c.themeId === id && c.kind === "option");
     const options = optSel.map(o => (m.structures || []).find(st => st.id === o.ticker)).filter(Boolean);
     const alternatives = (m.structures || []).filter(st => !options.some(o => o.id === st.id));
     const levSel = chosen.filter(c => c.themeId === id && c.kind === "levered").map(c => c.ticker);
 
-    /* What prints about entering the idea (0.38.0): the wall that frames an
-       entry and the facts a reader would want before deciding how to act.
-       Both describe the vehicle actually carried, so a ticked secondary —
-       which has no chain — gets its own closes and no walls. */
-    const volCarried = (etf && etf.t !== m.primary?.t && etf.vol) ? etf.vol : m.vol;
-    const wall = etf ? wallContext(etf.price, volCarried, m.direction) : null;
-    const env = etf ? environment({ spot: etf.price, vol: volCarried, closes: etf.closes }) : null;
+    /* What prints about entering the idea: per ETF, the wall that frames
+       an entry and the facts a reader would want before deciding how to act.
+       Each leg describes ITS OWN vehicle. The primary's chain is fetched
+       with the theme; a secondary's is fetched when it is ticked
+       (StepIdeas, chainVol) and until then it has realised vol and no walls.
+       Walls too thin to matter are removed here, once, so the sentence, the
+       map and the table cannot disagree about whether one exists. */
+    const named = carriedEtfs.length > 1;
+    const legs = carriedEtfs.map(x => {
+      const isPrimary = x.t === m.primary?.t;
+      const v = consequentialWalls(isPrimary ? m.vol : (x.chainVol || x.vol));
+      const w = wallContext(x.price, v, m.direction);
+      return { tk: x.t, name: x.name || x.n, price: x.price, primary: isPrimary,
+               liq: isPrimary ? x.liq : (x.chainLiq || "X"),
+               vol: v, wall: w, env: environment({ spot: x.price, vol: v, closes: x.closes }),
+               wallSentence: wallSentence(x.t, w, { named }) };
+    });
+    const volCarried = legs[0]?.vol ?? m.vol;
+    const wall = legs[0]?.wall ?? null, env = legs[0]?.env ?? null;
 
     return {
       id, subject: m.subject, direction: m.direction, basis: m.basis,
-      wall, env, wallSentence: etf ? wallSentence(etf.t, wall) : null,
+      legs, expressionSentence: expressionSentence(legs.map(l => l.tk)),
+      wall, env, wallSentence: legs[0]?.wallSentence ?? null,
       evidence: m.evidence, rationale: m.rationale, catalyst: m.catalyst,
       execution: m.execution || "scaled", stopMode: m.stopMode || "wall",
       etf: etf ? {
@@ -226,7 +244,7 @@ export function draftContext(note) {
     themes: note.themes.map(t => ({
       subject: t.subject, direction: t.direction, evidence: t.evidence, rationale: t.rationale,
       catalyst: t.catalyst?.description || null, catalystDate: t.catalyst?.date || null,
-      etf: t.etf && (() => {
+      ...(() => { const etfs = (t.legs || []).map(L => {
         /* WHAT THE DRAFTER IS GIVEN IS WHAT IT WILL WRITE (rule 6), so the
            model it sees contains no entry, no scale band, no weighted
            average, no stop and no risk figure. Until 0.37 it carried all
@@ -236,18 +254,18 @@ export function draftContext(note) {
            The last sale is still withheld — it is stale by the time the
            note is read — so distances are sent as percentages and the wall
            as a level. */
-        const w = t.wall, e = t.env || {};
+        const w = L.wall, e = L.env || {};
         const range = e.rangeLo != null ? `${fmt(e.rangeLo, 0)} to ${fmt(e.rangeHi, 0)}` : null;
         return {
-          ticker: t.etf.tk,
+          ticker: L.tk,
           /* The closing sentence, verbatim. Built in environment.js so the
              wording and the 7% rule have one home. */
-          wallSentence: t.wallSentence,
-          wall: !w || w.none ? { noWall: true, noChain: !w?.hasChain }
+          wallSentence: L.wallSentence,
+          wall: !w || w.none ? { noWall: true, noChain: !w?.hasChain, ...(w?.thin ? { thinOpenInterest: true } : {}) }
             : { type: `${w.side} wall`, role: w.role, level: w.level,
                 distancePct: w.distancePct, direction: w.rel, proximity: w.proximity,
                 ...(w.nextLevel != null ? { nextConcentration: w.nextLevel } : {}) },
-          ...(!w || w.none ? {} : { putWall: t.vol?.putWall, callWall: t.vol?.callWall }),
+          ...(!w || w.none ? {} : { putWall: L.vol?.putWall, callWall: L.vol?.callWall }),
           oneMonthRange: range,
           rangeBasis: e.rangeBasis === "realised"
             ? `realised volatility over ${e.rangeWindow} sessions${e.rangeWindow < 30 ? " — all the history this fund has" : ""}`
@@ -262,6 +280,11 @@ export function draftContext(note) {
             threeMonthCloseRange: `${fmt(e.closeLo)} to ${fmt(e.closeHi)}`,
             positionInThreeMonthRange: e.rangePosition <= 20 ? "near the low" : e.rangePosition >= 80 ? "near the high" : "mid-range" } : {}),
         };
+      });
+        /* `etf` stays as the first fund so anything reading the old shape
+           still works; `etfs` is every fund carried, and the expression
+           sentence names them all. */
+        return { expressionSentence: t.expressionSentence, etf: etfs[0] || null, etfs };
       })(),
       vol: t.vol && { rr25: t.vol.rr25, term: t.vol.termSlope },
       options: t.options.map(o => ({

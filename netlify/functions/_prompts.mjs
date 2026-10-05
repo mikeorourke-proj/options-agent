@@ -144,7 +144,7 @@ its own line, in this order, and nothing before the first header or after the la
 <one paragraph, 70-110 words>
 
 ### THEME: <subject exactly as given in the model>
-<one paragraph, 70-110 words>
+<one paragraph, 70-110 words; up to 135 where the theme carries more than one ETF>
 
 (repeat a THEME section for every theme in the model, in the order given)
 
@@ -184,9 +184,15 @@ VOICE — every rule is checked mechanically after you write:
      (a) CONDITIONS. One or two sentences on what is happening in the market and why it
          matters for the theme, drawn from the evidence. No ticker, no price, no level.
      (b) VIEW. "We are bearish on <the market, in plain words>." Its own sentence, no ticker.
-     (c) INSTRUMENT. "One way to express the view is <TICKER>." Nothing about how to trade it.
-     (d) THE WALL SENTENCE. Copy etf.wallSentence EXACTLY, word for word, as its own sentence.
-         It is one of:
+     (c) INSTRUMENT. Copy the theme's expressionSentence EXACTLY. With one ETF it reads "One
+         way to express the view is HYG."; with several, "Ways to express the view include
+         HYG and JNK." Every ETF in etfs is named there and nowhere before it. Nothing about
+         how to trade them, and no comparison between them — they are alternatives the
+         reader chooses among.
+     (d) THE WALL SENTENCES. For EVERY entry in etfs, copy its wallSentence EXACTLY, word for
+         word, each as its own sentence, in the order given. With several ETFs each sentence
+         already names its fund ("In HYG, investors looking to trade the idea have…").
+         A wall sentence is one of:
            "Investors looking to trade the idea have put-wall support nearby at 77."
            "With put-wall support 9.2% lower, investors looking to trade the idea may prefer
             to scale in opportunistically."
@@ -198,7 +204,8 @@ VOICE — every rule is checked mechanically after you write:
          many pieces, over what period or to what level. That sentence is the whole of what
          the note says about entering.
      (e) ENVIRONMENT, then the DERIVATIVE. One or two sentences of fact from the model that
-         help a reader frame their own execution: the other wall, the one-month range (say
+         help a reader frame their own execution (with several ETFs, say which fund each
+         fact belongs to and keep to one fact apiece): the other wall, the one-month range (say
          whether it is option-implied or from realised volatility, as rangeBasis labels it),
          implied against realised volatility, the average daily move, where price sits in its
          three-month range, the next concentration of open interest beyond the wall. Choose
@@ -405,7 +412,7 @@ export const VOICE_CHECKS = [
      first person ("we recommend"). */
   { id: "declarative", re: /\b(we are (short|long|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
     msg: "reports a position or advises — state the view, describe the rest" },
-  { id: "ranking", re: /\b(best|preferred|lead trade|strongest|superior|top pick|ranks?|outranks?|better than|worse than)\b/i,
+  { id: "ranking", re: /\b(best|preferred|lead trade|strongest|superior|top pick|ranks?|outranks?|better than|worse than|the better|better (?:vehicle|fund|choice|expression)|(?:more|most) attractive)\b/i,
     msg: "ranking language" },
   { id: "attribution", re: /\b(said|stated|according to|wrote|reports?|noted that|argues)\b/i,
     msg: "possible attribution" },
@@ -467,15 +474,20 @@ export function checkVoice(text) {
    The execution-verb check that lived here is gone with the verbs: 0.38.0
    bans "look to sell" and "scale purchases" outright (VOICE_CHECKS). */
 const VIEW = /\bWe are (bearish|bullish) on ([^.;:]+)[.;:]/i;
-const EXPRESS = /\bOne way to express (?:the|this) view is ([A-Za-z0-9.]{1,6})\b/i;
+/* One fund: "One way to express the view is HYG." Several (0.39.0): "Ways to
+   express the view include HYG and JNK." Either way the sentence must name
+   every fund the theme carries. */
+const EXPRESS = /\b(?:One way to express (?:the|this) view is|Ways to express (?:the|this) view include) ([^.;:]+)[.;:]/i;
+const fundsOf = th => (th?.etfs?.length ? th.etfs : [th?.etf]).filter(e => e?.ticker);
+const tkRe = t => new RegExp(`\\b${String(t).replace(".", "\\.")}\\b`);
 
 export function checkThemeOpening(paras, ctx) {
   const hits = {};
-  const tickers = (ctx?.themes || []).map(t => t?.etf?.ticker).filter(Boolean);
+  const tickers = (ctx?.themes || []).flatMap(t => fundsOf(t).map(e => e.ticker));
   for (const th of ctx?.themes || []) {
     const body = paras?.[th.subject];
-    const tk = th?.etf?.ticker;
-    if (!body || !tk) continue;
+    const mine = fundsOf(th).map(e => e.ticker);
+    if (!body || !mine.length) continue;
     const add = (msg, phrase) => { (hits[th.subject] ||= []).push({ id: "opening", msg, phrase }); };
 
     const v = body.match(VIEW);
@@ -485,21 +497,28 @@ export function checkThemeOpening(paras, ctx) {
     } else {
       if (v[1].toLowerCase() !== String(th.direction).toLowerCase())
         add(`states a ${v[1].toLowerCase()} view on a ${th.direction} theme — the view is inverted`, v[0].trim());
-      const onTicker = tickers.find(t => /* Case-sensitive: a ticker is upper case, and "grid infrastructure" is
+      /* Case-sensitive: a ticker is upper case, and "grid infrastructure" is
          a market, not GRID. */
-      new RegExp(`^\\s*${t.replace(".", "\\.")}\\b`).test(v[2]));
+      const onTicker = tickers.find(t => new RegExp(`^\\s*${t.replace(".", "\\.")}\\b`).test(v[2]));
       if (onTicker)
         add(`the view is stated on ${onTicker} — state it on the market, and name the ETF as one way to express it`, v[0].trim());
       if (v.index === 0 || !body.slice(0, v.index).trim())
         add("paragraph opens on the view — lead with the market conditions that support it", v[0].trim());
-      const early = tickers.find(t => new RegExp(`\\b${t.replace(".", "\\.")}\\b`).test(body.slice(0, v.index)));
+      const early = tickers.find(t => tkRe(t).test(body.slice(0, v.index)));
       if (early) add(`${early} is named before the view — the vehicle comes after the argument`, early);
     }
 
     const e = body.match(EXPRESS);
-    if (!e) add(`paragraph must name the vehicle as "One way to express the view is ${tk}"`, tk);
+    const want = mine.length > 1 ? `Ways to express the view include ${mine.join(", ")}` : `One way to express the view is ${mine[0]}`;
+    if (!e) add(`paragraph must name the vehicle${mine.length > 1 ? "s" : ""} as "${want}"`, mine.join(", "));
     else {
-      if (e[1].toUpperCase() !== tk.toUpperCase()) add(`expresses the view through ${e[1]} but the leg is ${tk}`, e[0].trim());
+      /* Every fund the analyst selected must be offered, and nothing else:
+         a fund left out is a selection silently dropped, and a fund added is
+         one the model was never given levels for. */
+      const missing = mine.filter(t => !tkRe(t).test(e[1]));
+      const foreign = (e[1].match(/\b[A-Z][A-Z0-9.]{1,5}\b/g) || []).filter(t => !mine.includes(t));
+      if (missing.length) add(`${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} carried but not named as a way to express the view`, e[0].trim());
+      if (foreign.length) add(`names ${foreign.join(", ")}, which ${foreign.length > 1 ? "are" : "is"} not carried under this theme (${mine.join(", ")})`, e[0].trim());
       if (v && e.index < v.index) add("the vehicle is named before the view", e[0].trim());
     }
   }
@@ -528,37 +547,40 @@ export function checkWallSentence(paras, ctx) {
   const hits = {};
   for (const th of ctx?.themes || []) {
     const body = paras?.[th.subject];
-    const w = th?.etf?.wall, want = th?.etf?.wallSentence;
-    if (!body || !th?.etf?.ticker || !w) continue;
+    const funds = fundsOf(th).filter(e => e.wall);
+    if (!body || !funds.length) continue;
     const add = (msg, phrase) => { (hits[th.subject] ||= []).push({ id: "wall", msg, phrase }); };
     const bull = String(th.direction).toLowerCase() === "bullish";
 
     const stray = body.replace(SCALE_OK, "").match(/\bscal(?:e|ed|es|ing)\b/i);
     if (stray) add('"scale" outside "scale in opportunistically" — the note describes no scaling mechanics', stray[0]);
 
-    if (w.noWall) {
-      /* No wall on the side that matters — no chain at all, or a chain with
-         nothing concentrated there. Either way no LEVEL may be cited; the
-         sanctioned sentence says "no put-wall support", which is why this
-         looks for a level or "nearby" rather than the bare phrase. */
-      const lvl = body.match(/\b(?:put|call)[- ]wall (?:support|resistance) (?:nearby|at|\d)[^.]*/i);
-      if (lvl) add(`${th.etf.ticker} has no wall on that side — there is no level to cite`, lvl[0].trim());
-      if (want && !norm(body).includes(norm(want)))
-        add(`wall sentence missing — the paragraph must carry: "${want}"`, body.slice(0, 48).trim());
-      continue;
-    }
+    /* The wrong wall for the direction. Every fund under a theme shares the
+       theme's direction, so this is a paragraph-level test. */
     const wrong = bull ? /\bcall[- ]wall (?:support|resistance) (?:nearby|\d)/i : /\bput[- ]wall (?:support|resistance) (?:nearby|\d)/i;
     const wr = body.match(wrong);
     if (wr) add(`${wr[0]} frames the entry on the wrong wall for a ${th.direction} view`, wr[0]);
 
-    if (want && !norm(body).includes(norm(want))) {
-      const has = (bull ? /put[- ]wall support/i : /call[- ]wall resistance/i).test(body);
-      add(has ? `wall sentence reworded — it must read exactly: "${want}"`
-              : `wall sentence missing — the paragraph must carry: "${want}"`,
+    /* EVERY fund carried has its sentence (0.39.0), verbatim. */
+    for (const f of funds) {
+      const want = f.wallSentence;
+      if (!want || norm(body).includes(norm(want))) continue;
+      const mentions = tkRe(f.ticker).test(body) && /\b(?:put|call)[- ]wall\b/i.test(body);
+      add(`${funds.length > 1 ? f.ticker + ": " : ""}wall sentence ${mentions && !f.wall.noWall ? "reworded or missing" : "missing"} — the paragraph must carry: "${want}"`,
           (body.match(/[^.]*\b(?:put|call)[- ]wall[^.]*\./i) || [body.slice(0, 48)])[0].trim());
     }
-    if (w.proximity === "nearby" && SCALE_OK.test(body))
-      add(`the ${w.type} is ${w.distancePct}% away, inside the 7% band — the sentence is about the level, not about scaling in`, "scale in opportunistically");
+
+    /* No fund under the theme has a wall, so no LEVEL may be cited at all.
+       The sanctioned sentences say "no put-wall support", which is why this
+       looks for a level or "nearby" rather than the bare phrase. */
+    if (funds.every(f => f.wall.noWall)) {
+      const lvl = body.match(/\b(?:put|call)[- ]wall (?:support|resistance) (?:nearby|at|\d)[^.]*/i);
+      if (lvl) add(`no fund here has a wall on that side — there is no level to cite`, lvl[0].trim());
+    }
+    /* "Scale in" belongs to a wall that is AWAY. If none is, the 7% rule
+       has been applied the wrong way round. */
+    if (!funds.some(f => f.wall.proximity === "away") && SCALE_OK.test(body))
+      add("no wall here is beyond the 7% band — the sentence is about the level, not about scaling in", "scale in opportunistically");
     SCALE_OK.lastIndex = 0;
   }
   return hits;

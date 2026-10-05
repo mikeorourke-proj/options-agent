@@ -260,6 +260,16 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
             <div className="sec-label">Sector line</div>
             <input type="text" spellCheck="true" value={s.sector || ""} onChange={e => set("sector", e.target.value)} placeholder="Cross-Asset / Macro" />
           </div>
+          {/* One page when it fits, two when it does not. Auto measures the
+              sheet; the other two are the analyst overruling it. */}
+          <div style={{ flex: 1, minWidth: 150 }}>
+            <div className="sec-label">Layout</div>
+            <select value={s.layout || "auto"} onChange={e => set("layout", e.target.value)}>
+              <option value="auto">Auto — one page if it fits</option>
+              <option value="one">One page</option>
+              <option value="two">Two pages</option>
+            </select>
+          </div>
         </div>
 
         {err && <div className="err-banner" style={{ marginTop: 12 }}><b>Draft failed.</b> {err}</div>}
@@ -358,7 +368,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
         </div>}
       </div>
 
-      <NoteView note={note} onProse={setProse} accepted={s.accepted || {}} onAccept={accept} />
+      <NoteView note={note} layout={s.layout || "auto"} onProse={setProse} accepted={s.accepted || {}} onAccept={accept} />
     </>
   );
 }

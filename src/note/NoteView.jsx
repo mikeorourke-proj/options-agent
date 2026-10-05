@@ -2,15 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import "../styles/note.css";
 import { APPROVED, MAST, FOOTER, LEGEND, APPENDIX } from "./disclosures.js";
-import { NEAR_WALL_PCT } from "../lib/environment.js";
+import { NEAR_WALL_PCT, MIN_WALL_OI } from "../lib/environment.js";
 
 const f = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toFixed(d);
 
-/* How far down the sheet the two columns may run. The sign-off is pinned at
-   bottom 24mm and nothing pushes it, so anything past this is printed over.
-   Keep in step with .analyst in note.css. It was 20mm until 0.37.0; the
-   market-commentary legend now sits beneath the sign-off and took 4mm. */
-const PAGE1_LIMIT_MM = 297 - 24 - 2;
+/* How far down page 1 the content may run before it meets the legend,
+   which is pinned above the footer rule (bottom 14.2mm, three lines). Since
+   0.39.0 nothing else is pinned: the sign-off is in the flow. */
+const PAGE1_LIMIT_MM = 273;
 /* One body line: 8.9pt at 1.36 leading. Used to turn an overage in
    millimetres into something an analyst can act on. */
 const LINE_MM = 8.9 * 1.36 * 25.4 / 72;
@@ -71,23 +70,30 @@ function longExpiry(iso) {
   return `${MONTHS[m - 1]} ${d}${sfx}`;
 }
 
-export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
+export default function NoteView({ note, layout = "auto", onProse, accepted = {}, onAccept }) {
   const { meta, themes, etfOrder, optOrder, risks, prose } = note;
   const T = Object.fromEntries(themes.map(t => [t.id, t]));
-  const etfRows = etfOrder.map(r => T[r.themeId]).filter(Boolean);
+  const themeRows = etfOrder.map(r => T[r.themeId]).filter(Boolean);
+  /* One row per FUND, not per theme (0.39.0): a theme may carry several
+     ETFs, and each is printed with its own levels. A theme built before
+     legs existed is read as a single leg so old notes still render. */
+  const legRows = themeRows.flatMap(t => (t.legs?.length ? t.legs
+      : [{ tk: t.etf?.tk, price: t.etf?.price, vol: t.vol, wall: t.wall, env: t.env, liq: t.etf?.liq }])
+    .filter(l => l.tk).map((l, i, arr) => ({ ...l, t, first: i === 0, n: arr.length })));
   const optRows = optOrder.map(r => ({ t: T[r.themeId], o: T[r.themeId]?.options.find(x => x.id === r.structId) }))
                           .filter(x => x.t && x.o);
+  const mapRows = legRows.filter(l => l.vol?.putWall && l.vol?.callWall && l.price);
+  const unplotted = legRows.filter(l => !(l.vol?.putWall && l.vol?.callWall)).map(l => l.tk);
+  const levRows = themeRows.flatMap(t => [
+    ...(t.leveredCarried || []).map(l => ({ ...l, t, carried: true })),
+    ...(t.levered || []).map(l => ({ ...l, t, carried: false, underlying: t.etf?.tk })),
+  ]);
 
-  /* EXHIBIT NUMBERS ARE ASSIGNED BY WHAT RENDERS, in page order.
-     Three exhibits exist only when an option is carried and one only when a
-     levered fund is listed. They used to sit at the end, so a shares-only
-     note simply stopped at 4. In the current order they sit in the MIDDLE,
-     and fixed numbers would print a shares-only note as Exhibits 1, 2, 5, 6. */
+  /* EXHIBIT NUMBERS ARE ASSIGNED BY WHAT RENDERS, in page order. Vehicle
+     Screening, Structure Notes and Option Leg Detail are gone; what is left
+     is the map, the levels table, the structures and the levered funds. */
   const hasOpts = optRows.length > 0;
-  const EX_ORDER = [
-    ["map", true], ["etf", true], ["deriv", hasOpts], ["notes", hasOpts],
-    ["screen", true], ["lev", etfRows.some(t => t.levered.length)],
-  ];
+  const EX_ORDER = [["map", mapRows.length > 0], ["etf", true], ["deriv", hasOpts], ["lev", levRows.length > 0]];
   const exNo = key => {
     let n = 0;
     for (const [k, shown] of EX_ORDER) { if (shown) n++; if (k === key) return n; }
@@ -95,339 +101,237 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
   };
   const subjLine = meta.subjects.join("  ·  ");
 
-  /* Page 1 is a fixed sheet: the analyst block, the disclaimer and the footer
-     are absolutely positioned at fixed offsets from the bottom, so the two
-     columns above them do not push anything down — they just grow over the
-     top of it. Nothing on screen says so, and the overlap only becomes
-     obvious in the PDF.
-     After the fonts went up a step this stopped being theoretical, so the
-     column height is measured against the space actually available and the
-     analyst is told before printing rather than after. */
-  const colsRef = useRef(null);
+  /* ONE PAGE WHEN IT FITS, TWO WHEN IT DOES NOT (0.39.0).
+     The whole note is laid out on page 1 — prose in two columns, exhibits
+     full width beneath — and the sheet is measured. If it runs past the
+     legend, the exhibits move to a second page and page 1 keeps the prose.
+     "auto" does that by measurement; "one" and "two" are the analyst
+     overruling it.
+     Falling back is sticky for a given note: re-trying one page the moment
+     two pages fits would oscillate on every keystroke. It is tried again
+     only when the CONTENT changes — a new draft, a fund added or removed. */
+  const flowRef = useRef(null);
   const [overflow, setOverflow] = useState(null);
-  /* The banner is on screen; the log is where this project is actually
-     diagnosed. Without an entry, a session that overflowed and one that fit
-     look identical afterwards — which is the same blindness that made the
-     PDF invocation failure take three sessions to find.
-     Logged on CHANGE only: a ResizeObserver fires on every keystroke, and
-     the run log's signal-to-noise is worth more than the extra samples. */
+  const contentKey = `${prose?.summary?.length || 0}:${Object.values(prose?.themes || {}).join("").length}:${legRows.length}:${optRows.length}:${levRows.length}`;
+  const [spill, setSpill] = useState({ key: null });
+  const autoTwo = spill.key === contentKey;
+  const mode = layout === "two" ? "two" : layout === "one" ? "one" : (autoTwo ? "two" : "one");
+
   const lastFit = useRef(undefined);
   useEffect(() => {
-    const el = colsRef.current;
+    const el = flowRef.current;
     if (!el) return;
     const check = () => {
       const page = el.closest(".page");
       if (!page) return;
       const box = page.getBoundingClientRect();
-      if (!box.height) return;
-      const mmPerPx = 297 / box.height;
+      if (!box.width) return;
+      const mmPerPx = 210 / box.width;
       const used = (el.getBoundingClientRect().bottom - box.top) * mmPerPx;
-      const limit = PAGE1_LIMIT_MM;
-      const over = used > limit ? +(used - limit).toFixed(1) : null;
-      setOverflow(over);
-
-      /* An empty note always fits, so measuring before the draft lands
-         produces a "fits" at 214mm that means nothing — and the real reading
-         arrives nineteen seconds later at 275.6mm. Say nothing until there
-         is prose on the page. */
+      const over = used > PAGE1_LIMIT_MM ? +(used - PAGE1_LIMIT_MM).toFixed(1) : null;
       const hasProse = Boolean(prose?.summary);
 
-      const fits = over == null;
-      if (hasProse && lastFit.current !== fits) {
-        lastFit.current = fits;
-        /* Millimetres are precise and useless to act on. A body line at
-           8.9pt with 1.36 leading is about 4.3mm, so the overage in LINES is
-           what tells the analyst how much to cut. */
-        const meta = { usedMm: +used.toFixed(1), limitMm: limit, overMm: over,
-                       overLines: over == null ? null : Math.max(1, Math.ceil(over / LINE_MM)),
-                       themes: etfRows.length, bodyPt: 8.9 };
-        if (fits) RunLog.info("ui", "page1.fits", meta);
-        else RunLog.warn("ui", "page1.overflow", { ...meta,
-               note: "the columns run past the analyst block, which is pinned to the sheet and will be printed over" });
+      if (over != null && layout === "auto" && mode === "one") {
+        RunLog.info("ui", "page1.layout", { from: "one", to: "two", usedMm: +used.toFixed(1), limitMm: PAGE1_LIMIT_MM,
+          overMm: over, funds: legRows.length, structures: optRows.length,
+          why: "the exhibits do not fit beneath the prose on one sheet" });
+        setSpill({ key: contentKey });
+        return;                       // re-measures on the next paint
+      }
+      setOverflow(over);
+      const state = `${mode}:${over == null}`;
+      if (hasProse && lastFit.current !== state) {
+        lastFit.current = state;
+        const m = { mode, layout, usedMm: +used.toFixed(1), limitMm: PAGE1_LIMIT_MM, overMm: over,
+                    overLines: over == null ? null : Math.max(1, Math.ceil(over / LINE_MM)),
+                    themes: themeRows.length, funds: legRows.length };
+        if (over == null) RunLog.info("ui", "page1.fits", m);
+        else RunLog.warn("ui", "page1.overflow", { ...m,
+               note: mode === "one" ? "one page was forced and the content runs past the legend"
+                                    : "the prose alone runs past the legend" });
       }
     };
     check();
     const ro = new ResizeObserver(check);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [prose, etfRows.length, optRows.length]);
+  }, [prose, contentKey, layout, mode]);
+
+  /* ── pieces, placed differently by the two layouts ─────────────── */
+  const Prose = (
+    <div className="prose2">
+      <Para lead="Summary:" k="summary" text={prose.summary} onChange={onProse && (v => onProse("summary", v))}
+            accepted={accepted.summary} onAccept={onAccept} />
+      {themeRows.map(t => (
+        <Para key={t.id} lead={`${t.subject}.`} k={t.id} text={prose.themes[t.id] || ""}
+              onChange={onProse && (v => onProse(t.id, v))}
+              accepted={accepted[t.id]} onAccept={onAccept} />
+      ))}
+    </div>
+  );
+
+  const Map = mapRows.length > 0 && (
+    <div className="exhblk">
+      <div className="exh first">Exhibit {exNo("map")}: Positioning Map — Last Price and Open-Interest Walls</div>
+      <div className="pm">
+        {mapRows.map(l => {
+          const lo = l.vol.putWall, hi = l.vol.callWall, pad = (hi - lo) * 0.42, a = lo - pad, b = hi + pad;
+          const fr = x => (x - a) / (b - a);
+          const X = x => `calc(11mm + ${fr(x)} * (100% - 14mm))`;
+          /* When the last price sits almost on a wall the two labels land on
+             top of each other (RSP at 210.43 against a 210 put wall), so the
+             price label drops beneath the axis instead. */
+          const crowded = Math.min(Math.abs(fr(l.price) - fr(lo)), Math.abs(fr(l.price) - fr(hi))) < 0.1;
+          return <div className={`row${crowded ? " crowded" : ""}`} key={l.tk}>
+            <span className="tk">{l.tk}</span><div className="ax" />
+            <div className="wall p" style={{ left: X(lo) }} /><span className="lab p" style={{ left: X(lo) }}>{lo}</span>
+            <div className="wall c" style={{ left: X(hi) }} /><span className="lab c" style={{ left: X(hi) }}>{hi}</span>
+            <div className="spot" style={{ left: X(l.price) }} />
+            <span className={`lab s${crowded ? " lo" : ""}`} style={{ left: X(l.price) }}>{f(l.price)}</span>
+          </div>;
+        })}
+      </div>
+      <div className="src">Put wall green, call wall red, last price ringed. A wall is the strike holding the most open interest on that side, not a level price is expected to reach or hold.
+        {unplotted.length > 0 && <> {unplotted.join(", ")} {unplotted.length > 1 ? "have" : "has"} no two-sided walls to plot.</>}</div>
+    </div>
+  );
+
+  const Side = (
+    <div className="rail">
+      {risks.length > 0 && <>
+        <div className="rh" style={{ marginTop: 0 }}>Risks to the View</div>
+        {risks.slice(0, 4).map((r, i) => <div className="risk" key={i}><b>{r}</b></div>)}
+      </>}
+      {/* Sizing context, not ranking: several funds on one thesis are one
+          position. Silent when there is nothing to say. */}
+      {note.correlation?.sentence && <div className="rnote"><b>Correlation.</b> {note.correlation.sentence}</div>}
+      <div className="sig"><b>{meta.analyst.name}</b> · {meta.analyst.title}<br />
+        <span className="em">{meta.analyst.email}</span> · {meta.analyst.phone}</div>
+    </div>
+  );
+
+  const anyRealised = legRows.some(l => l.env?.rangeBasis === "realised");
+  const Levels = (
+    <div className="exhblk">
+      <div className="exh">Exhibit {exNo("etf")}: ETF Expression — Levels, Trading Range and Volatility</div>
+      {/* LEVELS, NOT A PLAN. Where the market is and where the walls sit;
+          what to do about it is the reader's. One row per fund carried. */}
+      <table className="x lv"><thead><tr><th>Theme</th><th className="c">ETF</th><th className="c">Last</th><th className="c">Put wall</th><th className="c">Call wall</th><th className="c">One-month range</th><th className="c">3-month closes</th><th className="c">In range</th><th className="c">vs 50-day</th><th className="c">IV30 / RV30</th><th className="c">Avg day</th><th className="c">25ΔRR</th><th className="c">Options</th></tr></thead><tbody>
+        {legRows.map(l => { const e = l.env || {}, v = l.vol || {}; return <tr key={l.t.id + l.tk}>
+          <td>{l.first ? <><Arrow d={l.t.direction} /> {l.t.subject}</> : ""}</td><td className="c"><b>{l.tk}</b></td><td className="c">{f(l.price)}</td>
+          <td className="c">{v.putWall != null ? `${v.putWall} (${pct(e.putWallDistPct)})` : v.thinPut ? "thin" : "—"}</td>
+          <td className="c">{v.callWall != null ? `${v.callWall} (${pct(e.callWallDistPct)})` : v.thinCall ? "thin" : "—"}</td>
+          <td className="c">{e.rangeLo != null ? `${f(e.rangeLo, 0)} – ${f(e.rangeHi, 0)}${e.rangeBasis === "realised" ? " \u2020" : ""}` : "—"}</td>
+          <td className="c">{e.closeLo != null ? `${f(e.closeLo)} – ${f(e.closeHi)}` : "—"}</td>
+          <td className="c">{e.rangePosition != null ? `${e.rangePosition}%` : "—"}</td>
+          <td className="c">{e.vsMa50Pct != null ? pct(e.vsMa50Pct) : "—"}</td>
+          <td className="c">{e.iv30 != null || e.rv30 != null ? `${e.iv30 != null ? f(e.iv30, 1) : "—"} / ${e.rv30 != null ? f(e.rv30, 1) : "—"}` : "—"}</td>
+          <td className="c">{e.avgDailyMovePct != null ? f(e.avgDailyMovePct, 1) + "%" : "—"}</td>
+          <td className="c">{v.rr25 != null ? (v.rr25 > 0 ? "+" : "") + f(v.rr25) : "—"}</td>
+          <td className="c">{l.liq ? `grade ${l.liq}` : "—"}</td></tr>; })}
+      </tbody></table>
+      <div className="src">Walls show distance from the last price. One-month range is one standard deviation from option prices, not a forecast or price objective{anyRealised ? " (\u2020 from realised volatility; no option chain)" : ""}. In range: position in the 3-month closing range. Avg day: average close-to-close move, 20 sessions. Entry, sizing, exit and timing are the reader's decisions.</div>
+    </div>
+  );
+
+  const Derivs = hasOpts && (
+    <div className="exhblk">
+      <div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression — Illustrative Structures</div>
+      <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max loss</th><th className="c">Max gain</th><th className="c">Breakeven</th><th>Note</th></tr></thead><tbody>
+        {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td><Arrow d={t.direction} /> {t.subject}</td><td className="c">{t.etf.tk}</td>
+          <td className="nw">{o.name}</td><td className="c nw">{longExpiry(o.expiry)}</td><td className="c nw">{o.legText}</td>
+          <td className="c nw">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
+          <td className="c">{maxLossText(o.pricing)}</td>
+          <td className="c">{(o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td>
+          <td className="c">{o.pricing.breakevens.join(" / ") || "—"}</td><td>{o.why}</td></tr>)}
+      </tbody></table>
+      <div className="src">Per share at expiration at indicative marks ({[...new Set(optRows.map(x => x.o.pricing.priceSource))].join(" / ") || "the chain"}), before costs; one contract is 100 shares. Illustrations of how the view could be expressed with defined risk.</div>
+    </div>
+  );
+
+  const Lev = levRows.length > 0 && (
+    <div className="exhblk">
+      <div className="exh">Exhibit {exNo("lev")}: Levered and Inverse Funds</div>
+      <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th className="c">Leverage</th><th className="c">Gamma X(X−1)</th><th>Note</th></tr></thead><tbody>
+        {levRows.map(l => <tr key={l.t.id + l.tk}><td>{l.underlying}</td><td>{l.tk}</td>
+          <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma ?? "—"}</td>
+          <td>{l.carried ? "an expression of the view for short periods — daily reset means the realised multiple drifts the longer it is held"
+                         : "listed for reference — daily reset decay compounds the longer the fund is held"}</td></tr>)}
+      </tbody></table>
+      <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets.</div>
+    </div>
+  );
+
+  const Head = (
+    <>
+      <div className="mast">
+        <Wordmark />
+        <div className="kind"><div className="k1">{MAST.kind}</div><div className="k2">{MAST.audience}</div><div className="k3">{meta.date}</div></div>
+      </div>
+      <div className="band">
+        <div className="t">{meta.title}</div>
+        <div className="row"><b>{meta.direction.toUpperCase()}</b><span>{subjLine}</span>
+          <span className="sec">{meta.sector}</span></div>
+      </div>
+      <div className="headline">{meta.subtitle}</div>
+    </>
+  );
+  const lastPage = mode === "one" ? 2 : 3;
 
   return (
     <div className="noteprint">
-      {/* ═══ PAGE 1 ═══ */}
       {!APPROVED && (
         <div className="fitnote screen-only pending">
           Legend and disclosure wording are drafts pending Compliance and Registered Options
           Principal approval (src/note/disclosures.js). This banner does not print.
         </div>
       )}
-      {/* Screen only — a warning about the page must never be on the page. */}
+      {/* Screen only — a note about the page must never be on the page. */}
+      {layout === "auto" && mode === "two" && overflow == null && (
+        <div className="fitnote screen-only">
+          Too much for one page, so the exhibits are on page 2. Fewer funds, fewer structures or
+          shorter paragraphs bring it back to one.
+        </div>
+      )}
       {overflow != null && (
         <div className="overflowwarn">
           <b>Page 1 is over by about {Math.max(1, Math.ceil(overflow / LINE_MM))} line
-          {Math.ceil(overflow / LINE_MM) > 1 ? "s" : ""} ({overflow}mm)</b>
-. The two columns have
-          grown past the analyst block, which is pinned to the bottom of the sheet and will be
-          printed over. Cut roughly {Math.max(8, Math.ceil(overflow / LINE_MM) * 9)} words, or drop
-          a theme, before saving the PDF.
+          {Math.ceil(overflow / LINE_MM) > 1 ? "s" : ""} ({overflow}mm)</b>.
+          {mode === "one" ? " One page is forced and the content runs past the legend — switch Layout to Auto or Two pages, or cut the prose."
+                          : ` The prose alone runs past the legend. Cut roughly ${Math.max(8, Math.ceil(overflow / LINE_MM) * 18)} words, or drop a theme, before saving the PDF.`}
         </div>
       )}
 
-      <div className="page">
-        <div className="mast">
-          <Wordmark />
-          <div className="kind"><div className="k1">{MAST.kind}</div><div className="k2">{MAST.audience}</div><div className="k3">{meta.date}</div></div>
+      {/* ═══ PAGE 1 ═══ */}
+      <div className={`page np ${mode === "one" ? "compact" : ""}`}>
+        <div ref={flowRef}>
+          {Head}
+          {Prose}
+          {mode === "one" ? (
+            <>
+              <div className="split">{Map ? <div className="half">{Map}</div> : null}<div className="half">{Side}</div></div>
+              {Levels}{Derivs}{Lev}
+            </>
+          ) : (
+            <div className="split solo"><div className="half">{Side}</div></div>
+          )}
         </div>
-        <div className="band">
-          <div className="t">{meta.title}</div>
-          <div className="row"><b>{meta.direction.toUpperCase()}</b><span>{subjLine}</span>
-            <span className="sec">{meta.sector}</span></div>
-        </div>
-
-        <div className="cols" ref={colsRef}>
-          <div className="col-l">
-            <div className="headline">{meta.subtitle}</div>
-            <Para lead="Summary:" k="summary" text={prose.summary} onChange={onProse && (v => onProse("summary", v))}
-                  accepted={accepted.summary} onAccept={onAccept} />
-            {etfRows.map(t => (
-              <Para key={t.id} lead={`${t.subject}.`} k={t.id} text={prose.themes[t.id] || ""}
-                    onChange={onProse && (v => onProse(t.id, v))}
-                    accepted={accepted[t.id]} onAccept={onAccept} />
-            ))}
-          </div>
-
-          <div className="col-r rail">
-            <div className="rh">ETF Expression</div>
-            {/* LEVELS, NOT A PLAN (0.38.0). This table used to carry a scale-in
-                average, a stop-loss and a risk figure — an entry, an exit and a
-                size. It now carries where the market is and where the
-                open-interest walls sit; what to do about it is the reader's. */}
-            <table className="etfr"><thead><tr>
-              <th></th><th>Last</th><th>Put wall</th><th>Call wall</th><th>1-mo range</th>
-            </tr></thead><tbody>
-              {etfRows.map(t => { const e = t.env || {}; return (
-                <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
-                  <td>{f(t.etf.price)}</td>
-                  <td className="g">{t.vol?.putWall ?? "—"}{e.putWallDistPct != null && <i className="d"> {pct(e.putWallDistPct)}</i>}</td>
-                  <td className="r">{t.vol?.callWall ?? "—"}{e.callWallDistPct != null && <i className="d"> {pct(e.callWallDistPct)}</i>}</td>
-                  <td>{e.rangePct != null ? `±${f(e.rangePct, 1)}%` : "—"}</td></tr>
-              ); })}
-            </tbody></table>
-            <div className="rnote">Walls are the largest open-interest strikes below (puts) and above (calls)
-              the last price, with the distance to each. Range is one standard deviation over one month.</div>
-
-            {etfRows.some(t => t.leveredCarried?.length) && (<>
-              <div className="rh">Levered ETF Expression</div>
-              <table><thead><tr><th></th><th>Leverage</th><th>Underlying</th></tr></thead><tbody>
-                {etfRows.flatMap(t => (t.leveredCarried || []).map(l => (
-                  <tr key={l.tk}><td><Arrow d={t.direction} /> {l.tk}</td>
-                    <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td>
-                    <td className="c">{l.underlying}</td></tr>)))}
-              </tbody></table>
-              <div className="rnote">A levered fund moves at roughly the stated multiple of its underlying each
-                day. Daily reset means the realised multiple drifts the longer it is held.</div>
-            </>)}
-
-            <div className="rh">Derivatives Expression</div>
-            <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "Net" : "Debit"}</th><th>Max loss</th><th>Max gain</th></tr></thead><tbody>
-              {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{t.etf.tk}</td>
-                <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {longExpiry(o.expiry)}</td>
-                <td>${f(Math.abs(o.pricing.net) / 100)}{o.pricing.net < 0 ? " cr" : ""}</td>
-                <td className="r">{maxLossText(o.pricing)}</td>
-                <td className="g">{(o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td></tr>)}
-              {/* "No tradable chain" and "none carried" are different statements
-                  and only one of them is about the market. SMH priced a long
-                  put at 0.635 and a put spread at 0.55 on 15 Sep; neither was
-                  ticked, and the note would have told the client there was no
-                  chain. `alternatives` holds what was priced and passed over. */}
-              {/* The panel follows the ETF sequence rather than ranking
-                independently: an option is the same idea expressed
-                differently — the right tool when spot is not where you want
-                to buy — so the note reads theme by theme. */}
-            {optRows.length === 0 && <tr><td colSpan={5} className="note">
-                {etfRows.some(t => t.alternatives?.length)
-                  ? "shares only \u2014 no derivatives carried alongside"
-                  : "no tradable chain on the selected vehicles"}</td></tr>}
-            </tbody></table>
-
-            <div className="rh">Volatility</div>
-            <table><thead><tr><th></th><th>IV30</th><th>RV30</th><th>Avg day</th><th>25ΔRR</th><th>Term</th></tr></thead><tbody>
-              {etfRows.map(t => { const e = t.env || {}; return <tr key={t.id}><td>{t.etf.tk}</td><td>{t.vol?.iv30 != null ? f(t.vol.iv30, 1) + "%" : "—"}</td>
-                <td>{t.vol?.rv30 != null ? f(t.vol.rv30, 1) + "%" : "—"}</td>
-                <td>{e.avgDailyMovePct != null ? f(e.avgDailyMovePct, 1) + "%" : "—"}</td>
-                <td className={t.vol?.rr25 > 0 ? "r" : "g"}>{t.vol?.rr25 > 0 ? "+" : ""}{f(t.vol?.rr25)}</td>
-                <td className={t.vol?.termSlope < 0.9 ? "am" : ""}>{f(t.vol?.termSlope)}</td></tr>; })}
-            </tbody></table>
-            {/* This number is not decoration — strategy.js switches structure
-                on it at -3 and +1, so the footnote should say what it drives,
-                not just which way the sign points. The closing clause reads
-                the note's own legs so it describes this note rather than
-                stating a general rule. */}
-            {(() => {
-              const rrs = etfRows.map(t => t.vol?.rr25).filter(v => v != null);
-              const here = !rrs.length ? ""
-                : rrs.every(v => v <= -3) ? " Every leg here is bid for downside."
-                : rrs.every(v => v >= 1) ? " Every leg here is bid for upside."
-                : rrs.some(v => v <= -3) && rrs.some(v => v >= 1) ? " The legs here are split."
-                : "";
-              return (
-                <div className="note">IV30 is 30-day implied volatility and RV30 what the last 30 sessions
-                  delivered; Avg day is the average daily close-to-close move over 20 sessions.
-                  25ΔRR is the 25-delta call's implied volatility less the
-                  25-delta put's, in volatility points; positive means calls are bid. Past −3 downside
-                  strikes are comparatively rich; past +1 they are comparatively neglected.{here}</div>
-              );
-            })()}
-
-            {/* Sizing, not ranking. Four legs on one thesis is one position
-                at several times the intended risk, and nothing else on the
-                page says so. Silent when there is nothing to warn about. */}
-            {note.correlation?.sentence && (<>
-              <div className="rh">Correlation</div>
-              <div className="rnote">{note.correlation.sentence}</div>
-            </>)}
-
-            <div className="rh">Liquidity Screen</div>
-            <table><tbody>
-              {etfRows.map(t => <tr key={t.id}><td>{t.etf.tk}</td>
-                <td style={{ textAlign: "left" }} className={t.etf.liq === "A" ? "g" : t.etf.liq === "X" ? "r" : "am"}>grade {t.etf.liq}</td>
-                <td style={{ color: "var(--n-muted)" }}>{t.contracts?.toLocaleString() || "—"} contracts</td></tr>)}
-            </tbody></table>
-
-            {risks.length > 0 && <>
-              <div className="rh">Risks to the View</div>
-              {risks.slice(0, 4).map((r, i) => <div className="risk" key={i}><b>{r}</b></div>)}
-            </>}
-          </div>
-        </div>
-
-        <div className="analyst"><b>{meta.analyst.name}</b><br />{meta.analyst.title}<br />
-          <span className="em">{meta.analyst.email}</span><br />{meta.analyst.phone}</div>
-        {/* The page-1 disclosure block was removed at the analyst's request:
-            his Closing Prints do not carry one, and it was taking 17mm off a
-            sheet the prose had already overrun.
-
-            What it contained was a POINTER — the conflict-of-interest line
-            plus "see the Important Disclosures Appendix starting on PAGE 3".
-            The appendix itself is untouched and still ships on page 3, so
-            this removes the cover reference to the disclosures, not the
-            disclosures. Whether the reference is required is a compliance
-            question, not a formatting one.
-
-            To restore: put this block back and return .analyst to bottom 34mm
-            and PAGE1_LIMIT_MM to 261. */}
-        {/* The market-commentary legend. The old disclosure block (removed
-            above) was a pointer; this is the statement itself — what the
-            communication is and is not — and it is what the research
-            exclusion leans on. Wording lives in disclosures.js. */}
-        <div className="legend">{LEGEND}</div>
+        {/* The market-commentary legend: what the communication is and is
+            not. Wording lives in disclosures.js. */}
+        <div className="legend">{LEGEND.replace("page 3", `page ${lastPage}`)}</div>
         <Foot n={1} />
       </div>
 
-      {/* ═══ PAGE 2 ═══ */}
-      <div className="page">
-        <div className="rhead">{MAST.kind} — {meta.title}<span>{MAST.audience} · {meta.date}</span></div>
-
-        <div className="exhblk"><div className="exh first">Exhibit {exNo("map")}: Positioning Map — Last Price and Open-Interest Walls</div>
-        <div className="pm">
-          {etfRows.map(t => {
-            const v = t.vol; if (!v?.putWall || !v?.callWall || !t.etf?.price) return null;
-            const lo = v.putWall, hi = v.callWall, pad = (hi - lo) * 0.42, a = lo - pad, b = hi + pad;
-            const Xmm = x => `calc(14mm + ${(x - a) / (b - a)} * (100% - 30mm))`;
-            return <div className="row" key={t.id}>
-              <span className="tk">{t.etf.tk}</span><div className="ax" />
-              {/* Spot and the two walls, nothing else. The scale band, the five
-                  rungs and the weighted average were drawn here until 0.38.0;
-                  they were a picture of an order, and the note no longer
-                  describes one. */}
-              <div className="wall p" style={{ left: Xmm(lo) }} /><span className="lab p" style={{ left: Xmm(lo) }}>{lo}</span>
-              <div className="wall c" style={{ left: Xmm(hi) }} /><span className="lab c" style={{ left: Xmm(hi) }}>{hi}</span>
-              <div className="spot" style={{ left: Xmm(t.etf.price) }} />
-              <span className="lab s" style={{ left: Xmm(t.etf.price) }}>{f(t.etf.price)}</span>
-            </div>;
-          })}
+      {/* ═══ PAGE 2 — exhibits, only when they did not fit on page 1 ═══ */}
+      {mode === "two" && (
+        <div className="page np">
+          <div className="rhead">{MAST.kind} — {meta.title}<span>{MAST.audience} · {meta.date}</span></div>
+          {Map}{Levels}{Derivs}{Lev}
+          <Foot n={2} />
         </div>
-        <div className="src">Put wall in green, call wall in red, last price ringed. A wall is the strike holding the most open interest on that side of the market — a level where dealer hedging has tended to concentrate, not a level price is expected to reach or hold.
-          {etfRows.some(t => !t.vol?.putWall || !t.vol?.callWall) && <> {etfRows.filter(t => !t.vol?.putWall || !t.vol?.callWall).map(t => t.etf.tk).join(", ")} {etfRows.filter(t => !t.vol?.putWall || !t.vol?.callWall).length > 1 ? "are" : "is"} absent from this map: with no two-sided option chain there are no walls to plot.</>}</div>
-        </div>
+      )}
 
-        <div className="exhblk"><div className="exh">Exhibit {exNo("etf")}: ETF Expression — Levels and Trading Range</div>
-        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th className="c">Last</th><th className="c">Put wall</th><th className="c">Call wall</th><th className="c">One-month range</th><th className="c">3-month closes</th><th className="c">In range</th><th className="c">50-day avg</th><th className="c">Implied / realised</th></tr></thead><tbody>
-          {etfRows.map(t => { const e = t.env || {}, w = t.wall || {}; const dag = e.rangeBasis === "realised" ? " \u2020" : ""; return <tr key={t.id}>
-            <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{f(t.etf.price)}</td>
-            <td className="c">{t.vol?.putWall != null ? `${t.vol.putWall} (${pct(e.putWallDistPct)})` : "—"}</td>
-            <td className="c">{t.vol?.callWall != null ? `${t.vol.callWall} (${pct(e.callWallDistPct)})` : "—"}</td>
-            <td className="c">{e.rangeLo != null ? `${f(e.rangeLo, 0)} – ${f(e.rangeHi, 0)}${dag}` : "—"}</td>
-            <td className="c">{e.closeLo != null ? `${f(e.closeLo)} – ${f(e.closeHi)}` : "—"}</td>
-            <td className="c">{e.rangePosition != null ? `${e.rangePosition}%` : "—"}</td>
-            <td className="c">{e.ma50 != null ? `${f(e.ma50)} (${pct(e.vsMa50Pct)})` : "—"}</td>
-            <td className="c">{e.ivOverRv != null ? `${f(e.iv30, 1)} / ${f(e.rv30, 1)}` : "—"}</td></tr>; })}
-        </tbody></table>
-        <div className="src">Walls show the distance from the last price. The one-month range is one standard deviation derived from current option prices — the option market's own measure of a normal month, not a forecast and not a price objective.
-          3-month closes is the range of daily closing prices over the last three months and In range is where the last price sits within it (0% the low, 100% the high). 50-day avg shows the last price relative to it. Implied / realised compares 30-day implied volatility with what the last 30 sessions delivered.
-          {etfRows.some(t => t.env?.rangeBasis === "realised") && <><br />
-            <b>†</b> No tradeable option chain on this vehicle, so it carries no open-interest walls and its range is
-            measured from realised volatility over {etfRows.find(t => t.env?.rangeBasis === "realised")?.env?.rangeWindow ?? 30} sessions
-            rather than from option prices.
-          </>}<br />
-          These are descriptions of the market as of the date shown. Entry, sizing, exit and timing are the reader's decisions.</div>
-
-        </div>
-        {/* Exhibits 6 and 7 were already suppressed when nothing is carried;
-            5 was not, so a shares-only note printed one lone table of column
-            headers over an empty body. */}
-        {optRows.length > 0 && (
-        <div className="exhblk"><div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression — Illustrative Structures</div>
-        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max loss</th><th className="c">Max gain</th><th className="c">Breakeven</th></tr></thead><tbody>
-          {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
-            <td>{o.name}</td><td className="c">{longExpiry(o.expiry)}</td><td className="c">{o.legText}</td>
-            <td className="c">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
-            <td className="c">{maxLossText(o.pricing)}</td>
-            <td className="c">{(o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td>
-            <td className="c">{o.pricing.breakevens.join(" / ") || "—"}</td></tr>)}
-        </tbody></table>
-        <div className="src">Marks from {[...new Set(optRows.map(x => x.o.pricing.priceSource))].join(" / ") || "the chain"}, per share at expiration, before costs; one contract is 100 shares. Breakeven is where the structure neither gains nor loses at expiry. Structures are illustrations of how the view could be expressed with defined risk, priced at indicative marks.</div>
-        </div>)}
-
-        {optRows.length > 0 && <>
-          <div className="exhblk"><div className="exh">Exhibit {exNo("notes")}: Structure Notes</div>
-          <table className="x"><thead><tr><th>Theme</th><th>Structure</th><th>Note</th></tr></thead><tbody>
-            {optRows.flatMap(({ t, o }) => [
-              <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td>{o.name}</td><td>{o.why}</td></tr>,
-              ...t.alternatives.slice(0, 1).map(a => <tr key={t.id + a.id}><td></td><td>{a.name}</td><td>Alternative: {a.why}</td></tr>),
-            ])}
-          </tbody></table>
-          <div className="src">The first structure under each theme is the one carried; the second is the nearest alternative.</div>
-
-          </div>
-        </>}
-
-        <div className="exhblk"><div className="exh">Exhibit {exNo("screen")}: Vehicle Screening</div>
-        <table className="x"><thead><tr><th>Theme</th><th>Selected</th><th>Alternatives considered</th><th>Why not selected</th></tr></thead><tbody>
-          {etfRows.map(t => <tr key={t.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
-            <td>{t.screening.considered.join(" · ") || "—"}</td><td>{t.screening.whyNot || "no second vehicle with a usable chain"}</td></tr>)}
-        </tbody></table>
-        <div className="src">Vehicles selected on directness of exposure, options liquidity, dollar volume, and structural decay.</div>
-        </div>
-
-        {etfRows.some(t => t.levered.length) && (
-          <div className="exhblk"><div className="exh">Exhibit {exNo("lev")}: Levered and Inverse Alternatives — Not Carried</div>
-          <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th>Leverage</th><th>Gamma X(X−1)</th><th>Suitability beyond a few days</th></tr></thead><tbody>
-            {etfRows.flatMap(t => t.levered.map(l => <tr key={l.tk}><td>{t.etf.tk}</td><td>{l.tk}</td>
-              <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma}</td>
-              <td>days only — daily reset decay compounds the longer the fund is held</td></tr>))}
-          </tbody></table>
-          <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets.
-            {etfRows.some(t => t.leveredCarried?.length)
-              ? " The funds listed above are the ones passed over; anything carried appears under Levered ETF Expression on page 1."
-              : " None is carried here."}</div>
-          </div>
-        )}
-
-        <Foot n={2} />
-      </div>
-
-      {/* ═══ PAGE 3 ═══ */}
+      {/* ═══ DISCLOSURES ═══ */}
       <div className="page appx">
         <div className="rhead">{MAST.kind} — Important Disclosures<span>{MAST.audience} · {meta.date}</span></div>
         <div className="key"><b className="h">Key — Options Liquidity Grade</b>
@@ -440,7 +344,9 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           <div><b>Put wall</b>the strike below the last price holding the most put open interest</div>
           <div><b>Call wall</b>the strike above the last price holding the most call open interest</div>
           <div><b>Nearby</b>a wall within {NEAR_WALL_PCT}% of the last price; beyond that the note describes it by its distance</div>
+          <div><b>Thin</b>a wall holding fewer than {MIN_WALL_OI.toLocaleString()} contracts is treated as no wall</div>
           <div><b>1-mo range</b>one standard deviation over one month, from option prices where a chain exists, otherwise from realised volatility</div>
+          <div><b>25ΔRR</b>the 25-delta call's implied volatility less the 25-delta put's, in volatility points; positive means calls are bid</div>
         </div>
         <h1>IMPORTANT DISCLOSURES APPENDIX</h1>
         {APPENDIX({ author: meta.analyst?.name, title: meta.analyst?.title }).map(x => (
@@ -448,9 +354,8 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         ))}
         <div className="signoff"><Wordmark /></div>
         <div className="copy">Copyright 2026 JonesTrading Institutional Services LLC. All rights reserved.</div>
-        <Foot n={3} />
+        <Foot n={lastPage} />
       </div>
     </div>
   );
 }
-const cap = s => s ? s[0].toUpperCase() + s.slice(1) : "";

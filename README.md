@@ -192,6 +192,50 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- ONE PAGE WHEN IT FITS; EVERY TICKED FUND CARRIED (0.39.0).
+  MULTIPLE ETFs PER THEME. compose took `chosen.find(...)` — the first ETF
+  ticked — so on 5 Oct JNK was ticked beside HYG, logged, and dropped without
+  a word. Every ticked primary/secondary is now carried as a `leg` (primary
+  first), printed on its own row, named in the expression sentence ("Ways to
+  express the view include HYG and JNK.") and given its own wall sentence
+  ("In HYG, investors looking to trade the idea have…"). `theme.etf` remains
+  the first leg so ordering, the gate and the ledger are unchanged.
+  A TICKED SECONDARY GETS ITS CHAIN. Secondaries are scored off realised vol
+  with no chain call; ticking one now fetches its chain once (StepIdeas
+  fetchSecondaryChain) and stores walls, IV and skew beside the leg as
+  chainVol/chainLiq. DISPLAY ONLY — its vol, plan and score are untouched, so
+  a tick cannot move a ranking. One extra chain call per fund actually
+  selected. The cache is patched directly as well as local state, because the
+  analyst can click through to the note before the chain returns.
+  A WALL NEEDS WEIGHT. MIN_WALL_OI = 1,000 contracts (environment.js). The
+  "wall" is simply the largest strike, so a thin chain has one too; below the
+  floor it is removed once, in consequentialWalls, so the sentence, the map
+  and the table cannot disagree. The sentence then says the open interest is
+  too thin, and the table prints "thin".
+  LAYOUT. The 67mm rail is gone — it took 40% of the sheet and mostly repeated
+  the exhibits. The note is one flow: prose in two columns, then Positioning
+  Map beside Risks / Correlation / sign-off, then one merged ETF table
+  (levels, trading range, volatility, skew, options grade), then the option
+  structures with their note, then levered funds. NoteView measures page 1:
+  if it fits, that is the note (one page + disclosures, body 8.6pt); if not,
+  the exhibits move to page 2 and page 1 keeps the prose. Layout on the Note
+  step is Auto / One page / Two pages. The fallback is sticky per content, so
+  it cannot oscillate on a keystroke. Measured in Chromium with realistic
+  wording: 2 themes and 3 themes/4 funds/2 structures fit one page (238mm and
+  259mm of 273); 4 and 5 themes go to two. Logged as page1.layout / page1.fits.
+  REMOVED: Vehicle Screening (entirely), Structure Notes (now a Note column),
+  the rail's Volatility and Liquidity panels (now columns), the separate
+  levered rail table (one exhibit, carried and reference funds together).
+  Map: when the last price sits on a wall the price label drops below the
+  axis instead of overprinting it (RSP 210.43 on a 210 put wall).
+  CHECKS: checkThemeOpening accepts either expression sentence and requires
+  every carried fund named and no other; checkWallSentence requires each
+  fund's sentence verbatim; ranking check widened ("the better vehicle").
+  108 cases. test/render.jsx renders BOTH layouts and asserts page count,
+  footer and legend page number, a row per fund, and the removed exhibits.
+  NOT YET VERIFIED LIVE: the secondary chain fetch and the drafter's handling
+  of multi-fund paragraphs have fixtures but no production run behind them.
+
 - SEED, INSTRUMENTS, ENVIRONMENT — EXECUTION IS THE CLIENT'S (0.38.0). The
   note no longer nominates an entry, an exit, a size or a time frame. It
   gives the argument, the instruments that could express it, and facts about

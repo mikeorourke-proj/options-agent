@@ -447,6 +447,50 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
     if (next[k]) delete next[k]; else next[k] = { themeId, kind, ticker, ...extra };
     setPicks({ ...picks, sel: next });
     RunLog.info("ui", "pick.toggle", { key: k, on: Boolean(next[k]) });
+    if (kind === "secondary" && next[k]) fetchSecondaryChain(themeId, ticker);
+  }
+
+  /* A TICKED SECONDARY GETS ITS CHAIN (0.39.0).
+     Secondaries are scored off realised vol with no chain call — up to three
+     a theme, and most are never selected. But a ticked one is printed, and
+     the note frames every fund it carries against its open-interest walls,
+     so the chain is fetched at the moment of selection: one call, only for
+     funds the analyst actually chose, once per fund.
+     DISPLAY ONLY. The result is stored beside the leg as chainVol/chainLiq
+     and read by compose for walls, implied vol and skew. The leg's own
+     `vol`, plan and score are untouched, so ticking a fund cannot move a
+     ranking. */
+  async function fetchSecondaryChain(themeId, ticker) {
+    const row = menus.find(m => m.id === themeId)?.secondary?.find(x => x.t === ticker);
+    if (!row || row.chainTried) return;
+    /* Both setters take a function, and the cache is updated on its own
+       rather than from inside setMenus: the analyst can tick a fund and
+       click through to the note before the chain returns, and by then this
+       component has unmounted and its own state setter does nothing. The
+       cache lives in App and is what the note is built from. */
+    const apply = prev => (prev || []).map(m => m.id !== themeId ? m
+      : { ...m, secondary: m.secondary.map(x => x.t === ticker ? { ...x, chainTried: true, ...extra_ } : x) });
+    let extra_ = {};
+    const patch = extra => { extra_ = extra; setMenus(apply); setMenuCache(apply); };
+    try {
+      const chain = await api.chain(ticker, row.price);
+      const liq = grade(chain?.quality);
+      if (liq === "X") {
+        RunLog.info("ui", `secondary.chain.${ticker}`, { grade: "X", walls: false, reason: "no usable option chain" });
+        return patch({ chainLiq: "X" });
+      }
+      const cv = analyzeChain(ticker, chain.contracts, row.price);
+      const chainVol = { ...(row.vol || {}), iv30: cv.iv30 ?? null, rr25: cv.rr25 ?? null, termSlope: cv.termSlope ?? null,
+                         putWall: cv.putWall ?? null, callWall: cv.callWall ?? null,
+                         putWalls: cv.putWalls || [], callWalls: cv.callWalls || [],
+                         putWallOI: cv.putWallOI ?? null, callWallOI: cv.callWallOI ?? null, contracts: cv.contracts };
+      RunLog.info("ui", `secondary.chain.${ticker}`, { grade: liq, putWall: chainVol.putWall, putWallOI: chainVol.putWallOI,
+        callWall: chainVol.callWall, callWallOI: chainVol.callWallOI, iv30: chainVol.iv30 });
+      patch({ chainLiq: liq, chainVol });
+    } catch (e) {
+      RunLog.warn("ui", `secondary.chain.${ticker}`, { error: String(e?.message || e), walls: false });
+      patch({});
+    }
   }
   /* Changing execution or stop mode re-plans the ETF leg only; the chain
      and option pricing are unchanged, so no refetch. */
@@ -731,7 +775,8 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
               {m.secondary.length > 0 && (
                 <div className="tier">
                   <span className="tierlab">Secondary</span>
-                  {m.secondary.map(x => <ExprRow key={x.t} x={x} kind="secondary" themeId={m.id} on={on} toggle={toggle} />)}
+                  {m.secondary.map(x => <ExprRow key={x.t} x={x} kind="secondary" themeId={m.id} on={on} toggle={toggle}
+                                                 liq={x.chainLiq} walls={x.chainVol} />)}
                 </div>
               )}
 

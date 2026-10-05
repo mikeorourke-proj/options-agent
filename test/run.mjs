@@ -55,7 +55,7 @@ const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.j
 const { buildLegs, priceStructure, scoreEconomics } = await import("../src/lib/pricing.js");
 const { analyzeCorrelation, correlationNote } = await import("../src/lib/correlation.js");
 const { composeNote, draftContext } = await import("../src/lib/compose.js");
-const { wallContext, wallSentence, environment } = await import("../src/lib/environment.js");
+const { wallContext, wallSentence, environment, consequentialWalls } = await import("../src/lib/environment.js");
 const { checkVoice, checkWallSentence, checkThemeOpening, checkSourcedClaims } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
@@ -124,7 +124,11 @@ function compose(c) {
          and NOTHING of the plan: no entry, scale band, weighted average,
          stop, risk figure or window. Checked on the JSON itself, with the
          sanctioned wall sentence removed first ("scale in", "an entry"). */
-      wallSentences: (n.themes || []).map(t => `${t.etf?.tk}: ${t.wallSentence}`),
+      wallSentences: (n.themes || []).flatMap(t => (t.legs || []).map(l => `${l.tk}: ${l.wallSentence}`)),
+      /* Every fund ticked, in print order, and the sentence that names them. */
+      funds: (n.themes || []).map(t => (t.legs || []).map(l => `${l.tk}${l.primary ? "" : "*"}:${l.liq}`).join(",")),
+      expression: (n.themes || []).map(t => t.expressionSentence),
+      drafterFunds: draftContext(n).themes.map(t => (t.etfs || []).map(e => e.ticker).join(",")),
       drafterEtfKeys: Object.keys(draftContext(n).themes[0]?.etf || {}).sort(),
       drafterLeaks: (JSON.stringify(draftContext(n), (k, v) => k === "wallSentence" || k === "risks" ? undefined : v)
         .match(/stop|riskPct|scaleTo|weighted|entry|executeWindow|holdWindow|"execution"|"pop"/gi) || []),
@@ -247,9 +251,11 @@ function voice(c) {
 function wall(c) {
   hush();
   try {
-    const w = wallContext(c.spot, c.vol, c.direction);
-    const e = environment({ spot: c.spot, vol: c.vol, closes: c.closes });
-    return { wall: w, sentence: wallSentence("TK", w),
+    /* Through consequentialWalls first, exactly as compose does it. */
+    const v = consequentialWalls(c.vol);
+    const w = wallContext(c.spot, v, c.direction);
+    const e = environment({ spot: c.spot, vol: v, closes: c.closes });
+    return { wall: w, sentence: wallSentence("TK", w), named: wallSentence("TK", w, { named: true }),
              env: { basis: e.rangeBasis, lo: r(e.rangeLo, 2), hi: r(e.rangeHi, 2), pct: e.rangePct,
                     dPut: e.putWallDistPct, dCall: e.callWallDistPct, sdPut: e.putWallDistSd, sdCall: e.callWallDistSd,
                     ivOverRv: e.ivOverRv, avgDay: e.avgDailyMovePct, closeLo: e.closeLo, closeHi: e.closeHi,

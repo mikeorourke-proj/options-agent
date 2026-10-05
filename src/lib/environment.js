@@ -30,6 +30,26 @@ export const NEAR_WALL_PCT = 7;
    stopped naming one. Deliberately not the ranking horizon. */
 export const RANGE_DAYS = 30;
 
+/* A WALL NEEDS WEIGHT. The "wall" is simply the strike with the most open
+   interest on its side, so every chain has one — including a chain where the
+   largest strike holds a few dozen contracts. That is not a level anyone is
+   hedging against, and telling a reader they "have support" there would be
+   inventing structure. Below this, the wall is treated as absent everywhere
+   it would print: the sentence, the map and the table. */
+export const MIN_WALL_OI = 1000;
+
+/* The vol object as the NOTE may use it: walls too thin to matter removed,
+   and a flag left behind so the sentence can say why there is none. Open
+   interest that is simply unknown (older fixtures, a hand-built leg) is not
+   treated as thin — only a figure that is present and small. */
+export function consequentialWalls(vol) {
+  if (!vol) return vol;
+  const thin = oi => typeof oi === "number" && oi > 0 && oi < MIN_WALL_OI;
+  const tp = vol.putWall != null && thin(vol.putWallOI), tc = vol.callWall != null && thin(vol.callWallOI);
+  if (!tp && !tc) return vol;
+  return { ...vol, ...(tp ? { putWall: null, thinPut: true } : {}), ...(tc ? { callWall: null, thinCall: true } : {}) };
+}
+
 const r1 = x => x == null || !isFinite(x) ? null : +x.toFixed(1);
 const r2 = x => x == null || !isFinite(x) ? null : +x.toFixed(2);
 
@@ -48,7 +68,9 @@ export function wallContext(spot, vol, direction) {
      a statement about positioning. Saying "no listed-options market" of a
      fund that has one would simply be false. */
   if (!valid) return { none: true, side: bull ? "put" : "call", role: bull ? "support" : "resistance",
-                       hasChain: vol?.iv30 != null || vol?.putWall != null || vol?.callWall != null };
+                       thin: Boolean(bull ? vol?.thinPut : vol?.thinCall),
+                       hasChain: vol?.iv30 != null || vol?.putWall != null || vol?.callWall != null
+                                 || Boolean(vol?.thinPut || vol?.thinCall) };
   const distancePct = r1(Math.abs(wall - spot) / spot * 100);
   const ladder = (bull ? vol.putWalls : vol.callWalls) || [];
   const next = ladder.find(w => w.strike !== wall && (bull ? w.strike < wall : w.strike > wall));
@@ -68,15 +90,31 @@ export function wallContext(spot, vol, direction) {
 /* The exact sentence the note carries. Built here as well as asked of the
    drafter so the guard has something to compare against and the rail can
    print it without waiting on a draft. */
-export function wallSentence(tk, w) {
+export function wallSentence(tk, w, { named = false } = {}) {
   if (!w) return null;
-  if (w.none) return w.hasChain
+  if (w.none) return w.thin
+    ? `${tk}'s option open interest is too thin for its ${w.side} wall to be meaningful, so there is no wall to frame an entry against.`
+    : w.hasChain
     ? `${tk} shows no concentration of ${w.side} open interest ${w.side === "put" ? "below" : "above"} the last price, so there is no ${w.side}-wall ${w.role} to frame an entry against.`
     : `${tk} has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against.`;
   const name = `${w.side}-wall ${w.role}`;
+  /* `named` is for a theme carrying more than one ETF (0.39.0): each
+     sentence has to say which fund it is about. Same wording otherwise. */
+  if (named) return w.proximity === "nearby"
+    ? `In ${tk}, investors looking to trade the idea have ${name} nearby at ${w.level}.`
+    : `With ${name} ${w.distancePct}% ${w.rel} in ${tk}, investors looking to trade the idea may prefer to scale in opportunistically.`;
   return w.proximity === "nearby"
     ? `Investors looking to trade the idea have ${name} nearby at ${w.level}.`
     : `With ${name} ${w.distancePct}% ${w.rel}, investors looking to trade the idea may prefer to scale in opportunistically.`;
+}
+
+/* "One way to express the view is HYG." / "Ways to express the view include
+   HYG and JNK." Built here so the drafter copies it and the guard can check
+   every ticked fund is named. */
+export function expressionSentence(tickers) {
+  const t = (tickers || []).filter(Boolean);
+  if (t.length <= 1) return `One way to express the view is ${t[0]}.`;
+  return `Ways to express the view include ${t.slice(0, -1).join(", ")} and ${t[t.length - 1]}.`;
 }
 
 /* FACTS FOR FRAMING AN EXECUTION — the reader's, not ours.
