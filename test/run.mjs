@@ -141,6 +141,8 @@ function compose(c) {
       drafterOptions: draftContext(n).themes.flatMap(t => t.options.map(o =>
         `${o.expiry} ${o.underlying} ${o.strikes ?? o.legs} ${o.structure} ${o.net} / ${o.maxLoss} / ${o.maxGain}`)),
       drafterEtfKeys: Object.keys(draftContext(n).themes[0]?.etf || {}).sort(),
+      /* Wall keys the drafter sees — the "next concentration" must name its side. */
+      drafterWallKeys: [...new Set(draftContext(n).themes.flatMap(t => (t.etfs || []).flatMap(e => Object.keys(e.wall || {}))))].sort(),
       drafterLeaks: (JSON.stringify(draftContext(n), (k, v) => k === "wallSentence" || k === "risks" ? undefined : v)
         .match(/stop|riskPct|scaleTo|weighted|entry|executeWindow|holdWindow|"execution"|"pop"/gi) || []),
       nothingSilentlyDropped: c.menus.every(m =>

@@ -309,7 +309,12 @@ export function draftContext(note) {
           wall: !w || w.none ? { noWall: true, noChain: !w?.hasChain, ...(w?.thin ? { thinOpenInterest: true } : {}) }
             : { type: `${w.side} wall`, role: w.role, level: w.level,
                 distancePct: w.distancePct, direction: w.rel, proximity: w.proximity,
-                ...(w.nextLevel != null ? { nextConcentration: w.nextLevel } : {}) },
+                /* Named for the side it is on. As "nextConcentration" the
+                   drafter attached it to the OTHER wall: "SOXX carries
+                   put-wall support at 500, with the next concentration of
+                   open interest beyond the wall at 650" (5 Oct) — 650 is
+                   above the call wall. The key now says which. */
+                ...(w.nextLevel != null ? { [w.side === "call" ? "nextCallOpenInterestAboveTheCallWall" : "nextPutOpenInterestBelowThePutWall"]: w.nextLevel } : {}) },
           ...(!w || w.none ? {} : { putWall: L.vol?.putWall, callWall: L.vol?.callWall }),
           oneMonthRange: range,
           rangeBasis: e.rangeBasis === "realised"

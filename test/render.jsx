@@ -25,7 +25,10 @@ const theme = (id, tks, withOpt, lev) => {
   return { id, subject: `Subject ${id.toUpperCase()}`, direction: "bearish", basis: "stated", legs,
     wall: legs[0].wall, env: legs[0].env, vol: legs[0].vol,
     etf: { tk: legs[0].tk, price: 100, plan: {}, tgt: {}, share: {} },
-    levered: lev ? [{ tk: "GLL", lev: -2, gamma: 6 }] : [], leveredCarried: [], alternatives: [],
+    /* SOXS is FOUND but not selected and must never print; GLL is selected
+       (when `lev`) and must. Until 0.40.2 the unselected fund printed too. */
+    levered: [{ tk: "SOXS", lev: -3, gamma: 12 }],
+    leveredCarried: lev ? [{ tk: "GLL", lev: -2, gamma: 6, underlying: legs[0].tk }] : [], alternatives: [],
     options: withOpt ? [{ id: "put_spread", name: "Put spread", expiry: "2026-10-30", legText: "+1 95P / -1 90P",
       why: "Baseline.", pricing: { net: 625, maxGain: 875, maxLoss: -625, maxLossFull: -625, lossUnbounded: false, gainUnbounded: false,
         uncapped: false, breakevens: [93.75], priceSource: "last trade", legDetail: [] }, econ: { pop: 65 } }] : [] };
@@ -42,8 +45,8 @@ const note = (withOpt, lev) => {
 };
 
 const EXPECT = {
-  "options + levered":       ["Positioning Map", "ETF Expression", "Derivatives Expression", "Levered and Inverse Funds"],
-  "shares only, levered":    ["Positioning Map", "ETF Expression", "Levered and Inverse Funds"],
+  "options + levered":       ["Positioning Map", "ETF Expression", "Derivatives Expression", "Levered ETF Expression"],
+  "shares only, levered":    ["Positioning Map", "ETF Expression", "Levered ETF Expression"],
   "shares only, no levered": ["Positioning Map", "ETF Expression"],
 };
 let bad = 0;
@@ -70,6 +73,8 @@ for (const [label, o, l] of [["options + levered", true, true], ["shares only, l
   need("no-chain fund marked", text.includes("†"));
   /* One spot marker per fund that has two-sided walls: HYG and SLV, not JNK. */
   need("map rows", (html.match(/class="spot"/g) || []).length === 2);
+  need("unselected levered fund not printed", !text.includes("SOXS") && !/for reference/i.test(text));
+  need("selected levered fund printed", !l || text.includes("GLL"));
   need("max loss beside max gain", !o || (/>Max loss</.test(html) && />Max gain</.test(html)));
   need("long-form expiry", !o || text.includes("October 30th"));
   need("masthead", /Market Commentary/.test(text) && /For Institutional Investors Only/.test(text));

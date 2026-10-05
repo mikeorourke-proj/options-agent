@@ -208,7 +208,9 @@ VOICE — every rule is checked mechanically after you write:
          fact belongs to and keep to one fact apiece): the other wall, the one-month range (say
          whether it is option-implied or from realised volatility, as rangeBasis labels it),
          implied against realised volatility, the average daily move, where price sits in its
-         three-month range, the next concentration of open interest beyond the wall. Choose
+         three-month range, the next concentration of open interest beyond the wall (the
+         model names which wall it lies beyond — a level above the call wall is never
+         described alongside the put wall, or the reverse). Choose
          the two or three that matter most for this theme; do not list them all. State them
          as facts and draw no instruction from them. Then, if an option structure is carried,
          write it from the model's own fields, exactly as given:
@@ -431,8 +433,13 @@ export const VOICE_CHECKS = [
      average itself left the page in 0.38.0.) */
   /* Policy targets are macro facts, not price objectives — "the 2% inflation
      target" is exactly what this author writes about — so those are let
-     through; everything else carrying the word flags. */
-  { id: "objective", re: /\b(?:price (?:target|objective)s?|objective of|(?<!\b(?:inflation|policy|rate|funds|deficit|growth|employment|mandate|reserve)\s)(?:targets?|targeting|targeted))\b/i,
+     through. Widened in 0.40.1 after "Inflation is running above target"
+     flagged: the noun after a preposition or possessive ("above target",
+     "back to target", "its target") is how a policy target is written.
+     What still flags is the noun used as a label ("price target", "our
+     target", "a target of 52") and the verb "targeting" on anything but
+     policy. */
+  { id: "objective", re: /\b(?:price (?:target|objective)s?|objective of|(?<!\b(?:inflation|policy|rate|funds|deficit|growth|employment|mandate|reserve|above|below|its|their|percent|at|to|on|from|of)\s)(?<!%\s)(?:targets?|targeted)|(?<!\b(?:inflation|policy|rate)[- ])targeting)\b/i,
     msg: "price objective — market commentary carries none, and 'target' reads as one" },
   /* A projected outcome. POP was taken off the page in 0.37.0; the drafter
      no longer receives it, and this catches it arriving anyway. */

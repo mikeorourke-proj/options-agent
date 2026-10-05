@@ -419,6 +419,11 @@ export const VOICE_CASES = [
     body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. We are targeting 380 over the coming month." },
   { id: "voice.policy-target-allowed", subject: "Gold", expect: "clean",
     body: "The Fed has raised rates to defend its inflation target, and the metals have lost their bid. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
+  /* 5 Oct: "Inflation is running above target" flagged as a price objective. */
+  { id: "voice.above-target-is-policy", section: "summary", expect: "clean",
+    body: "Inflation is running above target while the market's leadership has narrowed, and rates have not come back to target either. The Fed remains well short of its target." },
+  { id: "voice.a-target-of", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. That leaves a target of 380." },
   { id: "voice.pop-cited", subject: "Gold", expect: "flag",
     body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. The put spread carries a POP of 41%." },
   { id: "voice.probability-cited", subject: "Gold", expect: "flag",

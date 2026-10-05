@@ -259,3 +259,6 @@ table.x th.c { text-align: center; }
    lines. The theme cell wraps; the numbers do not. */
 .np table.x td:first-child { white-space: normal; max-width: 40mm; }
 .np table.x.lv th { white-space: nowrap; }
+/* 0.40.1 — only a LONG theme name wraps; a short one ("High-Yield Credit")
+   was breaking in two because the Note column took the room. */
+.np table.x td.nw:first-child { white-space: nowrap; max-width: none; }

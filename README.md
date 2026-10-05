@@ -192,6 +192,30 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- LEVERED FUNDS PRINT ONLY WHEN SELECTED (0.40.2). The page listed levered
+  funds the tool had found but the analyst had not ticked, "for reference"
+  (SOXS on 5 Oct). It now prints leveredCarried only, under "Levered ETF
+  Expression"; with none selected the exhibit does not exist. Same principle
+  as removing Vehicle Screening: the page shows what was selected, not what
+  was considered. test/render.jsx carries an unselected fund in every case
+  and asserts it never prints.
+
+- FROM THE FIRST 0.40.0 NOTE (0.40.1). The run confirmed grouping and wall
+  order live (Semiconductors: SOXX then SMH; High-Yield Credit: HYG then JNK),
+  the option sentence, and one page at 263mm of 273.
+  "NEXT CONCENTRATION" NAMED ITS SIDE. The drafter wrote "SOXX carries
+  put-wall support at 500, with the next concentration of open interest
+  beyond the wall at 650" — 650 lies above the CALL wall. The model's key was
+  `nextConcentration`; it is now nextCallOpenInterestAboveTheCallWall /
+  nextPutOpenInterestBelowThePutWall, and the prompt says the two walls are
+  never run together.
+  POLICY TARGET, AGAIN. "Inflation is running above target" flagged as a price
+  objective. The noun after a preposition or possessive ("above target",
+  "back to target", "its target") now passes; "price target", "our target",
+  "a target of 52" and non-policy "targeting" still flag.
+  A SHORT THEME NAME NO LONGER WRAPS in the tables; only names over 30
+  characters do. 130 cases.
+
 - FUND ORDER WITHIN A THEME; FROM THE FIRST PRINTED PDF (0.40.0).
   NEAREST ITS WALL FIRST. Among several funds expressing one view, the one
   nearest the wall that matters (call wall for a bearish idea, put wall for a

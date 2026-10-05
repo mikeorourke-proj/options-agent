@@ -1147,6 +1147,20 @@
   "hits": [],
   "correct": true
  },
+ "voice:voice.above-target-is-policy": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:voice.a-target-of": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "objective:target"
+  ],
+  "correct": true
+ },
  "voice:voice.pop-cited": {
   "expect": "flag",
   "flagged": true,
@@ -2250,6 +2264,14 @@
    "wall",
    "wallSentence"
   ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "proximity",
+   "role",
+   "type"
+  ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
@@ -2325,6 +2347,14 @@
    "wall",
    "wallSentence"
   ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "proximity",
+   "role",
+   "type"
+  ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
@@ -2373,6 +2403,14 @@
    "ticker",
    "wall",
    "wallSentence"
+  ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "proximity",
+   "role",
+   "type"
   ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
@@ -2423,6 +2461,16 @@
    "wall",
    "wallSentence"
   ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "noChain",
+   "noWall",
+   "proximity",
+   "role",
+   "type"
+  ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
@@ -2472,6 +2520,17 @@
    "wall",
    "wallSentence"
   ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "noChain",
+   "noWall",
+   "proximity",
+   "role",
+   "thinOpenInterest",
+   "type"
+  ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
@@ -2520,6 +2579,14 @@
    "ticker",
    "wall",
    "wallSentence"
+  ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "proximity",
+   "role",
+   "type"
   ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
@@ -2572,6 +2639,14 @@
    "wall",
    "wallSentence"
   ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "proximity",
+   "role",
+   "type"
+  ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
@@ -2623,6 +2698,17 @@
    "wall",
    "wallSentence"
   ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "noChain",
+   "noWall",
+   "proximity",
+   "role",
+   "thinOpenInterest",
+   "type"
+  ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
@@ -2670,6 +2756,14 @@
    "ticker",
    "wall",
    "wallSentence"
+  ],
+  "drafterWallKeys": [
+   "direction",
+   "distancePct",
+   "level",
+   "proximity",
+   "role",
+   "type"
   ],
   "drafterLeaks": [],
   "nothingSilentlyDropped": false

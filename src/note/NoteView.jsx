@@ -72,10 +72,12 @@ export default function NoteView({ note, layout = "auto", onProse, accepted = {}
                           .filter(x => x.t && x.o);
   const mapRows = legRows.filter(l => l.vol?.putWall && l.vol?.callWall && l.price);
   const unplotted = legRows.filter(l => !(l.vol?.putWall && l.vol?.callWall)).map(l => l.tk);
-  const levRows = themeRows.flatMap(t => [
-    ...(t.leveredCarried || []).map(l => ({ ...l, t, carried: true })),
-    ...(t.levered || []).map(l => ({ ...l, t, carried: false, underlying: t.etf?.tk })),
-  ]);
+  /* ONLY LEVERED FUNDS THE ANALYST SELECTED (0.40.2). The tool also finds
+     levered funds it does not carry (t.levered) and used to print them "for
+     reference" — SOXS appeared on 5 Oct beside a theme that had not chosen
+     it. Vehicle Screening was removed for the same reason: the page shows
+     what was selected, not what was considered. */
+  const levRows = themeRows.flatMap(t => (t.leveredCarried || []).map(l => ({ ...l, t })));
 
   /* EXHIBIT NUMBERS ARE ASSIGNED BY WHAT RENDERS, in page order. Vehicle
      Screening, Structure Notes and Option Leg Detail are gone; what is left
@@ -206,7 +208,7 @@ export default function NoteView({ note, layout = "auto", onProse, accepted = {}
           what to do about it is the reader's. One row per fund carried. */}
       <table className="x lv"><thead><tr><th>Theme</th><th className="c">ETF</th><th className="c">Last</th><th className="c">Put wall</th><th className="c">Call wall</th><th className="c">One-month range</th><th className="c">3-month closes</th><th className="c">In range</th><th className="c">vs 50-day</th><th className="c">IV30 / RV30</th><th className="c">Avg day</th><th className="c">25ΔRR</th><th className="c">Options</th></tr></thead><tbody>
         {legRows.map(l => { const e = l.env || {}, v = l.vol || {}; return <tr key={l.t.id + l.tk}>
-          <td>{l.first ? <><Arrow d={l.t.direction} /> {l.t.subject}</> : ""}</td><td className="c"><b>{l.tk}</b></td><td className="c">{f(l.price)}</td>
+          <td className={l.t.subject.length > 30 ? "" : "nw"}>{l.first ? <><Arrow d={l.t.direction} /> {l.t.subject}</> : ""}</td><td className="c"><b>{l.tk}</b></td><td className="c">{f(l.price)}</td>
           <td className="c">{v.putWall != null ? `${v.putWall} (${pct(e.putWallDistPct)})` : v.thinPut ? "thin" : "—"}</td>
           <td className="c">{v.callWall != null ? `${v.callWall} (${pct(e.callWallDistPct)})` : v.thinCall ? "thin" : "—"}</td>
           <td className="c">{e.rangeLo != null ? `${f(e.rangeLo, 0)} – ${f(e.rangeHi, 0)}${e.rangeBasis === "realised" ? " \u2020" : ""}` : "—"}</td>
@@ -226,7 +228,7 @@ export default function NoteView({ note, layout = "auto", onProse, accepted = {}
     <div className="exhblk">
       <div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression — Illustrative Structures</div>
       <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max loss</th><th className="c">Max gain</th><th className="c">Breakeven</th><th>Note</th></tr></thead><tbody>
-        {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td><Arrow d={t.direction} /> {t.subject}</td>
+        {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td className={t.subject.length > 30 ? "" : "nw"}><Arrow d={t.direction} /> {t.subject}</td>
           {/* The option's OWN underlying. This printed the theme's first
               fund, which is the same thing only while that fund is the
               primary — and funds are now ordered by wall proximity. */}
@@ -243,12 +245,11 @@ export default function NoteView({ note, layout = "auto", onProse, accepted = {}
 
   const Lev = levRows.length > 0 && (
     <div className="exhblk">
-      <div className="exh">Exhibit {exNo("lev")}: Levered and Inverse Funds</div>
+      <div className="exh">Exhibit {exNo("lev")}: Levered ETF Expression</div>
       <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th className="c">Leverage</th><th className="c">Gamma X(X−1)</th><th>Note</th></tr></thead><tbody>
         {levRows.map(l => <tr key={l.t.id + l.tk}><td>{l.underlying}</td><td>{l.tk}</td>
           <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma ?? "—"}</td>
-          <td>{l.carried ? "an expression of the view for short periods — daily reset means the realised multiple drifts the longer it is held"
-                         : "listed for reference — daily reset decay compounds the longer the fund is held"}</td></tr>)}
+          <td>moves at roughly the stated multiple of its underlying each day; daily reset means the realised multiple drifts the longer it is held</td></tr>)}
       </tbody></table>
       <div className="src">Gamma is the rebalance multiplier: mechanical flow per 1% move per $1bn of fund assets.</div>
     </div>
