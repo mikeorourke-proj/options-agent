@@ -192,6 +192,55 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- MARKET COMMENTARY, NOT RESEARCH (0.37.0). The note is repositioned so it
+  sits within the commentary exclusions of FINRA Rule 2241(a)(11) rather than
+  the research-report definition, and so its options content meets Rules 2210
+  and 2220. ALL WORDING IS DRAFT pending Compliance and Registered Options
+  Principal approval; it lives in ONE file, src/note/disclosures.js, and a
+  screen-only amber banner says so until APPROVED is set true there.
+  WHAT CAME OFF THE PAGE. POP (a projected outcome, barred by 2210 and
+  2220(d)(3)) is gone from Exhibit 3, its caption, the options disclosure and
+  the drafter's model; it remains on the Ideas screen and in the ledger.
+  "Target" is gone in every form: "Target Entry" is "Scale-in avg" (rail) /
+  "Scale-in average" (Exhibit 2), and the drafter's "targeting a weighted
+  average execution of" is "for a weighted average execution of". The
+  draftContext key targetExecution is renamed weightedAverageExecution because
+  the drafter echoed the key into prose. Exhibit 6 reads "Not Carried", not
+  "Not Recommended".
+  WHAT WENT ON. Max loss beside max gain in the rail and Exhibit 3 (2220
+  balance). pricing.js gains display-only lossUnbounded / maxLossFull /
+  gainUnbounded: a naked short put now shows its loss to zero rather than the
+  scan edge, a naked short call shows "unlimited" loss, and no longer shows
+  "uncapped" GAIN (a pre-existing bug — a flat payoff at the scan edge was
+  read as unlimited). `risk` and `uncapped` still feed scoring and are
+  untouched, so no ranking moved. The implied range is "Option-implied range",
+  captioned as derived from option prices and not a forecast.
+  LEGEND AND NAMES. Masthead: "Market Commentary / For Institutional Investors
+  Only"; running heads on pages 2–3 the same; every footer carries "Market
+  commentary · not a research report". A three-line page-1 legend modelled on
+  the RN 17-16 health warning sits under the analyst block, which moved from
+  bottom 20mm to 24mm (PAGE1_LIMIT_MM 275 → 271, about one line). Page 3's
+  disclaimer no longer contradicts the content: the old text said the
+  material was not a recommendation and "may reflect a third party's
+  opinions", beside "look to sell". It now attributes the views to the
+  author, states it is not research, adds a Conflicts paragraph (the firm may
+  trade contrary), a Figures and Levels paragraph, and points to the OCC
+  options disclosure document. PDF filename and app header renamed.
+  THEME LEAD REVERSED. Paragraphs used to open "We are bearish on GLD." — a
+  call on a security in the first five words. They now open on MARKET
+  CONDITIONS, then the view on the market ("We are bearish on gold."), then
+  "One way to express the view is GLD: look for the opportunity to scale
+  sales…". checkThemeOpening enforces the order (no ticker before the view,
+  view not stated on a ticker, the expression names this leg, verb matches
+  direction). New voice checks: "target" in any form except policy targets
+  ("inflation target" passes), and a case-sensitive projection check (POP,
+  probability of profit, "62% chance", expected return; "a pop in yields"
+  passes). Voice fixtures rewritten; 78 cases. test/render.jsx now asserts the
+  absences (no POP, no target, no "recommended", no old names) and the
+  presences (masthead, legend, three footers, max loss, appendix sections).
+  STILL PROCEDURAL, NOT CODE: Compliance/ROP sign-off on the wording, and
+  whether per-leg entry/stop/risk levels are acceptable in commentary at all.
+
 - VISUAL FIXES (0.36.1), checked by rendering the note in headless Chromium
   against the real stylesheet, before and after — the first changes in this
   project verified by looking at the page rather than reading the code.

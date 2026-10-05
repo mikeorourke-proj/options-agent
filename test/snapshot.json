@@ -844,6 +844,8 @@
   "expect": "flag",
   "flagged": true,
   "hits": [
+   "objective:targeting",
+   "opening:SLV",
    "opening:We would be short SLV, scaling from current leve",
    "position:We would be short"
   ],
@@ -867,7 +869,7 @@
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "opening:We are bullish on GLD"
+   "opening:We are bullish on gold."
   ],
   "correct": true
  },
@@ -875,7 +877,41 @@
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "opening:We are bearish on IAU"
+   "opening:One way to express the view is IAU"
+  ],
+  "correct": true
+ },
+ "voice:opening.old-house-opening": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:GLD",
+   "opening:We are bearish on GLD.",
+   "opening:We are bearish on GLD."
+  ],
+  "correct": true
+ },
+ "voice:opening.view-first": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:We are bearish on gold."
+  ],
+  "correct": true
+ },
+ "voice:opening.ticker-before-view": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:GLD"
+  ],
+  "correct": true
+ },
+ "voice:opening.no-expression": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "opening:GLD"
   ],
   "correct": true
  },
@@ -883,6 +919,7 @@
   "expect": "flag",
   "flagged": true,
   "hits": [
+   "opening:SLV",
    "opening:We would be long SLV into the decision, scaling",
    "position:We would be long"
   ],
@@ -897,9 +934,11 @@
   "correct": true
  },
  "voice:voice.targeting-weighted-average": {
-  "expect": "clean",
-  "flagged": false,
-  "hits": [],
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "objective:targeting"
+  ],
   "correct": true
  },
  "voice:voice.real-price-objective": {
@@ -908,6 +947,34 @@
   "hits": [
    "objective:targeting"
   ],
+  "correct": true
+ },
+ "voice:voice.policy-target-allowed": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:voice.pop-cited": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "projection:POP"
+  ],
+  "correct": true
+ },
+ "voice:voice.probability-cited": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "projection:62% chance"
+  ],
+  "correct": true
+ },
+ "voice:voice.pop-as-prose": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
   "correct": true
  },
  "voice:execution.generic": {

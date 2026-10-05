@@ -28,7 +28,7 @@ const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
    every keystroke. */
 export function analystMeta(settings, parsed) {
   return {
-    title: settings.title || parsed?.sourceTitle || "Tactical Note",
+    title: settings.title || parsed?.sourceTitle || "Market Commentary",
     subtitle: settings.subtitle || "",
     executeWindow: settings.executeWindow || "about a week",
     holdWindow: settings.holdWindow || "3 to 4 weeks",
@@ -235,7 +235,10 @@ export function draftContext(note) {
           ticker: t.etf.tk, execution: t.etf.plan?.execution,
           entry: "current levels",
           ...(imm ? {} : { scaleTo: fmt(t.etf.plan?.wall),
-                           targetExecution: fmt(t.etf.plan?.entry) }),
+                           /* Named for what it is. The key used to be
+                              "targetExecution", and the drafter echoed the
+                              word straight into the prose. */
+                           weightedAverageExecution: fmt(t.etf.plan?.entry) }),
           /* No price objective reaches the draft. Targets anchor the reader,
              and the structural target is not always coherent: when the put
              wall sits above the last sale on a bearish trade, "targeting 60
@@ -260,8 +263,13 @@ export function draftContext(note) {
       options: t.options.map(o => ({
         structure: o.name, expiry: o.expiry, legs: o.legText,
         net: fmt(Math.abs(o.pricing.net) / 100), debitOrCredit: o.pricing.net > 0 ? "debit" : "credit",
-        maxGain: o.pricing.uncapped ? "uncapped" : fmt(o.pricing.maxGain / 100),
-        pop: o.econ.pop, why: o.why,
+        maxGain: (o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : fmt(o.pricing.maxGain / 100),
+        /* Max loss travels with max gain (Rule 2220 balance). POP does NOT
+           reach the drafter: it is a projected outcome, which market
+           commentary may not carry. It stays on screen and in the ledger. */
+        maxLoss: o.pricing.lossUnbounded ? "unlimited"
+          : fmt(Math.abs(Math.min(0, o.pricing.maxLossFull ?? o.pricing.maxLoss)) / 100),
+        why: o.why,
       })),
     })),
   };

@@ -287,40 +287,61 @@ export const VOICE_CTX = { themes: [
 ]};
 
 export const VOICE_CASES = [
+  /* 0.37.0 — MARKET COMMENTARY. Every theme paragraph now opens on the
+     market conditions, then the view on the MARKET, then "One way to express
+     the view is <TK>". The old opening, "We are bearish on GLD.", was a call
+     on a security in the first five words and now flags. "Targeting" flags in
+     every form, including on the weighted average. */
   { id: "immediate.house-phrasing", subject: "Gold", expect: "clean",
-    body: "We are bearish on GLD. The wall leaves no room to scale, so look to sell at current levels. The stop-loss at 404.30 ends the trade, 3.3% of risk." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels. The stop-loss at 404.30 ends the trade, 3.3% of risk." },
   { id: "immediate.real-ladder", subject: "Gold", expect: "flag",
-    body: "We are bearish on GLD. Look for the opportunity to scale sales from current levels to 400.00 targeting a weighted average execution of 396.10." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD: look for the opportunity to scale sales from current levels to 400.00 for a weighted average execution of 396.10." },
   /* GRID, 16 Sep: a leg with NO WALL AT ALL cannot say "the wall leaves no
      room to scale" — there is no wall — so it must say "no wall to scale
      into", which the guard was flagging. Both phrasings are sanctioned. */
   { id: "immediate.no-chain-phrasing", subject: "Gold", expect: "clean",
-    body: "We are bearish on GLD. There is no wall to scale into, so look to sell at current levels. The stop-loss is a flat 5% from entry." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. There is no wall to scale into, so look to sell at current levels. The stop-loss is a flat 5% from entry." },
   { id: "immediate.nothing-to-scale", subject: "Gold", expect: "clean",
-    body: "We are bearish on GLD. With nothing to scale into, the position goes on at current levels." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD; with nothing to scale into, the position goes on at current levels." },
   { id: "immediate.tranche-elsewhere", subject: "Gold", expect: "flag",
-    body: "We are bearish on GLD. The position goes on at current levels; the tranches would fill only on strength." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD at current levels; the tranches would fill only on strength." },
   { id: "scaled.house-phrasing", subject: "Silver", expect: "clean",
-    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00 targeting a weighted average execution of 58.40." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
   { id: "scaled.old-conditional", subject: "Silver", expect: "flag",
     body: "We would be short SLV, scaling from current levels to 60.00 targeting a weighted average execution of 58.40." },
   { id: "bullish.house-phrasing", subject: "Rates", expect: "clean",
-    body: "We are bullish on TLT. Look for the opportunity to scale purchases from current levels to 83.00 targeting a weighted average execution of 81.20." },
+    body: "Policy credibility is being restored, and the 2% inflation target is back in reach. We are bullish on long-dated Treasuries. One way to express the view is TLT: look for the opportunity to scale purchases from current levels to 83.00 for a weighted average execution of 81.20." },
   { id: "bullish.inverted-verb", subject: "Rates", expect: "flag",
-    body: "We are bullish on TLT. Look for the opportunity to scale sales from current levels to 83.00 targeting a weighted average execution of 81.20." },
+    body: "Haven demand is unwinding as real yields rise. We are bullish on long-dated Treasuries. One way to express the view is TLT: look for the opportunity to scale sales from current levels to 83.00 for a weighted average execution of 81.20." },
   { id: "opening.direction-inverted", subject: "Gold", expect: "flag",
-    body: "We are bullish on GLD. The wall leaves no room to scale, so look to sell at current levels." },
+    body: "Haven demand is unwinding as real yields rise. We are bullish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
   { id: "opening.wrong-ticker", subject: "Gold", expect: "flag",
-    body: "We are bearish on IAU. The wall leaves no room to scale, so look to sell at current levels." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is IAU; the wall leaves no room to scale, so look to sell at current levels." },
+  /* The 0.36 house opening — now the thing the check exists to stop. */
+  { id: "opening.old-house-opening", subject: "Gold", expect: "flag",
+    body: "We are bearish on GLD. The wall leaves no room to scale, so look to sell at current levels." },
+  { id: "opening.view-first", subject: "Gold", expect: "flag",
+    body: "We are bearish on gold. Haven demand is unwinding as real yields rise. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
+  { id: "opening.ticker-before-view", subject: "Gold", expect: "flag",
+    body: "GLD has lost its haven bid as real yields rise. We are bearish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
+  { id: "opening.no-expression", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. The wall leaves no room to scale, so look to sell at current levels." },
   { id: "voice.position-wording", subject: "Silver", expect: "flag",
     body: "We would be long SLV into the decision, scaling from current levels to 60.00." },
   { id: "voice.stop-wording", subject: "Silver", expect: "flag",
-    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00. The stop at 63.63 ends the trade." },
-  { id: "voice.targeting-weighted-average", subject: "Silver", expect: "clean",
-    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00 targeting a weighted average execution of 58.40." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00. The stop at 63.63 ends the trade." },
+  { id: "voice.targeting-weighted-average", subject: "Silver", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 targeting a weighted average execution of 58.40." },
   { id: "voice.real-price-objective", subject: "Silver", expect: "flag",
-    body: "We are bearish on SLV. Look for the opportunity to scale sales from current levels to 60.00, targeting 52 over the hold." },
-
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00, targeting 52 over the hold." },
+  { id: "voice.policy-target-allowed", subject: "Silver", expect: "clean",
+    body: "The Fed has raised rates to defend its inflation target, and the metals have lost their bid. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
+  { id: "voice.pop-cited", subject: "Silver", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40. The put spread carries a POP of 41%." },
+  { id: "voice.probability-cited", subject: "Silver", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40, with a 62% chance of finishing lower." },
+  { id: "voice.pop-as-prose", subject: "Silver", expect: "clean",
+    body: "A pop in real yields has taken the haven bid out of the metals. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
   /* Execution paragraph — a different section with a different rule: state
      the convention, name no tickers. */
   { id: "execution.generic", section: "execution", expect: "clean",

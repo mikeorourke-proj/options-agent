@@ -177,9 +177,29 @@ export function priceStructure(legs, spot, expiry) {
     prev = pl;
   }
   const risk = Math.max(1, -maxL);
+  /* MAX LOSS FOR THE PAGE. Rule 2220 wants the loss beside the gain, and the
+     scan above only runs 0.55x–1.55x spot. For every debit structure the
+     worst case sits inside that window and maxL is exact. A naked short leg
+     is different: a short call loses without limit above the window, and a
+     short put keeps losing all the way to zero. The scan's edge value would
+     print a finite, understated loss, which is worse than printing none.
+     `risk` is deliberately left as it was — it feeds the ranking, and the
+     ranking is frozen; this is display only. */
+  const plLo = payoff(legs, lo) - net, plLo2 = payoff(legs, lo * 0.98) - net;
+  const plHi = payoff(legs, hi) - net, plHi2 = payoff(legs, hi * 1.02) - net;
+  const lossUnbounded = plHi2 < plHi - 1e-9;                 // still falling past the top of the scan
+  const maxLossFull = lossUnbounded ? -Infinity
+    : Math.min(maxL, plLo2 < plLo - 1e-9 ? payoff(legs, 0) - net : maxL);
   return {
     net, debit: net > 0 ? net : 0, credit: net < 0 ? -net : 0,
     maxGain: maxG, maxLoss: maxL, risk, breakevens: be,
+    lossUnbounded, maxLossFull,
+    /* Display-only twin of `uncapped`, which marks max gain as unlimited
+       whenever the maximum is FIRST reached at a scan edge — true of a flat
+       credit payoff too, so a naked short call printed "uncapped" gain.
+       This asks the real question: is the payoff still rising past the
+       edge? `uncapped` itself feeds scoring and is left alone. */
+    gainUnbounded: plHi2 > plHi + 1e-9 || plLo2 > plLo + 1e-9,
     // Max gain sitting at the scan boundary means the payoff is uncapped;
     // quoting a finite ratio there would be an artefact of the scan range.
     uncapped: maxAtEdge,

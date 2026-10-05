@@ -121,8 +121,10 @@ Return ONLY a JSON object:
 { "edited": "<the corrected text>", "changes": ["<short description of each substantive change>"] }`;
 
 
-const DRAFT_SYSTEM = `You draft the commentary for an institutional Tactical Note. You are writing AS the desk's
-Chief Market Strategist, in the first person plural.
+const DRAFT_SYSTEM = `You draft MARKET COMMENTARY for institutional investors. You are writing AS the desk's
+Chief Market Strategist, in the first person plural. This is not a research report: it argues
+about markets and offers ways the view could be expressed. It does not rate securities, set price
+objectives, project outcomes or rank ideas, and every rule below exists to keep it that way.
 
 You receive a JSON model of the note: the themes carried, each with its ETF expression and any
 derivatives alternative, with every number already computed. You write prose around those numbers.
@@ -149,14 +151,14 @@ no markdown emphasis, no closing remarks.
 VOICE — every rule is checked mechanically after you write:
 1. THE VIEW IS STATED. THE TRADE IS PROPOSED. Those are two different sentences and they take
    two different tenses.
-   The VIEW is indicative and flat: "We are bearish on IBIT." Nothing else — no numbers, no
-   mechanics, its own sentence.
+   The VIEW is indicative and flat, and it is a view on the MARKET, not on a ticker: "We are
+   bearish on precious metals." Nothing else — no numbers, no mechanics, its own sentence.
    Everything AFTER it stays conditional: "would cost", "would be worked", "the stop-loss ends
    the trade". Never "we recommend", "we like", "we prefer", and never "buy" or "sell" as a
    bare imperative. The desk gives a view and proposes how to express it; it does not report a
    position it holds.
 1a. DIRECTION, NOT POSITION. The view is BEARISH or BULLISH, never short or long. "We are
-   bearish on GLD", not "we would be short GLD". This governs the statement of the view only —
+   bearish on gold", not "we would be short GLD". This governs the statement of the view only —
    "the short strike on the 16 put wall" and "a naked short leg" are leg mechanics and stay as
    they are.
 2. ETF FIRST, DERIVATIVE ALONGSIDE. Each theme paragraph opens with the ETF expression, then
@@ -168,30 +170,43 @@ VOICE — every rule is checked mechanically after you write:
 4. NO ATTRIBUTION. Never name a person, firm, bank, publication, or research house. Refer to
    positioning or consensus in the abstract.
 5. NO PRICE OBJECTIVES. The model contains no target and you must not construct one. Never
-   write "targeting X", "objective", "price target", or a percentage move to a named level.
+   write "target", "targeting", "objective", "price target", or a percentage move to a named
+   level — not even for the weighted average execution, which is "for a weighted average
+   execution of", never "targeting" one.
    Describe the walls as structure, the implied range as the market's measure of a normal
    move, and the stop as what ends the trade.
 6. NUMBERS AS GIVEN. Quote the figures from the model verbatim. Cite the walls, the scale
-   band and weighted average where the model supplies them, the stop, the risk, the option
-   debit and POP. Do not add figures the model does not contain.
+   band and weighted average where the model supplies them, the stop, the risk, and for an
+   option its debit together with its max loss and max gain — never one without the other.
+   Never state a probability of profit, a probability of any outcome, or an expected return:
+   this is market commentary, and a projected outcome is not something it may carry. Do not
+   add figures the model does not contain.
 7. EXECUTION MODE. Every ETF leg is either scaled or immediate, and the model says which.
    Neither carries a starting price: the last sale is stale by the time the note is read, so
    both open at "current levels". Never write an entry price, and never mention entry
    improvement — the model no longer contains either.
-   EVERY THEME PARAGRAPH OPENS THE SAME WAY, in exactly two sentences. The view, then the
-   execution. Nothing before them.
+   EVERY THEME PARAGRAPH OPENS THE SAME WAY, in three moves: MARKET CONDITIONS, then the VIEW,
+   then ONE WAY TO EXPRESS IT. This is market commentary, so the argument about the market
+   comes first and the vehicle comes last — the reader is given the reasoning and a way to act
+   on it, not a call on a security.
+     (a) Conditions: one or two sentences on what is happening in the market and why it
+         matters for the theme, drawn from the evidence. No ticker, no price, no level.
+     (b) View: "We are bearish on <the market, in plain words>." Its own sentence, no ticker.
+     (c) Expression: "One way to express the view is <TICKER>" followed by the execution.
 
-     SCALED, BEARISH — "We are bearish on IBIT. Look for the opportunity to scale sales from
-     current levels to 48.00 targeting a weighted average execution of 46.96."
-     SCALED, BULLISH — "We are bullish on TLT. Look for the opportunity to scale purchases from
-     current levels to 92.00 targeting a weighted average execution of 90.40."
+     SCALED, BEARISH — "<conditions>. We are bearish on bitcoin. One way to express the view is
+     IBIT: look for the opportunity to scale sales from current levels to 48.00 for a weighted
+     average execution of 46.96."
+     SCALED, BULLISH — "<conditions>. We are bullish on long-dated Treasuries. One way to express
+     the view is TLT: look for the opportunity to scale purchases from current levels to 92.00 for
+     a weighted average execution of 90.40."
 
-     IMMEDIATE, BEARISH — "We are bearish on SLV. The wall leaves no room to scale, so look to
-     sell at current levels."
-     IMMEDIATE, BULLISH — "We are bullish on SLV. The wall leaves no room to scale, so look to
-     buy at current levels."
+     IMMEDIATE, BEARISH — "<conditions>. We are bearish on silver. One way to express the view is
+     SLV; the wall leaves no room to scale, so look to sell at current levels."
+     IMMEDIATE, BULLISH — "<conditions>. We are bullish on silver. One way to express the view is
+     SLV; the wall leaves no room to scale, so look to buy at current levels."
 
-   Cite scaleTo and targetExecution, nothing before them. SALES on a bearish leg, PURCHASES on
+   Cite scaleTo and weightedAverageExecution, nothing before them. SALES on a bearish leg, PURCHASES on
    a bullish one — the verb carries the direction and getting it the wrong way round inverts
    the trade. No band, no ladder and no tranche on an immediate leg.
    Call it the STOP-LOSS, not the stop: "The stop-loss at 48.48 ends the trade, 3.2% of risk."
@@ -199,8 +214,8 @@ VOICE — every rule is checked mechanically after you write:
    "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
    NO CHAIN. A leg carrying "noChain" has no tradeable option market, so it has no walls and no
    implied range. Never mention a wall for it — there is not one, so it cannot "leave no room to
-   scale" either. Write it as: "We are bearish on GRID. There is no wall to scale into, so look
-   to sell at current levels." Then say the position is shares only, that the stop-loss is a flat
+   scale" either. Write it as: "<conditions>. We are bearish on grid infrastructure. One way to
+   express the view is GRID. There is no wall to scale into, so look to sell at current levels." Then say the position is shares only, that the stop-loss is a flat
    percentage from entry because there is no wall to stop beyond, and give the range as the model
    labels it in rangeBasis. Do not treat the absence of
    a chain as a reason to soften the view; it is an execution fact, not an argument.
@@ -406,8 +421,8 @@ export const SYSTEM_PROMPTS = {
 /* Voice checks on a draft. Each returns the offending phrase so the UI can
    point at it. These are the rules the prompt states, enforced. */
 export const VOICE_CHECKS = [
-  /* "We are bearish|bullish on X" is now the REQUIRED opening, so it is not
-     in this list — checkThemeOpening enforces its shape instead. What stays
+  /* "We are bearish|bullish on <the market>" is a REQUIRED sentence, so it
+     is not in this list — checkThemeOpening enforces its shape instead. What stays
      banned is reporting a position ("we are short GLD") or advising in the
      first person ("we recommend"). */
   { id: "declarative", re: /\b(we are (short|long|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
@@ -416,13 +431,21 @@ export const VOICE_CHECKS = [
     msg: "ranking language" },
   { id: "attribution", re: /\b(said|stated|according to|wrote|reports?|noted that|argues)\b/i,
     msg: "possible attribution" },
-  /* "Targeting" is a price objective everywhere except on the weighted
-     average execution, which is a level the ladder is built to achieve
-     rather than a level the trade is predicting. The house phrasing is
-     "targeting a weighted average execution of 46.96", so the check has to
-     let that one construction through or it fires on every scaled leg. */
-  { id: "objective", re: /\b(?:price target|objective of|target of|our target|targeting(?!\s+(?:a|the)?\s*weighted\s+average\s+execution\b))\b/i,
-    msg: "price objective — the note carries none" },
+  /* NO "TARGET" IN ANY FORM (0.37.0). Until then "targeting a weighted
+     average execution" was let through as house phrasing. It is market
+     commentary now, and "target" is the word a reader — or a regulator —
+     takes as a price objective whatever it is attached to. The house
+     phrasing is "for a weighted average execution of 46.96". */
+  /* Policy targets are macro facts, not price objectives — "the 2% inflation
+     target" is exactly what this author writes about — so those are let
+     through; everything else carrying the word flags. */
+  { id: "objective", re: /\b(?:price (?:target|objective)s?|objective of|(?<!\b(?:inflation|policy|rate|funds|deficit|growth|employment|mandate|reserve)\s)(?:targets?|targeting|targeted))\b/i,
+    msg: "price objective — market commentary carries none, and 'target' reads as one" },
+  /* A projected outcome. POP was taken off the page in 0.37.0; the drafter
+     no longer receives it, and this catches it arriving anyway. */
+  /* Case-sensitive on purpose: "POP" is the metric, "a pop in yields" is prose. */
+  { id: "projection", re: /(?:\b[Pp]robability of (?:profit|success|finishing|a gain)|\bPOP\b|\b\d{1,3}(?:\.\d)?% (?:chance|probability|likelihood)|\b[Ee]xpected (?:return|gain|profit))/,
+    msg: "projected outcome — market commentary may not carry one" },
   { id: "stopword", re: /\bstops? at\b/i,
     msg: "house wording is 'stop-loss'" },
   /* Direction, not position. Deliberately anchored on "we would" so it cannot
@@ -462,37 +485,55 @@ const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|run
    echoes. The guard was flagging the only honest phrasing available. */
 const SANCTIONED = /\b(no room to scale|no wall to scale(?: into)?|nothing to scale(?: into)?|without a wall to scale(?: into)?)\b/gi;
 
-/* Every theme paragraph opens with the same two sentences: the view, then the
-   execution. This is checked rather than trusted because both halves can fail
-   silently and neither failure looks like an error.
+/* Every theme paragraph opens in three moves (0.37.0): MARKET CONDITIONS,
+   then the VIEW on the market, then ONE WAY TO EXPRESS IT through the ETF.
+   Until 0.36 it opened "We are bearish on GLD." — a call on a security in
+   the first five words, which is what a research report looks like. The
+   argument now comes first and the vehicle last.
 
-   The view sentence must name the right direction for the right ticker — a
-   paragraph headed "We are bullish on IBIT" under a bearish theme is a
-   complete inversion that reads perfectly well.
-
-   The execution verb carries the direction too: SALES on a bearish leg,
-   PURCHASES on a bullish one. "Scale purchases" under a bearish theme is the
-   same inversion arriving one sentence later. */
-const OPENING = /^\s*We are (bearish|bullish) on ([A-Za-z0-9.]{1,6})\b/i;
+   Checked rather than trusted, because every failure reads perfectly well:
+   - the ticker must not appear before the view sentence (a paragraph that
+     opens on the vehicle is the old shape back again);
+   - the view sentence must exist and carry the theme's direction — "we are
+     bullish on gold" under a bearish theme is a complete inversion;
+   - the view must not be stated on a ticker;
+   - "One way to express the view is <TK>" must name THIS leg's ticker;
+   - the execution verb carries the direction: SALES / "look to sell" on a
+     bearish leg, PURCHASES / "look to buy" on a bullish one. */
+const VIEW = /\bWe are (bearish|bullish) on ([^.;:]+)[.;:]/i;
+const EXPRESS = /\bOne way to express (?:the|this) view is ([A-Za-z0-9.]{1,6})\b/i;
 
 export function checkThemeOpening(paras, ctx) {
   const hits = {};
+  const tickers = (ctx?.themes || []).map(t => t?.etf?.ticker).filter(Boolean);
   for (const th of ctx?.themes || []) {
     const body = paras?.[th.subject];
     const tk = th?.etf?.ticker;
     if (!body || !tk) continue;
     const add = (msg, phrase) => { (hits[th.subject] ||= []).push({ id: "opening", msg, phrase }); };
 
-    const m = body.match(OPENING);
-    if (!m) {
-      add(`paragraph must open "We are ${th.direction} on ${tk}." as its own sentence`,
+    const v = body.match(VIEW);
+    if (!v) {
+      add(`paragraph needs the view as its own sentence — "We are ${th.direction} on <the market>." — after the market conditions`,
           body.slice(0, 48).trim());
-      continue;
+    } else {
+      if (v[1].toLowerCase() !== String(th.direction).toLowerCase())
+        add(`states a ${v[1].toLowerCase()} view on a ${th.direction} theme — the view is inverted`, v[0].trim());
+      const onTicker = tickers.find(t => new RegExp(`^\\s*${t.replace(".", "\\.")}\\b`, "i").test(v[2]));
+      if (onTicker)
+        add(`the view is stated on ${onTicker} — state it on the market, and name the ETF as one way to express it`, v[0].trim());
+      if (v.index === 0 || !body.slice(0, v.index).trim())
+        add("paragraph opens on the view — lead with the market conditions that support it", v[0].trim());
+      const early = tickers.find(t => new RegExp(`\\b${t.replace(".", "\\.")}\\b`).test(body.slice(0, v.index)));
+      if (early) add(`${early} is named before the view — the vehicle comes after the argument`, early);
     }
-    if (m[1].toLowerCase() !== String(th.direction).toLowerCase())
-      add(`opens ${m[1]} on a ${th.direction} theme — the view is inverted`, m[0].trim());
-    if (m[2].toUpperCase() !== tk.toUpperCase())
-      add(`opens on ${m[2]} but the leg is ${tk}`, m[0].trim());
+
+    const e = body.match(EXPRESS);
+    if (!e) add(`paragraph must name the vehicle as "One way to express the view is ${tk}"`, tk);
+    else {
+      if (e[1].toUpperCase() !== tk.toUpperCase()) add(`expresses the view through ${e[1]} but the leg is ${tk}`, e[0].trim());
+      if (v && e.index < v.index) add("the vehicle is named before the view", e[0].trim());
+    }
 
     const bear = String(th.direction).toLowerCase() === "bearish";
     const wrongVerb = bear ? /\bscale\s+purchases\b|\blook to buy\b/i

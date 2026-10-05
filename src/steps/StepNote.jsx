@@ -136,7 +136,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
   }
 
   function print() {
-    const name = `${fileStem()}-Tactical Note \u2014 JonesTrading`;
+    const name = `${fileStem()}-Market Commentary \u2014 JonesTrading`;
     const prev = document.title;
     document.title = name;
     RunLog.info("ui", "note.print", { filename: name, themes: note.themes.length });

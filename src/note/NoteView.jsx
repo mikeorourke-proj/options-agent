@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import RunLog from "../lib/runlog.js";
 import "../styles/note.css";
+import { APPROVED, MAST, FOOTER, LEGEND, APPENDIX } from "./disclosures.js";
 
 const f = (n, d = 2) => n == null || isNaN(n) ? "—" : Number(n).toFixed(d);
 
 /* How far down the sheet the two columns may run. The sign-off is pinned at
-   bottom 20mm and nothing pushes it, so anything past this is printed over.
-   Keep in step with .analyst in note.css. */
-const PAGE1_LIMIT_MM = 297 - 20 - 2;
+   bottom 24mm and nothing pushes it, so anything past this is printed over.
+   Keep in step with .analyst in note.css. It was 20mm until 0.37.0; the
+   market-commentary legend now sits beneath the sign-off and took 4mm. */
+const PAGE1_LIMIT_MM = 297 - 24 - 2;
 /* One body line: 8.9pt at 1.36 leading. Used to turn an overage in
    millimetres into something an analyst can act on. */
 const LINE_MM = 8.9 * 1.36 * 25.4 / 72;
@@ -18,7 +20,14 @@ function Wordmark() {
   return <span className="wm"><span className="a">Jones</span><span className="b">Trad</span>
     <span className="dot-i"><span className="b">{"ı"}</span><i className="mark" /></span><span className="b">ng</span></span>;
 }
-function Foot({ n }) { return <div className="foot"><b>JonesTrading</b><span>Page {n}</span></div>; }
+function Foot({ n }) { return <div className="foot"><b>JonesTrading</b><i>{FOOTER}</i><span>Page {n}</span></div>; }
+/* Max loss beside max gain — Rule 2220 balance. A naked short leg has no
+   finite worst case, and printing the scan's edge value would understate it. */
+function maxLossText(pr) {
+  if (pr.lossUnbounded) return "unlimited";
+  const v = pr.maxLossFull ?? pr.maxLoss;
+  return v == null || !isFinite(v) ? "\u2014" : "$" + f(Math.abs(Math.min(0, v)) / 100);
+}
 
 /* Editable paragraph. onChange fires on blur so typing is not re-rendered
    on every keystroke. */
@@ -178,6 +187,12 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
   return (
     <div className="noteprint">
       {/* ═══ PAGE 1 ═══ */}
+      {!APPROVED && (
+        <div className="fitnote screen-only pending">
+          Legend and disclosure wording are drafts pending Compliance and Registered Options
+          Principal approval (src/note/disclosures.js). This banner does not print.
+        </div>
+      )}
       {/* Screen only — a warning about the page must never be on the page. */}
       {overflow == null && execDropped && (
         <div className="fitnote screen-only">
@@ -200,7 +215,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
       <div className="page">
         <div className="mast">
           <Wordmark />
-          <div className="kind"><div className="k1">Institutional Tactical Note</div><div className="k2">Desk Commentary</div><div className="k3">{meta.date}</div></div>
+          <div className="kind"><div className="k1">{MAST.kind}</div><div className="k2">{MAST.audience}</div><div className="k3">{meta.date}</div></div>
         </div>
         <div className="band">
           <div className="t">{meta.title}</div>
@@ -228,7 +243,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           <div className="col-r rail">
             <div className="rh">ETF Expression</div>
             <table className="etfr"><thead><tr>
-              <th></th><th>Target Entry</th><th>Stop-loss</th><th>Risk</th><th>Put wall</th><th>Call wall</th>
+              <th></th><th>Scale-in avg</th><th>Stop-loss</th><th>Risk</th><th>Put wall</th><th>Call wall</th>
             </tr></thead><tbody>
               {etfRows.map(t => (
                 <tr key={t.id}><td><Arrow d={t.direction} /> {t.etf.tk}</td>
@@ -260,11 +275,12 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             </>)}
 
             <div className="rh">Derivatives Expression</div>
-            <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "Net" : "Debit"}</th><th>Max gain</th></tr></thead><tbody>
+            <table><thead><tr><th></th><th></th><th>{optRows.some(x => x.o.pricing.net < 0) ? "Net" : "Debit"}</th><th>Max loss</th><th>Max gain</th></tr></thead><tbody>
               {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{t.etf.tk}</td>
                 <td style={{ textAlign: "left", color: "var(--n-muted)" }}>{o.name} · {longExpiry(o.expiry)}</td>
                 <td>${f(Math.abs(o.pricing.net) / 100)}{o.pricing.net < 0 ? " cr" : ""}</td>
-                <td className="g">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td></tr>)}
+                <td className="r">{maxLossText(o.pricing)}</td>
+                <td className="g">{(o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td></tr>)}
               {/* "No tradable chain" and "none carried" are different statements
                   and only one of them is about the market. SMH priced a long
                   put at 0.635 and a put spread at 0.55 on 15 Sep; neither was
@@ -274,7 +290,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
                 independently: an option is the same idea expressed
                 differently — the right tool when spot is not where you want
                 to buy — so the note reads theme by theme. */}
-            {optRows.length === 0 && <tr><td colSpan={4} className="note">
+            {optRows.length === 0 && <tr><td colSpan={5} className="note">
                 {etfRows.some(t => t.alternatives?.length)
                   ? "shares only \u2014 no derivatives carried alongside"
                   : "no tradable chain on the selected vehicles"}</td></tr>}
@@ -344,12 +360,17 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
 
             To restore: put this block back and return .analyst to bottom 34mm
             and PAGE1_LIMIT_MM to 261. */}
+        {/* The market-commentary legend. The old disclosure block (removed
+            above) was a pointer; this is the statement itself — what the
+            communication is and is not — and it is what the research
+            exclusion leans on. Wording lives in disclosures.js. */}
+        <div className="legend">{LEGEND}</div>
         <Foot n={1} />
       </div>
 
       {/* ═══ PAGE 2 ═══ */}
       <div className="page">
-        <div className="rhead">Institutional Tactical Note — {meta.title}<span>{meta.date}</span></div>
+        <div className="rhead">{MAST.kind} — {meta.title}<span>{MAST.audience} · {meta.date}</span></div>
 
         <div className="exhblk"><div className="exh first">Exhibit {exNo("map")}: Positioning Map — Spot, Scale Range and Walls</div>
         <div className="pm">
@@ -383,7 +404,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         </div>
 
         <div className="exhblk"><div className="exh">Exhibit {exNo("etf")}: ETF Expression</div>
-        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th className="c">Execution</th><th className="c">Scale band</th><th className="c">Target Entry</th><th className="c">Implied 1σ range</th><th className="c">Stop out</th><th className="c">Risk</th></tr></thead><tbody>
+        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th className="c">Execution</th><th className="c">Scale band</th><th className="c">Scale-in average</th><th className="c">Option-implied range</th><th className="c">Stop out</th><th className="c">Risk</th></tr></thead><tbody>
           {etfRows.map(t => { const p = t.etf.plan, g = t.etf.tgt, s = t.etf.share; return <tr key={t.id}>
             <td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td><td className="c">{p?.execution}</td>
             <td className="c">{p?.single ? "—" : `${f(t.etf.price)} → ${f(p?.wall)}`}</td>
@@ -391,7 +412,8 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             <td className="c">{f(g?.dn, 0)} – {f(g?.up, 0)}{g?.volFrom === "realised" ? " \u2020" : ""}</td><td className="c">{f(p?.stop)}{p?.noWall ? " \u2020" : ""}</td><td className="c">{f(p?.riskPct, 1)}%</td></tr>; })}
         </tbody></table>
         <div className="src">Stop is a close 1% beyond the open-interest wall the position was scaled into; risk is measured from the weighted average execution, or from current levels on an immediate leg.<br />
-          1σ is the range over the holding period — the market's own measure of a normal move, not a price objective.
+          The option-implied range is derived from current option prices: one standard deviation over the holding
+          period, the market's own measure of a normal move. It is not a forecast and not a price objective.
           {etfRows.some(t => t.etf.plan?.noWall) && <><br />
             <b>†</b> No tradeable option chain on this vehicle, so it carries no open-interest walls: the range is
             measured from realised volatility over {etfRows.find(t => t.etf.plan?.noWall)?.etf?.tgt?.volWindow ?? 30} sessions
@@ -405,14 +427,15 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
             headers over an empty body. */}
         {optRows.length > 0 && (
         <div className="exhblk"><div className="exh">Exhibit {exNo("deriv")}: Derivatives Expression</div>
-        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max gain</th><th className="c">Breakeven</th><th className="c">POP</th></tr></thead><tbody>
+        <table className="x"><thead><tr><th>Theme</th><th className="c">ETF</th><th>Structure</th><th className="c">Expiry</th><th className="c">Legs</th><th className="c">Net</th><th className="c">Max loss</th><th className="c">Max gain</th><th className="c">Breakeven</th></tr></thead><tbody>
           {optRows.map(({ t, o }) => <tr key={t.id + o.id}><td>{cap(t.direction)} {t.subject}</td><td className="c">{t.etf.tk}</td>
             <td>{o.name}</td><td className="c">{longExpiry(o.expiry)}</td><td className="c">{o.legText}</td>
             <td className="c">${f(Math.abs(o.pricing.net) / 100)} {o.pricing.net > 0 ? "dr" : "cr"}</td>
-            <td className="c">{o.pricing.uncapped ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td>
-            <td className="c">{o.pricing.breakevens.join(" / ") || "—"}</td><td className="c">{f(o.econ.pop, 1)}%</td></tr>)}
+            <td className="c">{maxLossText(o.pricing)}</td>
+            <td className="c">{(o.pricing.gainUnbounded ?? o.pricing.uncapped) ? "uncapped" : "$" + f(o.pricing.maxGain / 100)}</td>
+            <td className="c">{o.pricing.breakevens.join(" / ") || "—"}</td></tr>)}
         </tbody></table>
-        <div className="src">Marks from {[...new Set(optRows.map(x => x.o.pricing.priceSource))].join(" / ") || "the chain"}. POP is the probability of finishing beyond breakeven under the stated view.</div>
+        <div className="src">Marks from {[...new Set(optRows.map(x => x.o.pricing.priceSource))].join(" / ") || "the chain"}, per share at expiration, before costs; one contract is 100 shares. Breakeven is where the structure neither gains nor loses at expiry.</div>
         </div>)}
 
         {optRows.length > 0 && <>
@@ -437,7 +460,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
         </div>
 
         {etfRows.some(t => t.levered.length) && (
-          <div className="exhblk"><div className="exh">Exhibit {exNo("lev")}: Levered and Inverse Alternatives — Not Recommended at This Horizon</div>
+          <div className="exhblk"><div className="exh">Exhibit {exNo("lev")}: Levered and Inverse Alternatives — Not Carried at This Horizon</div>
           <table className="x"><thead><tr><th>Underlying</th><th>Fund</th><th>Leverage</th><th>Gamma X(X−1)</th><th>Suitability at {meta.holdWindow}</th></tr></thead><tbody>
             {etfRows.flatMap(t => t.levered.map(l => <tr key={l.tk}><td>{t.etf.tk}</td><td>{l.tk}</td>
               <td className="c">{l.lev > 0 ? "+" : ""}{l.lev}x</td><td className="c">{l.gamma}</td>
@@ -466,7 +489,7 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
 
       {/* ═══ PAGE 3 ═══ */}
       <div className="page appx">
-        <div className="rhead"><span>{meta.date}</span></div>
+        <div className="rhead">{MAST.kind} — Important Disclosures<span>{MAST.audience} · {meta.date}</span></div>
         <div className="key"><b className="h">Key — Options Liquidity Grade</b>
           <div><b className="A">A</b>deep chain, tight markets, weekly and monthly listings — any structure supported</div>
           <div><b className="B">B</b>usable chain with wider markets — verticals and outrights</div>
@@ -480,10 +503,9 @@ export default function NoteView({ note, onProse, accepted = {}, onAccept }) {
           <div><b>Risk</b>distance to the stop from the weighted average execution, or from current levels on an immediate leg</div>
         </div>
         <h1>IMPORTANT DISCLOSURES APPENDIX</h1>
-        <h2>Disclaimer:</h2>
-        <p>The following information has been provided only to the person or entity to which it is addressed for informational purposes only and should not be used or construed as an offer to sell, a solicitation, an offer to buy, or a recommendation for any security. This information is not purported to be tailored to any particular investor and is intended for institutional investors as defined by FINRA Rule 4512. Information and securities mentioned may reflect a third party’s independent opinions and are not recommendations of JonesTrading Institutional Services LLC (JTIS). JTIS does not guarantee that the information supplied is accurate, complete, or timely, or make any warranties with regard to the results obtained from its use.</p>
-        <h2>Options Risk Disclosure:</h2>
-        <p>Options involve risk and are not suitable for all investors. Prior to buying or selling an option, a person must receive a copy of Characteristics and Risks of Standardized Options. The structures illustrated are shown at indicative marks and do not reflect commissions, financing, assignment risk, or the bid-offer spread incurred in execution. Multi-leg strategies entail multiple commissions and may be closed at a loss prior to expiration. Probability of profit is derived from an option-implied distribution adjusted for the stated conviction and is not a forecast.</p>
+        {APPENDIX({ author: meta.analyst?.name, title: meta.analyst?.title }).map(x => (
+          <div key={x.h}><h2>{x.h}</h2><p>{x.p}</p></div>
+        ))}
         <div className="signoff"><Wordmark /></div>
         <div className="copy">Copyright 2026 JonesTrading Institutional Services LLC. All rights reserved.</div>
         <Foot n={3} />

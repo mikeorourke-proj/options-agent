@@ -8,7 +8,7 @@ import StepNote from "./steps/StepNote.jsx";
 import SourceBar from "./components/SourceBar.jsx";
 import "./styles/app.css";
 
-export const VERSION = "0.36.1";
+export const VERSION = "0.37.0";
 
 const STEPS = [
   { id: "source",    label: "Source" },
@@ -78,7 +78,7 @@ export default function App() {
     <div className="app">
       <div className="topbar">
         <Wordmark />
-        <span className="title">Tactical Note — Desk Commentary</span>
+        <span className="title">Tactical Note — Market Commentary</span>
         <code className="ver" title="hard-refresh if this looks stale">v{VERSION}</code>
         <span className="spacer" />
         <a className="ghost" href="/legacy.html" style={{ textDecoration: "none", padding: "6px 12px" }}>Options dashboard</a>

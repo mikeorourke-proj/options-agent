@@ -9,7 +9,7 @@ const theme = (id, tk, withOpt, lev) => ({
   screening: { considered: [], whyNot: "" }, levered: lev ? [{ tk: "GLL", lev: -2, gamma: 6 }] : [],
   leveredCarried: [], alternatives: [], liq: "A", contracts: 500,
   options: withOpt ? [{ id: "put_spread", name: "Put spread", expiry: "2026-10-30", legText: "+1 95P / -1 90P",
-    why: "Baseline.", pricing: { net: 625, maxGain: 875, uncapped: false, breakevens: [93.75], priceSource: "last trade",
+    why: "Baseline.", pricing: { net: 625, maxGain: 875, maxLoss: -625, maxLossFull: -625, lossUnbounded: false, gainUnbounded: false, uncapped: false, breakevens: [93.75], priceSource: "last trade",
       legDetail: [{ action: "Buy", qty: 1, strike: 95, type: "put", mark: 5, moneyness: 0, delta: -0.5, oi: 100 }] },
     econ: { pop: 65 } }] : [],
 });
@@ -47,7 +47,26 @@ for (const [label, o, l] of [["options + levered", true, true], ["shares only, l
      headers — both visual defects that no data-level test can see. */
   const spots = (html.match(/class="spot"/g) || []).length === 2;
   const heads = !o || html.includes('<th class="c">Expiry</th>');
-  const ok = numbersOk && namesOk && railDate && spots && heads;
+  /* MARKET COMMENTARY (0.37.0). What keeps the note on the commentary side
+     of Rule 2241 is as much what it leaves off the page as what it says, so
+     the absences are asserted: no POP or probability, no "target" in any
+     form, no "recommended", and the old product names gone. The presence
+     side: the masthead, the page-1 legend, the footer line on every page,
+     and max loss printed wherever max gain is. */
+  const text = html.replace(/<[^>]+>/g, " ");
+  const banned = [/\bPOP\b/, /[Pp]robability of profit/, /\b[Tt]arget/, /[Rr]ecommended/,
+                  /Desk Commentary/, /Institutional Tactical Note/]
+    .filter(re => re.test(text)).map(String);
+  const present = [
+    ["masthead", /Market Commentary/.test(text) && /For Institutional Investors Only/.test(text)],
+    ["legend", /class="legend"/.test(html) && /not a research report/i.test(text)],
+    ["footer x3", (html.match(/not a research report<\/i>/g) || []).length === 3],
+    ["max loss", !o || ((html.match(/>Max loss</g) || []).length === 2 && (text.match(/Max gain/g) || []).length === 2)],
+    ["appendix", /Market Commentary:/.test(text) && /Conflicts:/.test(text) && /theocc\.com/.test(text)],
+  ].filter(([, v]) => !v).map(([k]) => k);
+  const ok = numbersOk && namesOk && railDate && spots && heads && !banned.length && !present.length;
+  if (banned.length) console.log(`     ${label}: printed ${banned.join(", ")}`);
+  if (present.length) console.log(`     ${label}: missing ${present.join(", ")}`);
   if (!ok) bad++;
   console.log(`${ok ? "ok  " : "FAIL"} ${label}: ${got.map(([n, x]) => `${n}.${x}`).join(" | ")}${o && !railDate ? "  [rail expiry not long-form]" : ""}${!spots ? "  [spot marker missing]" : ""}${!heads ? "  [headers not aligned]" : ""}`);
 }
