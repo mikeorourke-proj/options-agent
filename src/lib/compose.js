@@ -188,14 +188,29 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
   const optOrder = orderByExpectancy(
     themes.flatMap(t => t.options.map(o => ({
       label: `${t.etf?.tk} ${o.name.toLowerCase()}`, themeId: t.id, structId: o.id,
-      evPerRisk: o.econ.ev / Math.max(1, o.pricing.risk) }))),
+      evPerRisk: o.econ.ev / Math.max(1, o.pricing.risk) })))
+      /* A structure belongs to its theme: if the theme is not carried,
+         neither is its option. */
+      .filter(r => etfRank[r.themeId] != null),
     { key: r => r.evPerRisk, band: TIE_OPT, sourceRank: r => srcRank[r.themeId] ?? 99, label: "note.order.derivatives" })
     .sort((a, b) => (etfRank[a.themeId] ?? 99) - (etfRank[b.themeId] ?? 99));
 
-  const orderedThemes = byGroup.map(r => themes.find(t => t.id === r.themeId))
-    .concat(themes.filter(t => !byGroup.some(r => r.themeId === t.id)));
+  /* ONLY WHAT IS CARRIED IS IN THE NOTE (0.39.1).
+     This used to append every theme the gate had excluded. They were never
+     printed — the page walks etfOrder — but they were still in note.themes,
+     so the drafter wrote a paragraph for each (Semiconductors on 5 Oct,
+     Investment Grade Credit the run before: about a hundred words apiece
+     that nobody saw), the header's subject line listed an idea the note did
+     not contain, the summary was free to argue it, and "accept all" waited
+     on a section that was not on the page.
+     An excluded theme now lives in weakLegs alone, where the analyst can
+     see why and carry it anyway. */
+  const orderedThemes = byGroup.map(r => themes.find(t => t.id === r.themeId)).filter(Boolean);
+  const dropped = themes.filter(t => !byGroup.some(r => r.themeId === t.id));
+  if (dropped.length) RunLog.info("calc", "note.themes.not.carried", {
+    themes: dropped.map(t => t.subject), why: "gated out or unscored — kept out of the header, the draft and the page" });
 
-  const dirs = [...new Set(themes.map(t => t.direction))];
+  const dirs = [...new Set((orderedThemes.length ? orderedThemes : themes).map(t => t.direction))];
   const meta = {
     date: settings.date || new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
     ...analystMeta(settings, parsed),

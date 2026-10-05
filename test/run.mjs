@@ -104,6 +104,9 @@ function chain(c) {
       callLadder: (v.callWalls || []).map(w => w.strike),
       putLadder: (v.putWalls || []).map(w => w.strike),
       iv30: v.iv30, contracts: v.contracts, ok: v.ok,
+      /* The walls the NOTE falls back to when the ranking has none. */
+      display: v.display && { put: v.display.putWall, putOI: v.display.putWallOI, call: v.display.callWall,
+                              callOI: v.display.callWallOI, n: v.display.contracts },
     };
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
@@ -115,6 +118,9 @@ function compose(c) {
     return {
       order: (n.etfOrder || []).map(r => `${r.label}:${r.immediate ? "immediate" : "scaled"}`),
       printed: (n.themes || []).map(t => t.etf?.tk),
+      /* What the header lists and what the drafter is asked to write must be
+         exactly what is printed — no more. */
+      header: n.meta?.subjects, drafted: draftContext(n).themes.map(t => t.subject),
       excluded: (n.weakLegs || []).map(w => w.tk),
       /* The invariant the QC pass found broken in the UI: anything gated out
          must be REPORTED, never merely absent. Every selected leg is either

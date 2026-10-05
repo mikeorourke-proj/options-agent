@@ -252,3 +252,5 @@ table.x th.c { text-align: center; }
 .np .rail .risk { line-height: 1.25; }
 .np.compact .split { margin-top: 2.2mm; padding-top: 2.4mm; }
 .np.compact .sig { margin-top: 1.6mm; }
+.key.wide div { padding-left: 25mm; text-indent: -25mm; }
+.key.wide div b { width: 25mm; text-indent: 0; }

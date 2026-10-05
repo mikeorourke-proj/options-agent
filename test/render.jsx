@@ -73,6 +73,15 @@ for (const [label, o, l] of [["options + levered", true, true], ["shares only, l
   need("max loss beside max gain", !o || (/>Max loss</.test(html) && />Max gain</.test(html)));
   need("long-form expiry", !o || text.includes("October 30th"));
   need("masthead", /Market Commentary/.test(text) && /For Institutional Investors Only/.test(text));
+  /* Every column header of the ETF table has a line in the key, and the
+     key defines nothing the table does not have (5 Oct: the headers were on
+     page 1 with only three of them explained). */
+  const tbl = html.match(/<table class="x lv">[\s\S]*?<\/thead>/)?.[0] || "";
+  const heads = [...tbl.matchAll(/<th[^>]*>([^<]+)<\/th>/g)].map(m => m[1]).filter(h => h !== "Theme" && h !== "ETF");
+  const keyBlock = html.match(/Key — ETF Expression Table[\s\S]*?<\/div><\/div>/)?.[0] || "";
+  const keyed = [...keyBlock.matchAll(/<div><b>([^<]+)<\/b>/g)].map(m => m[1]);
+  need(`key covers every column (table: ${heads.join(", ")} | key: ${keyed.join(", ")})`,
+       heads.length === 11 && heads.join("|") === keyed.join("|"));
   need("appendix", /Market Commentary:/.test(text) && /Conflicts:/.test(text) && /theocc\.com/.test(text));
 
   /* THE ABSENCES. What keeps the note commentary is as much what it leaves

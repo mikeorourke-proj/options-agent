@@ -44,10 +44,24 @@ export const MIN_WALL_OI = 1000;
    treated as thin — only a figure that is present and small. */
 export function consequentialWalls(vol) {
   if (!vol) return vol;
+  /* Where the ranking's walls are absent — a chain too sparse for them —
+     fall back to the display walls vol.js keeps for exactly this (0.39.2).
+     A wall the ranking DID compute is never overridden: the page and the
+     plan must agree wherever both exist. */
+  const d = vol.display;
+  let v = vol;
+  if (d) {
+    const add = {};
+    if (vol.putWall == null && d.putWall != null) Object.assign(add, { putWall: d.putWall, putWallOI: d.putWallOI, putWalls: d.putWalls, putWallFrom: "open interest" });
+    if (vol.callWall == null && d.callWall != null) Object.assign(add, { callWall: d.callWall, callWallOI: d.callWallOI, callWalls: d.callWalls, callWallFrom: "open interest" });
+    if (Object.keys(add).length) v = { ...vol, ...add };
+  }
   const thin = oi => typeof oi === "number" && oi > 0 && oi < MIN_WALL_OI;
-  const tp = vol.putWall != null && thin(vol.putWallOI), tc = vol.callWall != null && thin(vol.callWallOI);
-  if (!tp && !tc) return vol;
-  return { ...vol, ...(tp ? { putWall: null, thinPut: true } : {}), ...(tc ? { callWall: null, thinCall: true } : {}) };
+  const tp = v.putWall != null && thin(v.putWallOI), tc = v.callWall != null && thin(v.callWallOI);
+  if (!tp && !tc) return v;
+  /* The size is kept so the page can say how thin, not just that it is. */
+  return { ...v, ...(tp ? { putWall: null, thinPut: true, thinPutOI: v.putWallOI } : {}),
+                 ...(tc ? { callWall: null, thinCall: true, thinCallOI: v.callWallOI } : {}) };
 }
 
 const r1 = x => x == null || !isFinite(x) ? null : +x.toFixed(1);
@@ -69,6 +83,7 @@ export function wallContext(spot, vol, direction) {
      fund that has one would simply be false. */
   if (!valid) return { none: true, side: bull ? "put" : "call", role: bull ? "support" : "resistance",
                        thin: Boolean(bull ? vol?.thinPut : vol?.thinCall),
+                       thinOI: (bull ? vol?.thinPutOI : vol?.thinCallOI) ?? null,
                        hasChain: vol?.iv30 != null || vol?.putWall != null || vol?.callWall != null
                                  || Boolean(vol?.thinPut || vol?.thinCall) };
   const distancePct = r1(Math.abs(wall - spot) / spot * 100);
@@ -93,7 +108,9 @@ export function wallContext(spot, vol, direction) {
 export function wallSentence(tk, w, { named = false } = {}) {
   if (!w) return null;
   if (w.none) return w.thin
-    ? `${tk}'s option open interest is too thin for its ${w.side} wall to be meaningful, so there is no wall to frame an entry against.`
+    ? (w.thinOI
+        ? `${tk}'s largest ${w.side} strike holds only ${Number(w.thinOI).toLocaleString("en-US")} contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against.`
+        : `${tk}'s option open interest is too thin for its ${w.side} wall to be meaningful, so there is no wall to frame an entry against.`)
     : w.hasChain
     ? `${tk} shows no concentration of ${w.side} open interest ${w.side === "put" ? "below" : "above"} the last price, so there is no ${w.side}-wall ${w.role} to frame an entry against.`
     : `${tk} has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against.`;

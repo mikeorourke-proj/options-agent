@@ -483,9 +483,15 @@ export default function StepIdeas({ parsed, setParsed, picks, setPicks, menuCach
       const chainVol = { ...(row.vol || {}), iv30: cv.iv30 ?? null, rr25: cv.rr25 ?? null, termSlope: cv.termSlope ?? null,
                          putWall: cv.putWall ?? null, callWall: cv.callWall ?? null,
                          putWalls: cv.putWalls || [], callWalls: cv.callWalls || [],
-                         putWallOI: cv.putWallOI ?? null, callWallOI: cv.callWallOI ?? null, contracts: cv.contracts };
+                         putWallOI: cv.putWallOI ?? null, callWallOI: cv.callWallOI ?? null, contracts: cv.contracts,
+                         display: cv.display };
       RunLog.info("ui", `secondary.chain.${ticker}`, { grade: liq, putWall: chainVol.putWall, putWallOI: chainVol.putWallOI,
-        callWall: chainVol.callWall, callWallOI: chainVol.callWallOI, iv30: chainVol.iv30 });
+        callWall: chainVol.callWall, callWallOI: chainVol.callWallOI, iv30: chainVol.iv30,
+        /* What the NOTE will use where the ranking walls are null: every
+           contract with open interest, no greeks needed. Logged because the
+           first run printed blanks here and nothing said why. */
+        fromOpenInterest: cv.display && { contracts: cv.display.contracts, putWall: cv.display.putWall, putWallOI: cv.display.putWallOI,
+                                           callWall: cv.display.callWall, callWallOI: cv.display.callWallOI } });
       patch({ chainLiq: liq, chainVol });
     } catch (e) {
       RunLog.warn("ui", `secondary.chain.${ticker}`, { error: String(e?.message || e), walls: false });

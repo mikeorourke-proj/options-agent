@@ -340,13 +340,26 @@ export default function NoteView({ note, layout = "auto", onProse, accepted = {}
           <div><b className="C">C</b>thin chain — outrights only, reduce size</div>
           <div><b className="X">X</b>no usable chain: contracts listed but unpriced or without open interest — shares only</div>
         </div>
-        <div className="key"><b className="h">Key — Levels and Ranges</b>
-          <div><b>Put wall</b>the strike below the last price holding the most put open interest</div>
-          <div><b>Call wall</b>the strike above the last price holding the most call open interest</div>
-          <div><b>Nearby</b>a wall within {NEAR_WALL_PCT}% of the last price; beyond that the note describes it by its distance</div>
-          <div><b>Thin</b>a wall holding fewer than {MIN_WALL_OI.toLocaleString()} contracts is treated as no wall</div>
-          <div><b>1-mo range</b>one standard deviation over one month, from option prices where a chain exists, otherwise from realised volatility</div>
+        {/* EVERY COLUMN HEADER OF THE ETF TABLE IS DEFINED HERE, in the order
+            the columns appear, so nothing on page 1 is left for the reader to
+            guess. A column added to the table needs a line here; the render
+            test compares the two lists. */}
+        <div className="key wide"><b className="h">Key — ETF Expression Table</b>
+          <div><b>Last</b>the last traded price when the note was prepared</div>
+          <div><b>Put wall</b>the strike below the last price holding the most put open interest, with its distance from the last price</div>
+          <div><b>Call wall</b>the strike above the last price holding the most call open interest, with its distance from the last price</div>
+          <div><b>One-month range</b>one standard deviation over one month, from option prices where a chain exists, otherwise (†) from realised volatility; not a forecast</div>
+          <div><b>3-month closes</b>the lowest and highest daily closing price over the last three months</div>
+          <div><b>In range</b>where the last price sits within the 3-month closing range: 0% is the low, 100% the high</div>
+          <div><b>vs 50-day</b>the last price relative to its 50-day average closing price</div>
+          <div><b>IV30 / RV30</b>30-day implied volatility against the volatility realised over the last 30 sessions, annualised</div>
+          <div><b>Avg day</b>the average daily close-to-close move over the last 20 sessions</div>
           <div><b>25ΔRR</b>the 25-delta call's implied volatility less the 25-delta put's, in volatility points; positive means calls are bid</div>
+          <div><b>Options</b>the options liquidity grade, A to X, defined above</div>
+        </div>
+        <div className="key wide"><b className="h">Key — Walls in the Text</b>
+          <div><b>Nearby</b>a wall within {NEAR_WALL_PCT}% of the last price; beyond that the note describes it by its distance</div>
+          <div><b>Thin</b>a wall holding fewer than {MIN_WALL_OI.toLocaleString("en-US")} contracts is treated as no wall</div>
         </div>
         <h1>IMPORTANT DISCLOSURES APPENDIX</h1>
         {APPENDIX({ author: meta.analyst?.name, title: meta.analyst?.title }).map(x => (

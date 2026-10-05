@@ -70,6 +70,39 @@ export function ivAtDelta(list, targetAbsDelta) {
   return near.iv;
 }
 
+/* WALLS FOR THE PAGE (0.39.2) — separate from the walls above, on purpose.
+   The block above runs only when more than ten usable near-dated contracts
+   exist, and "usable" requires greeks. That is the right bar for GEX and
+   for walls that set a plan and a stop, and the ranking is built on it.
+   It is the wrong bar for telling a reader where open interest sits:
+   JNK on 5 Oct had 41 contracts carrying open interest and printed no
+   walls at all, because too few of them also had greeks.
+   A wall is a fact about open interest, so these are taken from EVERY
+   contract in the 7–45 day window that carries it — no greeks needed, no
+   minimum count. Whether the result is big enough to mention is decided
+   downstream by MIN_WALL_OI (environment.js), which is the analyst's rule:
+   size, not count. Nothing in the ranking reads these fields. */
+function withDisplay(out, contracts, spot, now) {
+    const callOI = {}, putOI = {};
+    let n = 0;
+    for (const c of contracts || []) {
+      const oi = c?.open_interest || 0, k = c?.details?.strike_price, e = c?.details?.expiration_date;
+      if (!(oi > 0) || k == null || !e) continue;
+      const t = dte(e, now);
+      if (t < 7 || t > 45) continue;
+      const isCall = c.details.contract_type === "call";
+      (isCall ? callOI : putOI)[k] = ((isCall ? callOI : putOI)[k] || 0) + oi;
+      n++;
+    }
+    const rankD = (obj, keep) => Object.entries(obj).map(([k, v]) => ({ strike: Number(k), oi: v }))
+      .filter(x => keep(x.strike)).sort((a, b) => b.oi - a.oi);
+    const cw = spot ? rankD(callOI, k => k > spot) : [], pw = spot ? rankD(putOI, k => k < spot) : [];
+    out.display = { contracts: n, callWalls: cw, putWalls: pw,
+      callWall: cw[0]?.strike ?? null, callWallOI: cw[0]?.oi ?? 0,
+      putWall: pw[0]?.strike ?? null, putWallOI: pw[0]?.oi ?? 0 };
+    return out;
+}
+
 export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date()) {
   const out = {
     ticker, spot, ok: false,
@@ -80,7 +113,7 @@ export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date())
   };
   const list = usable(contracts, now);
   out.contracts = list.length;
-  if (!spot || list.length < 30) { out.note = `only ${list.length} usable contracts`; return out; }
+  if (!spot || list.length < 30) { out.note = `only ${list.length} usable contracts`; return withDisplay(out, contracts, spot, now); }
 
   out.expiries = [...new Set(list.map(c => c.details.expiration_date))].sort();
 
@@ -172,6 +205,8 @@ export function analyzeChain(ticker, contracts = [], spot = 0, now = new Date())
     }
     out.maxPain = best;
   }
+
+  withDisplay(out, contracts, spot, now);
 
   out.ok = out.iv30 != null;
   RunLog.fact(`vol.${ticker}`, { iv30: out.iv30, rr25: out.rr25, term: out.termSlope, callWall: out.callWall, putWall: out.putWall },

@@ -437,7 +437,12 @@ export const VOICE_CHECKS = [
      "Scale in opportunistically" is the one sanctioned use of "scale" and is
      checked for context in checkWallSentence; every other mechanism word is
      an instruction arriving by another route. */
-  { id: "instruction", re: /\b(?:look(?:ing)? to (?:buy|sell)|scale (?:sales|purchases)|(?:investors|clients|traders|readers|we) (?:should|must|need to)|we would (?:buy|sell|scale)|weighted[- ]average|tranches?|ladders?|rungs?|position siz\w+|take profits?)\b/i,
+  /* "rung", "ladder" and "tranche" were here as scaling vocabulary. They are
+     also ordinary credit language — "the lower rungs of credit", "the
+     quality ladder", "the equity tranche" — and the first live run of a
+     high yield theme flagged exactly that (5 Oct). Scaling mechanics are
+     still caught, by "scale" outside the sanctioned phrase. */
+  { id: "instruction", re: /\b(?:look(?:ing)? to (?:buy|sell)|scale (?:sales|purchases)|(?:investors|clients|traders|readers|we) (?:should|must|need to)|we would (?:buy|sell|scale)|weighted[- ]average|position siz\w+|take profits?)\b/i,
     msg: "execution instruction — commentary leaves how to trade to the client" },
   { id: "management", re: /\b(?:stop[- ]loss(?:es)?|stops? (?:at|out|beyond)|stopped out|ends the trade|\d+(?:\.\d+)?% of risk|risk of \d|hold(?:ing)? (?:period|window)|hold for|over the hold|execute (?:over|within))\b/i,
     msg: "trade management — commentary carries no stop, risk figure or holding period" },

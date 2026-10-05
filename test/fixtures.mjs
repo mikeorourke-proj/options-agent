@@ -234,6 +234,33 @@ export const CHAIN_CASES = [
       [34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54].flatMap(k => [
         leg("call", k, k === 48 ? 31000 : 5000, 44.99, exp),
         leg("put",  k, k === 40 ? 53372 : 8000, 44.99, exp)])) },
+
+  /* JNK, 5 Oct (0.39.2). 148 contracts fetched, 41 carrying open interest,
+     60 "usable" — and no walls printed, because the ranking's wall block
+     needs more than ten near-dated contracts that have greeks AND open
+     interest, and on a sparse chain the open interest sits on contracts
+     the vendor has not priced. Here every greeks-bearing contract has zero
+     open interest and the open interest is on contracts without greeks:
+     the ranking walls must stay null (ranking is frozen) and the DISPLAY
+     walls must find 95 and 90. */
+  { id: "JNK.sparse-open-interest-without-greeks", spot: 92.375,
+    why: "ranking walls null by design; display walls come from open interest alone",
+    contracts: [
+      ...["2026-10-09", "2026-12-18"].flatMap(exp => [84, 86, 88, 90, 91, 92, 93, 94, 95, 96, 98, 100]
+        .flatMap(k => [leg("call", k, 0, 92.375, exp), leg("put", k, 0, 92.375, exp)])),
+      ...[["call", 95, 4200], ["call", 97, 900], ["call", 93, 300], ["put", 90, 2600], ["put", 88, 1100], ["put", 92, 150]]
+        .map(([t, k, oi]) => ({ details: { contract_type: t, strike_price: k, expiration_date: "2026-10-09" }, open_interest: oi })),
+    ] },
+  /* Fewer than thirty usable contracts: analyzeChain returns early, and the
+     display walls must still be there. */
+  { id: "sparse.early-return-still-has-display-walls", spot: 50,
+    why: "under 30 usable contracts — the early return must not skip the display walls",
+    contracts: [["call", 52, 1800], ["call", 55, 600], ["put", 48, 2200], ["put", 45, 400]]
+      .map(([t, k, oi]) => leg(t, k, oi, 50, "2026-10-09")) },
+  /* Open interest only outside the 7–45 day window is not a near-dated wall. */
+  { id: "sparse.open-interest-outside-window", spot: 50,
+    why: "all the open interest is three months out — no near-dated wall to report",
+    contracts: [["call", 52, 9000], ["put", 48, 9000]].map(([t, k, oi]) => leg(t, k, oi, 50, "2026-12-18")) },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -349,6 +376,10 @@ export const VOICE_CASES = [
   { id: "multi.ranks-the-funds", subject: "Credit", expect: "flag",
     body: "Haven demand is unwinding as real yields rise. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against. HYG is the better vehicle of the two." },
 
+  /* Credit prose uses "rung", "ladder" and "tranche" as ordinary words. */
+  { id: "multi.credit-vocabulary", subject: "Credit", expect: "clean",
+    body: "Spreads on the lower rungs of the quality ladder have stopped tightening, and the equity tranche of new deals is clearing wider. We are bearish on high yield credit. Ways to express the view include HYG and JNK. In HYG, investors looking to trade the idea have call-wall resistance nearby at 79. JNK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." },
+
   /* Opening shape, unchanged from 0.37. */
   { id: "opening.direction-inverted", subject: "Gold", expect: "flag",
     body: "Haven demand is unwinding as real yields rise. We are bullish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
@@ -431,6 +462,18 @@ export const WALL_CASES = [
      sentence is about the call wall and is unaffected. */
   { id: "thin.other-side-only", spot: 66, direction: "bearish",
     vol: { putWall: 63, callWall: 70, iv30: 25, putWallOI: 300, callWallOI: 8000 } },
+  /* SPARSE CHAINS (0.39.2). The ranking computed no wall, but open interest
+     exists: the note uses the display wall, subject to the same 1,000 floor. */
+  { id: "sparse.display-wall-used", spot: 92.375, direction: "bearish",
+    vol: { iv30: 10, rv30: 4.4, putWall: null, callWall: null, putWallOI: 0, callWallOI: 0,
+           display: { putWall: 90, putWallOI: 2600, callWall: 95, callWallOI: 4200, putWalls: [], callWalls: [{ strike: 95, oi: 4200 }, { strike: 97, oi: 900 }] } } },
+  { id: "sparse.display-wall-thin", spot: 92.375, direction: "bearish",
+    vol: { iv30: 10, rv30: 4.4, putWall: null, callWall: null,
+           display: { putWall: 90, putWallOI: 2600, callWall: 95, callWallOI: 380, putWalls: [], callWalls: [] } } },
+  /* A wall the ranking DID compute is never replaced by the display one. */
+  { id: "sparse.ranking-wall-wins", spot: 100, direction: "bearish",
+    vol: { iv30: 20, putWall: 95, callWall: 105, putWallOI: 8000, callWallOI: 9000,
+           display: { putWall: 96, putWallOI: 12000, callWall: 103, callWallOI: 15000, putWalls: [], callWalls: [] } } },
   /* Environment from closes: a steady decline ending at the low. */
   { id: "env.at-three-month-low", spot: 90, direction: "bearish", vol: { putWall: 85, callWall: 95, iv30: 22, rv30: 16 },
     closes: ramp(110, 90, 80) },

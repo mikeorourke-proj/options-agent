@@ -687,7 +687,14 @@
   ],
   "iv30": 24,
   "contracts": 52,
-  "ok": true
+  "ok": true,
+  "display": {
+   "put": 390,
+   "putOI": 15200,
+   "call": 400,
+   "callOI": 21500,
+   "n": 26
+  }
  },
  "chain:walls.top-strike-at-spot": {
   "callWall": 62,
@@ -711,7 +718,14 @@
   ],
   "iv30": 24,
   "contracts": 44,
-  "ok": true
+  "ok": true,
+  "display": {
+   "put": 50,
+   "putOI": 7000,
+   "call": 62,
+   "callOI": 6000,
+   "n": 22
+  }
  },
  "chain:walls.clean": {
   "callWall": 48,
@@ -736,7 +750,71 @@
   ],
   "iv30": 24,
   "contracts": 44,
-  "ok": true
+  "ok": true,
+  "display": {
+   "put": 40,
+   "putOI": 53372,
+   "call": 48,
+   "callOI": 31000,
+   "n": 22
+  }
+ },
+ "chain:JNK.sparse-open-interest-without-greeks": {
+  "callWall": null,
+  "putWall": null,
+  "callWallAboveSpot": null,
+  "putWallBelowSpot": null,
+  "collided": false,
+  "callLadder": [],
+  "putLadder": [],
+  "iv30": 24,
+  "contracts": 48,
+  "ok": true,
+  "display": {
+   "put": 90,
+   "putOI": 2600,
+   "call": 95,
+   "callOI": 4200,
+   "n": 6
+  }
+ },
+ "chain:sparse.early-return-still-has-display-walls": {
+  "callWall": null,
+  "putWall": null,
+  "callWallAboveSpot": null,
+  "putWallBelowSpot": null,
+  "collided": false,
+  "callLadder": [],
+  "putLadder": [],
+  "iv30": null,
+  "contracts": 4,
+  "ok": false,
+  "display": {
+   "put": 48,
+   "putOI": 2200,
+   "call": 52,
+   "callOI": 1800,
+   "n": 4
+  }
+ },
+ "chain:sparse.open-interest-outside-window": {
+  "callWall": null,
+  "putWall": null,
+  "callWallAboveSpot": null,
+  "putWallBelowSpot": null,
+  "collided": false,
+  "callLadder": [],
+  "putLadder": [],
+  "iv30": null,
+  "contracts": 2,
+  "ok": false,
+  "display": {
+   "put": null,
+   "putOI": 0,
+   "call": null,
+   "callOI": 0,
+   "n": 0
+  }
  },
  "expiry:GLD.dailies-ahead-of-the-monthly": {
   "candidates": [
@@ -926,6 +1004,12 @@
   "hits": [
    "ranking:the better"
   ],
+  "correct": true
+ },
+ "voice:multi.credit-vocabulary": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
   "correct": true
  },
  "voice:opening.direction-inverted": {
@@ -1278,6 +1362,7 @@
    "side": "put",
    "role": "support",
    "thin": false,
+   "thinOI": null,
    "hasChain": true
   },
   "sentence": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
@@ -1306,6 +1391,7 @@
    "side": "put",
    "role": "support",
    "thin": false,
+   "thinOI": null,
    "hasChain": true
   },
   "sentence": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
@@ -1334,6 +1420,7 @@
    "side": "call",
    "role": "resistance",
    "thin": false,
+   "thinOI": null,
    "hasChain": false
   },
   "sentence": "TK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against.",
@@ -1393,10 +1480,11 @@
    "side": "call",
    "role": "resistance",
    "thin": true,
+   "thinOI": 400,
    "hasChain": true
   },
-  "sentence": "TK's option open interest is too thin for its call wall to be meaningful, so there is no wall to frame an entry against.",
-  "named": "TK's option open interest is too thin for its call wall to be meaningful, so there is no wall to frame an entry against.",
+  "sentence": "TK's largest call strike holds only 400 contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against.",
+  "named": "TK's largest call strike holds only 400 contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against.",
   "env": {
    "basis": "implied",
    "lo": 61.27,
@@ -1468,6 +1556,97 @@
    "dCall": 6.1,
    "sdPut": null,
    "sdCall": 0.8,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:sparse.display-wall-used": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 95,
+   "distancePct": 2.8,
+   "proximity": "nearby",
+   "openInterest": 4200,
+   "nextLevel": 97
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 95.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 95.",
+  "env": {
+   "basis": "implied",
+   "lo": 89.73,
+   "hi": 95.02,
+   "pct": 2.9,
+   "dPut": -2.6,
+   "dCall": 2.8,
+   "sdPut": 0.9,
+   "sdCall": 1,
+   "ivOverRv": 2.27,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:sparse.display-wall-thin": {
+  "wall": {
+   "none": true,
+   "side": "call",
+   "role": "resistance",
+   "thin": true,
+   "thinOI": 380,
+   "hasChain": true
+  },
+  "sentence": "TK's largest call strike holds only 380 contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against.",
+  "named": "TK's largest call strike holds only 380 contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against.",
+  "env": {
+   "basis": "implied",
+   "lo": 89.73,
+   "hi": 95.02,
+   "pct": 2.9,
+   "dPut": -2.6,
+   "dCall": null,
+   "sdPut": 0.9,
+   "sdCall": null,
+   "ivOverRv": 2.27,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:sparse.ranking-wall-wins": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 105,
+   "distancePct": 5,
+   "proximity": "nearby",
+   "openInterest": 9000,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 105.",
+  "named": "In TK, investors looking to trade the idea have call-wall resistance nearby at 105.",
+  "env": {
+   "basis": "implied",
+   "lo": 94.27,
+   "hi": 105.73,
+   "pct": 5.7,
+   "dPut": -5,
+   "dCall": 5,
+   "sdPut": 0.9,
+   "sdCall": 0.9,
    "ivOverRv": null,
    "avgDay": null,
    "closeLo": null,
@@ -1950,8 +2129,17 @@
   "printed": [
    "IBIT",
    "SLV",
-   "GLD",
-   "UUP"
+   "GLD"
+  ],
+  "header": [
+   "IBIT",
+   "SLV",
+   "GLD"
+  ],
+  "drafted": [
+   "IBIT",
+   "SLV",
+   "GLD"
   ],
   "excluded": [
    "UUP"
@@ -1959,26 +2147,22 @@
   "wallSentences": [
    "IBIT: Investors looking to trade the idea have call-wall resistance nearby at 104.",
    "SLV: Investors looking to trade the idea have call-wall resistance nearby at 104.",
-   "GLD: Investors looking to trade the idea have call-wall resistance nearby at 104.",
-   "UUP: Investors looking to trade the idea have call-wall resistance nearby at 104."
+   "GLD: Investors looking to trade the idea have call-wall resistance nearby at 104."
   ],
   "funds": [
    "IBIT:A",
    "SLV:A",
-   "GLD:A",
-   "UUP:A"
+   "GLD:A"
   ],
   "expression": [
    "One way to express the view is IBIT.",
    "One way to express the view is SLV.",
-   "One way to express the view is GLD.",
-   "One way to express the view is UUP."
+   "One way to express the view is GLD."
   ],
   "drafterFunds": [
    "IBIT",
    "SLV",
-   "GLD",
-   "UUP"
+   "GLD"
   ],
   "drafterEtfKeys": [
    "averageDailyMovePct",
@@ -2006,6 +2190,18 @@
    "UUP:scaled"
   ],
   "printed": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
+  "header": [
+   "IBIT",
+   "SLV",
+   "GLD",
+   "UUP"
+  ],
+  "drafted": [
    "IBIT",
    "SLV",
    "GLD",
@@ -2061,6 +2257,12 @@
   "printed": [
    "HYG"
   ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
+   "HYG"
+  ],
   "excluded": [],
   "wallSentences": [
    "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
@@ -2098,6 +2300,12 @@
    "HYG:scaled"
   ],
   "printed": [
+   "HYG"
+  ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
    "HYG"
   ],
   "excluded": [],
@@ -2139,10 +2347,16 @@
   "printed": [
    "HYG"
   ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
+   "HYG"
+  ],
   "excluded": [],
   "wallSentences": [
    "HYG: In HYG, investors looking to trade the idea have call-wall resistance nearby at 79.",
-   "JNK: JNK's option open interest is too thin for its call wall to be meaningful, so there is no wall to frame an entry against."
+   "JNK: JNK's largest call strike holds only 180 contracts, too few for a wall to be meaningful, so there is no wall to frame an entry against."
   ],
   "funds": [
    "HYG:A,JNK*:C"
@@ -2177,6 +2391,12 @@
   ],
   "printed": [
    "JNK"
+  ],
+  "header": [
+   "HYG"
+  ],
+  "drafted": [
+   "HYG"
   ],
   "excluded": [],
   "wallSentences": [

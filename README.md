@@ -192,6 +192,47 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- WALLS ON SPARSE CHAINS; EVERY COLUMN IN THE KEY (0.39.2).
+  JNK PRINTED NO WALLS AND IT HAD OPEN INTEREST. The 0.39.1 note above says
+  JNK had "no open interest at any strike". That was wrong, and it was read
+  off a log line that printed zeros for a wall that had never been computed.
+  analyzeChain builds walls only when more than ten near-dated contracts are
+  "usable", and usable requires greeks; JNK had 41 contracts carrying open
+  interest and too few of them priced. That bar is right for GEX and for
+  walls that set a plan and a stop — and the ranking is frozen on it — but it
+  is the wrong bar for telling a reader where open interest sits.
+  analyzeChain now also returns `display`: walls taken from EVERY contract in
+  the 7–45 day window with open interest, no greeks and no minimum count,
+  computed on the early-return path too. consequentialWalls uses them ONLY
+  where the ranking wall is null (a computed ranking wall is never replaced),
+  then applies MIN_WALL_OI as before. Nothing in ranking reads `display`;
+  every score snapshot is unchanged. The thin sentence now states the size:
+  "JNK's largest call strike holds only 380 contracts, too few…".
+  secondary.chain.* logs the display walls and their open interest.
+  THE KEY. Every column header of the ETF table — Last, Put wall, Call wall,
+  One-month range, 3-month closes, In range, vs 50-day, IV30 / RV30, Avg day,
+  25ΔRR, Options — is defined on the disclosures page, in column order.
+  test/render.jsx compares the table's headers with the key's entries, so a
+  column added without a definition fails the build. 115 cases.
+
+- FROM THE FIRST 0.39.0 RUN (0.39.1). The run confirmed the new paths live:
+  HYG and JNK both carried, JNK's chain fetched on tick (grade C, no open
+  interest at any strike, so the "no concentration" sentence), one page at
+  202mm of 273. It also showed two defects.
+  EXCLUDED THEMES WERE STILL IN THE NOTE. compose appended every gated-out
+  theme to note.themes. The page never printed them, but the drafter wrote a
+  paragraph for each (Semiconductors here; Investment Grade Credit in the
+  0.37 run), the header's subject line listed them, the summary could argue
+  them, and "accept all" waited on a section that was not on the page.
+  note.themes is now the carried themes only; an excluded theme lives in
+  weakLegs, and "carry anyway" still restores it. Options of an uncarried
+  theme are dropped with it. Logged as note.themes.not.carried.
+  CREDIT VOCABULARY. The instruction check flagged "rung" in a high yield
+  paragraph. "rung", "ladder" and "tranche" were scaling words in 0.36 and
+  are ordinary credit words; they are removed from the check. Scaling
+  mechanics are still caught by "scale" outside the sanctioned phrase.
+  109 cases; compose fixtures now assert header == drafted == printed.
+
 - ONE PAGE WHEN IT FITS; EVERY TICKED FUND CARRIED (0.39.0).
   MULTIPLE ETFs PER THEME. compose took `chosen.find(...)` — the first ETF
   ticked — so on 5 Oct JNK was ticked beside HYG, logged, and dropped without
