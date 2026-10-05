@@ -35,7 +35,7 @@ const NOW = new Date(FROZEN);
    read the real clock for its expiry offsets while pricing.js read the
    frozen one — and the gap between them grows by a day every day. That is
    exactly what happened: prTdays moved 9.2 -> 10.2 overnight. */
-const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, SKEW_CASES, ECON_CASES, CORR_CASES, CLAIM_CASES, COMPOSE_CASES } =
+const { CASES, CHAIN_CASES, EXPIRY_CASES, VOICE_CASES, VOICE_CTX, WALL_CASES, SKEW_CASES, ECON_CASES, CORR_CASES, CLAIM_CASES, COMPOSE_CASES } =
   await import("./fixtures.mjs");
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -54,8 +54,9 @@ const { scalePlan, targets, scoreShares, entryWall, exitWall } =
 const { analyzeChain, rankExpiries, ivAtDelta } = await import("../src/lib/vol.js");
 const { buildLegs, priceStructure, scoreEconomics } = await import("../src/lib/pricing.js");
 const { analyzeCorrelation, correlationNote } = await import("../src/lib/correlation.js");
-const { composeNote } = await import("../src/lib/compose.js");
-const { checkVoice, checkImmediate, checkThemeOpening, checkExecutionGeneric, checkSourcedClaims } =
+const { composeNote, draftContext } = await import("../src/lib/compose.js");
+const { wallContext, wallSentence, environment } = await import("../src/lib/environment.js");
+const { checkVoice, checkWallSentence, checkThemeOpening, checkSourcedClaims } =
   await import("../netlify/functions/_prompts.mjs");
 speak();
 
@@ -118,6 +119,15 @@ function compose(c) {
       /* The invariant the QC pass found broken in the UI: anything gated out
          must be REPORTED, never merely absent. Every selected leg is either
          in the order or in weakLegs. */
+      /* 0.38.0 — WHAT THE DRAFTER IS GIVEN IS WHAT IT WRITES. The model sent
+         to the drafter must contain the wall sentence and environment facts
+         and NOTHING of the plan: no entry, scale band, weighted average,
+         stop, risk figure or window. Checked on the JSON itself, with the
+         sanctioned wall sentence removed first ("scale in", "an entry"). */
+      wallSentences: (n.themes || []).map(t => `${t.etf?.tk}: ${t.wallSentence}`),
+      drafterEtfKeys: Object.keys(draftContext(n).themes[0]?.etf || {}).sort(),
+      drafterLeaks: (JSON.stringify(draftContext(n), (k, v) => k === "wallSentence" || k === "risks" ? undefined : v)
+        .match(/stop|riskPct|scaleTo|weighted|entry|executeWindow|holdWindow|"execution"|"pop"/gi) || []),
       nothingSilentlyDropped: c.menus.every(m =>
         (n.etfOrder || []).some(r => r.label === m.primary.t) ||
         (n.weakLegs || []).some(w => w.tk === m.primary.t)),
@@ -219,19 +229,31 @@ function expiry(c) {
 function voice(c) {
   hush();
   try {
-    /* Theme paragraphs and the execution paragraph are different sections
-       with different rules — run each against the checks that govern it. */
-    const isExec = c.section === "execution";
-    const paras = isExec ? { execution: c.body } : { [c.subject]: c.body };
-    const hits = (isExec
-      ? [...checkVoice(c.body), ...checkExecutionGeneric(paras, VOICE_CTX),
-         ...(checkImmediate(paras, VOICE_CTX).execution || [])]
+    /* Theme paragraphs carry the opening and wall checks; the summary is
+       held to the voice rules alone. There is no execution section. */
+    const isSummary = c.section === "summary";
+    const paras = isSummary ? { summary: c.body } : { [c.subject]: c.body };
+    const hits = (isSummary
+      ? [...checkVoice(c.body)]
       : [...checkVoice(c.body),
-         ...(checkImmediate(paras, VOICE_CTX)[c.subject] || []),
+         ...(checkWallSentence(paras, VOICE_CTX)[c.subject] || []),
          ...(checkThemeOpening(paras, VOICE_CTX)[c.subject] || [])]
     ).map(h => `${h.id}:${h.phrase}`).sort();
     return { expect: c.expect, flagged: hits.length > 0, hits,
              correct: (hits.length > 0) === (c.expect === "flag") };
+  } catch (e) { return { ERROR: e.message }; } finally { speak(); }
+}
+
+function wall(c) {
+  hush();
+  try {
+    const w = wallContext(c.spot, c.vol, c.direction);
+    const e = environment({ spot: c.spot, vol: c.vol, closes: c.closes });
+    return { wall: w, sentence: wallSentence("TK", w),
+             env: { basis: e.rangeBasis, lo: r(e.rangeLo, 2), hi: r(e.rangeHi, 2), pct: e.rangePct,
+                    dPut: e.putWallDistPct, dCall: e.callWallDistPct, sdPut: e.putWallDistSd, sdCall: e.callWallDistSd,
+                    ivOverRv: e.ivOverRv, avgDay: e.avgDailyMovePct, closeLo: e.closeLo, closeHi: e.closeHi,
+                    pos: e.rangePosition, ma50: e.ma50, vsMa50: e.vsMa50Pct } };
   } catch (e) { return { ERROR: e.message }; } finally { speak(); }
 }
 
@@ -240,6 +262,7 @@ const now = {
   ...Object.fromEntries(CHAIN_CASES.map(c => ["chain:" + c.id, chain(c)])),
   ...Object.fromEntries(EXPIRY_CASES.map(c => ["expiry:" + c.id, expiry(c)])),
   ...Object.fromEntries(VOICE_CASES.map(c => ["voice:" + c.id, voice(c)])),
+  ...Object.fromEntries(WALL_CASES.map(c => ["wall:" + c.id, wall(c)])),
   ...Object.fromEntries(SKEW_CASES.map(c => ["skew:" + c.id, skew(c)])),
   ...Object.fromEntries(ECON_CASES.map(c => ["econ:" + c.id, econ(c)])),
   ...Object.fromEntries(CORR_CASES.map(c => ["corr:" + c.id, corr(c)])),
@@ -249,7 +272,7 @@ const now = {
 
 if (RECORD || !existsSync(SNAP)) {
   writeFileSync(SNAP, JSON.stringify(now, null, 1) + "\n");
-  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases -> test/snapshot.json`);
+  console.log(`recorded ${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + WALL_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases -> test/snapshot.json`);
   const broken = Object.entries(now).filter(([k, v]) => v.ERROR || (!k.startsWith("chain:") && !k.startsWith("expiry:") && !k.startsWith("voice:") && !k.startsWith("skew:") && !k.startsWith("econ:") && !k.startsWith("corr:") && !k.startsWith("claim:") && !k.startsWith("compose:") && v.score == null) || (k.startsWith("voice:") && v.correct === false) || (k.startsWith("skew:") && v.withinQuotedRange === false) || (k.startsWith("corr:") && v.warnsUpward === false) || (k.startsWith("claim:") && v.correct === false) || (k.startsWith("compose:") && v.nothingSilentlyDropped === false) || (k.startsWith("chain:") && !v.ok));
   if (broken.length) {
     console.log("\ncases producing no score (expected for some — check they are the ones you expect):");
@@ -276,7 +299,7 @@ for (const [id, cur] of Object.entries(now)) {
 for (const id of Object.keys(was)) if (!(id in now)) lines.push(`  - ${id}  (case removed)`);
 
 if (!lines.length) {
-  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases, nothing moved.`);
+  console.log(`${CASES.length + CHAIN_CASES.length + EXPIRY_CASES.length + VOICE_CASES.length + WALL_CASES.length + SKEW_CASES.length + ECON_CASES.length + CORR_CASES.length + CLAIM_CASES.length + COMPOSE_CASES.length} cases, nothing moved.`);
   process.exit(0);
 }
 console.log(`${moved} case(s) changed, ${added} added:\n`);

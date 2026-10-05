@@ -192,6 +192,55 @@ scrubbed from URLs, payloads, messages and upstream error text.
 
 ## Known state
 
+- SEED, INSTRUMENTS, ENVIRONMENT — EXECUTION IS THE CLIENT'S (0.38.0). The
+  note no longer nominates an entry, an exit, a size or a time frame. It
+  gives the argument, the instruments that could express it, and facts about
+  the environment; how to act is left to the reader. Wording remains DRAFT
+  pending Compliance / ROP approval (src/note/disclosures.js).
+  OFF THE PAGE: "Execute … · Hold …" in the header; the whole Execution
+  strategy paragraph (and the auto-drop machinery that existed to make room
+  for it); scale band, scale-in average and the five-rung ladder; stop-loss
+  and risk %; the Execution Mode key; Option Leg Detail (Buy/Sell/Qty read as
+  an order ticket). The Positioning Map shows last price and the two walls
+  only. Execute/Hold inputs removed from the Note step.
+  STILL COMPUTED, NEVER PRINTED: the plan, stop, risk and scaled/immediate
+  mode. Ranking, the Ideas screen and the ledger are unchanged, and the note
+  is still ordered as before.
+  THE WALL SENTENCE. One sentence per theme is all the note says about
+  entering, built in the new src/lib/environment.js: a buyer is framed
+  against the PUT wall (support below), a seller against the CALL wall
+  (resistance above). Within NEAR_WALL_PCT = 7% it reads "Investors looking to
+  trade the idea have put-wall support nearby at 77."; beyond it, "With
+  call-wall resistance 12.1% higher, investors looking to trade the idea may
+  prefer to scale in opportunistically." "May prefer", never "should". A
+  vehicle with no chain, or a chain with nothing concentrated on the relevant
+  side, gets a sentence saying so (two different wordings — calling a fund
+  with a chain one that has "no listed-options market" would be false).
+  ENVIRONMENT FACTS ADDED, all from data already fetched: distance to each
+  wall; a ONE-MONTH range (30 calendar days, stated, replacing "over the
+  holding period"); RV30 beside IV30; average daily close-to-close move over
+  20 sessions; the 3-month range of closes and where the last price sits in
+  it; the 50-day average; the next open-interest concentration beyond the
+  wall (drafter only). Closes only — no highs/lows are held — so the daily
+  move understates intraday range and is labelled as close-to-close.
+  DRAFTER: paragraph is conditions, view, "One way to express the view is
+  TK.", the wall sentence copied verbatim, two or three environment facts,
+  then any option structure as something investors "could consider" with
+  debit, max loss and max gain. Its model contains no entry, scale, weighted
+  average, stop, risk or window (asserted in the compose fixtures as
+  drafterLeaks: []). No EXECUTION section; one written anyway is discarded at
+  parse. Summary names no ticker and no instrument.
+  CHECKS: new `instruction` (look to buy/sell, scale sales/purchases,
+  investors should, weighted average, ladder, tranche…) and `management`
+  (stop-loss, % of risk, holding period…) voice checks; new checkWallSentence
+  (missing, reworded, wrong wall for the direction, "nearby" with a scale-in,
+  a level cited where there is no wall, "scale" outside the sanctioned
+  phrase). checkImmediate and checkExecutionGeneric are deleted. Fixed on the
+  way: the view-on-ticker check was case-insensitive and read "grid
+  infrastructure" as GRID. Every 0.36/0.37 REQUIRED phrasing is kept in the
+  fixtures as a regression that must now flag. 95 cases; test/render.jsx
+  asserts no order language reaches the page.
+
 - MARKET COMMENTARY, NOT RESEARCH (0.37.0). The note is repositioned so it
   sits within the commentary exclusions of FINRA Rule 2241(a)(11) rather than
   the research-report definition, and so its options content meets Rules 2210

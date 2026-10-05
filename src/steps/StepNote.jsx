@@ -46,7 +46,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     ...model,
     meta: { ...model.meta, ...analystMeta(s, parsed) },
     prose: s.prose || { summary: "", themes: {}, execution: "" },
-  }), [model, parsed, s.title, s.subtitle, s.executeWindow, s.holdWindow, s.sector, s.prose]);
+  }), [model, parsed, s.title, s.subtitle, s.sector, s.prose]);
 
   const set = (k, v) => setNoteState(prev => ({ ...prev, [k]: v }));
   const setProse = (k, v) => {
@@ -71,7 +71,9 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     setNoteState(prev => ({ ...prev, accepted: Object.fromEntries(keys.map(k => [k, true])) }));
     RunLog.info("ui", "prose.acceptAll", { n: keys.length });
   };
-  const sectionKeys = ["summary", ...note.themes.map(t => t.id), "execution"];
+  /* No "execution" key since 0.38.0 — the note has no such paragraph, and
+     leaving it here would make "all accepted" unreachable. */
+  const sectionKeys = ["summary", ...note.themes.map(t => t.id)];
   const acceptedCount = sectionKeys.filter(k => s.accepted?.[k]).length;
   const allAccepted = acceptedCount === sectionKeys.length && sectionKeys.length > 0;
 
@@ -116,7 +118,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
         if (!hit) unmatched.push(th.subject);
       }
       if (unmatched.length) RunLog.warn("ui", "draft.unmatched.themes", { unmatched, returned: Object.keys(p.themes || {}) });
-      setNoteState(prev => ({ ...prev, prose: { summary: p.summary || "", themes, execution: p.execution || "" },
+      setNoteState(prev => ({ ...prev, prose: { summary: p.summary || "", themes, execution: "" },
                      accepted: {},                       // nothing accepted until read
                      partial: p.partial || null,
                      draftedBy: res.model, draftedAt: new Date().toISOString() }));
@@ -169,8 +171,7 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
      field that had spellCheck set. So the note gets a proof pass of its own.
      It returns findings, never prose: the model points at a word, it does
      not get to rewrite a sentence, round a number or soften a view. */
-  const SETTING_KEYS = { title: "Title", subtitle: "Subtitle", executeWindow: "Execute",
-                         holdWindow: "Hold", sector: "Sector line" };
+  const SETTING_KEYS = { title: "Title", subtitle: "Subtitle", sector: "Sector line" };
 
   /* The prompt tells the model to leave these alone; this is the check that
      it did, in the same spirit as vocabulary enforcement on the extractor.
@@ -183,7 +184,6 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
     const out = {};
     for (const k of Object.keys(SETTING_KEYS)) if (s[k]?.trim()) out[k] = s[k];
     if (s.prose?.summary) out.summary = s.prose.summary;
-    if (s.prose?.execution) out.execution = s.prose.execution;
     for (const th of note.themes) {
       const v = s.prose?.themes?.[th.id];
       if (v?.trim()) out[th.id] = v;
@@ -254,14 +254,8 @@ export default function StepNote({ parsed, picks, menus, noteState, setNoteState
           </div>
         </div>
         <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
-          <div style={{ flex: 1, minWidth: 150 }}>
-            <div className="sec-label">Execute</div>
-            <input type="text" spellCheck="true" value={s.executeWindow || ""} onChange={e => set("executeWindow", e.target.value)} placeholder="about a week" />
-          </div>
-          <div style={{ flex: 1, minWidth: 150 }}>
-            <div className="sec-label">Hold</div>
-            <input type="text" spellCheck="true" value={s.holdWindow || ""} onChange={e => set("holdWindow", e.target.value)} placeholder="3 to 4 weeks" />
-          </div>
+          {/* Execute and Hold windows were here. The note is market commentary
+              and names neither; timing is the reader's decision. */}
           <div style={{ flex: 1, minWidth: 180 }}>
             <div className="sec-label">Sector line</div>
             <input type="text" spellCheck="true" value={s.sector || ""} onChange={e => set("sector", e.target.value)} placeholder="Cross-Asset / Macro" />

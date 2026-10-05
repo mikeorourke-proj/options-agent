@@ -8,6 +8,7 @@
 import RunLog from "./runlog.js";
 import { orderByExpectancy, TIE_ETF, TIE_OPT, MIN_EV_ON_RISK } from "./ordering.js";
 import { analyzeCorrelation, correlationNote } from "./correlation.js";
+import { wallContext, wallSentence, environment } from "./environment.js";
 
 /* Round numbers stay round in the prose. toFixed(2) turned a 600 strike into
    "$600.00", which reads as false precision on a level that is exactly round.
@@ -63,8 +64,17 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
     const alternatives = (m.structures || []).filter(st => !options.some(o => o.id === st.id));
     const levSel = chosen.filter(c => c.themeId === id && c.kind === "levered").map(c => c.ticker);
 
+    /* What prints about entering the idea (0.38.0): the wall that frames an
+       entry and the facts a reader would want before deciding how to act.
+       Both describe the vehicle actually carried, so a ticked secondary —
+       which has no chain — gets its own closes and no walls. */
+    const volCarried = (etf && etf.t !== m.primary?.t && etf.vol) ? etf.vol : m.vol;
+    const wall = etf ? wallContext(etf.price, volCarried, m.direction) : null;
+    const env = etf ? environment({ spot: etf.price, vol: volCarried, closes: etf.closes }) : null;
+
     return {
       id, subject: m.subject, direction: m.direction, basis: m.basis,
+      wall, env, wallSentence: etf ? wallSentence(etf.t, wall) : null,
       evidence: m.evidence, rationale: m.rationale, catalyst: m.catalyst,
       execution: m.execution || "scaled", stopMode: m.stopMode || "wall",
       etf: etf ? {
@@ -90,7 +100,7 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
         .map(l => ({
           tk: l.t, lev: l.lev, gamma: l.gamma, price: l.price ?? null,
           underlying: m.primary?.t ?? null,
-          ulStop: m.primary?.plan?.stop ?? null,
+          ulStop: m.primary?.plan?.stop ?? null,   // internal; not printed since 0.38.0
           /* Execution economics, like the rest of the page: the underlying
              plan's entry-based risk at the stated multiple. The ranking's
              spot-based risk lives in the score, not the note. */
@@ -101,7 +111,7 @@ export function composeNote({ parsed, picks, menus, settings = {} }) {
          A ticked secondary is scored off its own realised vol and has no
          chain, so printing the primary's walls under its ticker would be
          plainly wrong. */
-      vol: (etf && etf.t !== m.primary?.t && etf.vol) ? etf.vol : m.vol,
+      vol: volCarried,
       contracts: (etf && etf.t !== m.primary?.t) ? 0 : m.vol?.contracts,
     };
   });
@@ -211,55 +221,49 @@ export function draftContext(note) {
        whole point of a contra note. */
     contra: Boolean(note.contra),
     title: note.meta.title, subtitle: note.meta.subtitle, date: note.meta.date,
-    executeWindow: note.meta.executeWindow, holdWindow: note.meta.holdWindow,
+    /* No execute window and no hold window: the note names neither. */
     risks: note.risks,
     themes: note.themes.map(t => ({
       subject: t.subject, direction: t.direction, evidence: t.evidence, rationale: t.rationale,
       catalyst: t.catalyst?.description || null, catalystDate: t.catalyst?.date || null,
       etf: t.etf && (() => {
-        /* An immediate leg has no ladder and no band. Sending those fields
-           anyway produced "short IBIT immediately at 45.23, the ladder
-           spanning 45.23 to 48.00 with entry improvement of 0.0" — the model
-           quoting exactly what it was given, per rule 6.
-
-           The last sale reaches the draft on NEITHER mode. On an immediate
-           leg there is no ladder that makes it a commitment; on a scaled leg
-           it is only the first rung, and by the time the note is read the
-           tape has moved past it. Both open at current levels. What is
-           committed is the far end of the band and the weighted average the
-           ladder is built to achieve, so those are the numbers sent.
-           Entry improvement goes with it: it is a percentage against the
-           stale price and says nothing the weighted average does not. */
-        const imm = t.etf.plan?.execution === "immediate";
+        /* WHAT THE DRAFTER IS GIVEN IS WHAT IT WILL WRITE (rule 6), so the
+           model it sees contains no entry, no scale band, no weighted
+           average, no stop and no risk figure. Until 0.37 it carried all
+           five and the paragraph was a set of instructions. It now carries
+           the wall that frames an entry and facts about the environment;
+           how to act on them is the reader's decision.
+           The last sale is still withheld — it is stale by the time the
+           note is read — so distances are sent as percentages and the wall
+           as a level. */
+        const w = t.wall, e = t.env || {};
+        const range = e.rangeLo != null ? `${fmt(e.rangeLo, 0)} to ${fmt(e.rangeHi, 0)}` : null;
         return {
-          ticker: t.etf.tk, execution: t.etf.plan?.execution,
-          entry: "current levels",
-          ...(imm ? {} : { scaleTo: fmt(t.etf.plan?.wall),
-                           /* Named for what it is. The key used to be
-                              "targetExecution", and the drafter echoed the
-                              word straight into the prose. */
-                           weightedAverageExecution: fmt(t.etf.plan?.entry) }),
-          /* No price objective reaches the draft. Targets anchor the reader,
-             and the structural target is not always coherent: when the put
-             wall sits above the last sale on a bearish trade, "targeting 60
-             at +0.3%" is a target in the wrong direction. The implied range
-             conveys scale without nominating a level. */
-          impliedRange: t.etf.tgt ? `${fmt(t.etf.tgt.dn, 0)} to ${fmt(t.etf.tgt.up, 0)}` : null,
-          rangeBasis: t.etf.tgt?.volFrom === "realised"
-            ? `realised volatility over ${t.etf.tgt.volWindow} sessions${t.etf.tgt.volWindow < 30 ? " — all the history this fund has" : ""}`
+          ticker: t.etf.tk,
+          /* The closing sentence, verbatim. Built in environment.js so the
+             wording and the 7% rule have one home. */
+          wallSentence: t.wallSentence,
+          wall: !w || w.none ? { noWall: true, noChain: !w?.hasChain }
+            : { type: `${w.side} wall`, role: w.role, level: w.level,
+                distancePct: w.distancePct, direction: w.rel, proximity: w.proximity,
+                ...(w.nextLevel != null ? { nextConcentration: w.nextLevel } : {}) },
+          ...(!w || w.none ? {} : { putWall: t.vol?.putWall, callWall: t.vol?.callWall }),
+          oneMonthRange: range,
+          rangeBasis: e.rangeBasis === "realised"
+            ? `realised volatility over ${e.rangeWindow} sessions${e.rangeWindow < 30 ? " — all the history this fund has" : ""}`
             : "option-implied",
-          /* No chain means no walls. Sending nulls invited the model to write
-             "the put wall at —"; sending nothing means it cannot mention one,
-             and noChain tells it what to say instead. */
-          ...(t.etf.plan?.noWall
-            ? { noChain: true, stopBasis: "flat 5% from entry — there is no wall to stop beyond" }
-            : { putWall: t.vol?.putWall, callWall: t.vol?.callWall,
-                wallDistancePct: fmt(t.etf.plan?.distToWallPct, 1) }),
-          stop: fmt(t.etf.plan?.stop), riskPct: fmt(t.etf.plan?.riskPct, 1),
+          ...(e.ivOverRv != null ? {
+            impliedVol: fmt(e.iv30, 1), realisedVol: fmt(e.rv30, 1),
+            impliedVersusRealised: e.ivOverRv >= 1.1 ? "implied above realised — options are pricing more movement than the tape has delivered"
+              : e.ivOverRv <= 0.9 ? "implied below realised — options are pricing less movement than the tape has delivered"
+              : "implied in line with realised" } : {}),
+          ...(e.avgDailyMovePct != null ? { averageDailyMovePct: fmt(e.avgDailyMovePct, 1) } : {}),
+          ...(e.rangePosition != null ? {
+            threeMonthCloseRange: `${fmt(e.closeLo)} to ${fmt(e.closeHi)}`,
+            positionInThreeMonthRange: e.rangePosition <= 20 ? "near the low" : e.rangePosition >= 80 ? "near the high" : "mid-range" } : {}),
         };
       })(),
-      vol: t.vol && { iv30: t.vol.iv30, rv30: t.vol.rv30, rr25: t.vol.rr25, term: t.vol.termSlope,
-                      putWall: t.vol.putWall, callWall: t.vol.callWall },
+      vol: t.vol && { rr25: t.vol.rr25, term: t.vol.termSlope },
       options: t.options.map(o => ({
         structure: o.name, expiry: o.expiry, legs: o.legText,
         net: fmt(Math.abs(o.pricing.net) / 100), debitOrCredit: o.pricing.net > 0 ? "debit" : "credit",
@@ -269,6 +273,7 @@ export function draftContext(note) {
            commentary may not carry. It stays on screen and in the ledger. */
         maxLoss: o.pricing.lossUnbounded ? "unlimited"
           : fmt(Math.abs(Math.min(0, o.pricing.maxLossFull ?? o.pricing.maxLoss)) / 100),
+        breakeven: (o.pricing.breakevens || []).join(" / ") || null,
         why: o.why,
       })),
     })),

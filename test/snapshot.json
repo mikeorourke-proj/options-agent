@@ -800,68 +800,85 @@
   "deepest": "2026-10-16",
   "thinnestOffered": 300
  },
- "voice:immediate.house-phrasing": {
+ "voice:near.bearish-house": {
   "expect": "clean",
   "flagged": false,
   "hits": [],
   "correct": true
  },
- "voice:immediate.real-ladder": {
+ "voice:away.bearish-house": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:near.bullish-house": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:nochain.house": {
+  "expect": "clean",
+  "flagged": false,
+  "hits": [],
+  "correct": true
+ },
+ "voice:wall.missing": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "immediate:scale"
+   "wall:Haven demand is unwinding as real yields rise. W"
   ],
   "correct": true
  },
- "voice:immediate.no-chain-phrasing": {
-  "expect": "clean",
-  "flagged": false,
-  "hits": [],
-  "correct": true
- },
- "voice:immediate.nothing-to-scale": {
-  "expect": "clean",
-  "flagged": false,
-  "hits": [],
-  "correct": true
- },
- "voice:immediate.tranche-elsewhere": {
+ "voice:wall.reworded": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "immediate:tranches"
+   "wall:There is call-wall resistance just overhead at 405, which helps sellers."
   ],
   "correct": true
  },
- "voice:scaled.house-phrasing": {
-  "expect": "clean",
-  "flagged": false,
-  "hits": [],
-  "correct": true
- },
- "voice:scaled.old-conditional": {
+ "voice:wall.hardened-to-should": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "objective:targeting",
-   "opening:SLV",
-   "opening:We would be short SLV, scaling from current leve",
-   "position:We would be short"
+   "wall:With call-wall resistance 12."
   ],
   "correct": true
  },
- "voice:bullish.house-phrasing": {
-  "expect": "clean",
-  "flagged": false,
-  "hits": [],
-  "correct": true
- },
- "voice:bullish.inverted-verb": {
+ "voice:wall.wrong-side": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "opening:scale sales"
+   "wall:Investors looking to trade the idea have call-wall resistance nearby at 83.",
+   "wall:call-wall resistance nearby"
+  ],
+  "correct": true
+ },
+ "voice:wall.near-but-scales": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "wall:scale in opportunistically"
+  ],
+  "correct": true
+ },
+ "voice:wall.cited-on-no-chain": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "wall:Haven demand is unwinding as real yields rise. W",
+   "wall:call-wall resistance nearby at 130"
+  ],
+  "correct": true
+ },
+ "voice:wall.scaling-mechanics": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "wall:Scaling"
   ],
   "correct": true
  },
@@ -881,12 +898,10 @@
   ],
   "correct": true
  },
- "voice:opening.old-house-opening": {
+ "voice:opening.view-on-ticker": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "opening:GLD",
-   "opening:We are bearish on GLD.",
    "opening:We are bearish on GLD."
   ],
   "correct": true
@@ -915,29 +930,61 @@
   ],
   "correct": true
  },
- "voice:voice.position-wording": {
+ "voice:retired.look-to-sell": {
   "expect": "flag",
   "flagged": true,
   "hits": [
+   "instruction:look to sell",
+   "wall:Haven demand is unwinding as real yields rise. W",
+   "wall:scale"
+  ],
+  "correct": true
+ },
+ "voice:retired.scale-sales-weighted-average": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "instruction:scale sales",
+   "wall:Haven demand is unwinding as real yields rise. W",
+   "wall:scale"
+  ],
+  "correct": true
+ },
+ "voice:retired.stop-loss": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "management:stop-loss"
+  ],
+  "correct": true
+ },
+ "voice:retired.hold-window": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "management:holding period"
+  ],
+  "correct": true
+ },
+ "voice:retired.old-conditional": {
+  "expect": "flag",
+  "flagged": true,
+  "hits": [
+   "instruction:weighted average",
+   "objective:targeting",
    "opening:SLV",
-   "opening:We would be long SLV into the decision, scaling",
-   "position:We would be long"
+   "opening:We would be short SLV, scaling from current leve",
+   "position:We would be short",
+   "wall:We would be short SLV, scaling from current leve",
+   "wall:scaling"
   ],
   "correct": true
  },
- "voice:voice.stop-wording": {
+ "voice:voice.investors-should": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "stopword:stop at"
-  ],
-  "correct": true
- },
- "voice:voice.targeting-weighted-average": {
-  "expect": "flag",
-  "flagged": true,
-  "hits": [
-   "objective:targeting"
+   "instruction:Investors should"
   ],
   "correct": true
  },
@@ -977,21 +1024,368 @@
   "hits": [],
   "correct": true
  },
- "voice:execution.generic": {
+ "voice:summary.clean": {
   "expect": "clean",
   "flagged": false,
   "hits": [],
   "correct": true
  },
- "voice:execution.names-legs": {
+ "voice:summary.instructs": {
   "expect": "flag",
   "flagged": true,
   "hits": [
-   "generic:GLD",
-   "generic:SLV",
-   "immediate:ladder"
+   "instruction:investors should",
+   "management:stop-loss"
   ],
   "correct": true
+ },
+ "wall:bullish.near-put-wall": {
+  "wall": {
+   "side": "put",
+   "role": "support",
+   "rel": "lower",
+   "level": 77,
+   "distancePct": 0.7,
+   "proximity": "nearby",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have put-wall support nearby at 77.",
+  "env": {
+   "basis": "implied",
+   "lo": 73.91,
+   "hi": 81.15,
+   "pct": 4.7,
+   "dPut": -0.7,
+   "dCall": 7.1,
+   "sdPut": 0.1,
+   "sdCall": 1.5,
+   "ivOverRv": 1.25,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:bullish.far-put-wall": {
+  "wall": {
+   "side": "put",
+   "role": "support",
+   "rel": "lower",
+   "level": 90,
+   "distancePct": 10,
+   "proximity": "away",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "With put-wall support 10% lower, investors looking to trade the idea may prefer to scale in opportunistically.",
+  "env": {
+   "basis": "implied",
+   "lo": 91.4,
+   "hi": 108.6,
+   "pct": 8.6,
+   "dPut": -10,
+   "dCall": 4,
+   "sdPut": 1.2,
+   "sdCall": 0.5,
+   "ivOverRv": 1,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:bearish.near-call-wall": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 79,
+   "distancePct": 2.7,
+   "proximity": "nearby",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 79.",
+  "env": {
+   "basis": "implied",
+   "lo": 75.12,
+   "hi": 78.7,
+   "pct": 2.3,
+   "dPut": -2.5,
+   "dCall": 2.7,
+   "sdPut": 1.1,
+   "sdCall": 1.2,
+   "ivOverRv": 1.35,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:bearish.far-call-wall": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 700,
+   "distancePct": 12.9,
+   "proximity": "away",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "With call-wall resistance 12.9% higher, investors looking to trade the idea may prefer to scale in opportunistically.",
+  "env": {
+   "basis": "implied",
+   "lo": 556.9,
+   "hi": 683.1,
+   "pct": 10.2,
+   "dPut": -10.5,
+   "dCall": 12.9,
+   "sdPut": 1,
+   "sdCall": 1.3,
+   "ivOverRv": 0.89,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:boundary.exactly-7pct": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 107,
+   "distancePct": 7,
+   "proximity": "nearby",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 107.",
+  "env": {
+   "basis": "implied",
+   "lo": 94.27,
+   "hi": 105.73,
+   "pct": 5.7,
+   "dPut": -10,
+   "dCall": 7,
+   "sdPut": 1.7,
+   "sdCall": 1.2,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:boundary.just-over": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 107.1,
+   "distancePct": 7.1,
+   "proximity": "away",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "With call-wall resistance 7.1% higher, investors looking to trade the idea may prefer to scale in opportunistically.",
+  "env": {
+   "basis": "implied",
+   "lo": 94.27,
+   "hi": 105.73,
+   "pct": 5.7,
+   "dPut": -10,
+   "dCall": 7.1,
+   "sdPut": 1.7,
+   "sdCall": 1.2,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:bullish.no-put-wall": {
+  "wall": {
+   "none": true,
+   "side": "put",
+   "role": "support",
+   "hasChain": true
+  },
+  "sentence": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
+  "env": {
+   "basis": "implied",
+   "lo": 94.27,
+   "hi": 105.73,
+   "pct": 5.7,
+   "dPut": null,
+   "dCall": 5,
+   "sdPut": null,
+   "sdCall": 0.9,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:bullish.put-wall-above-spot": {
+  "wall": {
+   "none": true,
+   "side": "put",
+   "role": "support",
+   "hasChain": true
+  },
+  "sentence": "TK shows no concentration of put open interest below the last price, so there is no put-wall support to frame an entry against.",
+  "env": {
+   "basis": "implied",
+   "lo": 94.27,
+   "hi": 105.73,
+   "pct": 5.7,
+   "dPut": null,
+   "dCall": 5,
+   "sdPut": null,
+   "sdCall": 0.9,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:no-chain.realised-only": {
+  "wall": {
+   "none": true,
+   "side": "call",
+   "role": "resistance",
+   "hasChain": false
+  },
+  "sentence": "TK has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against.",
+  "env": {
+   "basis": "realised",
+   "lo": 118.08,
+   "hi": 130.92,
+   "pct": 5.2,
+   "dPut": null,
+   "dCall": null,
+   "sdPut": null,
+   "sdCall": null,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:ladder.next-level": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 105,
+   "distancePct": 5,
+   "proximity": "nearby",
+   "openInterest": 5000,
+   "nextLevel": 110
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 105.",
+  "env": {
+   "basis": "implied",
+   "lo": 94.27,
+   "hi": 105.73,
+   "pct": 5.7,
+   "dPut": -5,
+   "dCall": 5,
+   "sdPut": 0.9,
+   "sdCall": 0.9,
+   "ivOverRv": null,
+   "avgDay": null,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
+ },
+ "wall:env.at-three-month-low": {
+  "wall": {
+   "side": "call",
+   "role": "resistance",
+   "rel": "higher",
+   "level": 95,
+   "distancePct": 5.6,
+   "proximity": "nearby",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have call-wall resistance nearby at 95.",
+  "env": {
+   "basis": "implied",
+   "lo": 84.32,
+   "hi": 95.68,
+   "pct": 6.3,
+   "dPut": -5.6,
+   "dCall": 5.6,
+   "sdPut": 0.9,
+   "sdCall": 0.9,
+   "ivOverRv": 1.38,
+   "avgDay": 0.27,
+   "closeLo": 90,
+   "closeHi": 105.7,
+   "pos": 0,
+   "ma50": 96.2,
+   "vsMa50": -6.4
+  }
+ },
+ "wall:env.short-history": {
+  "wall": {
+   "side": "put",
+   "role": "support",
+   "rel": "lower",
+   "level": 48,
+   "distancePct": 4,
+   "proximity": "nearby",
+   "openInterest": null,
+   "nextLevel": null
+  },
+  "sentence": "Investors looking to trade the idea have put-wall support nearby at 48.",
+  "env": {
+   "basis": "implied",
+   "lo": 46.42,
+   "hi": 53.58,
+   "pct": 7.2,
+   "dPut": -4,
+   "dCall": 10,
+   "sdPut": 0.6,
+   "sdCall": 1.4,
+   "ivOverRv": 1,
+   "avgDay": 0.18,
+   "closeLo": null,
+   "closeHi": null,
+   "pos": null,
+   "ma50": null,
+   "vsMa50": null
+  }
  },
  "skew:brackets.target": {
   "iv": 30,
@@ -1410,6 +1804,28 @@
   "excluded": [
    "UUP"
   ],
+  "wallSentences": [
+   "IBIT: Investors looking to trade the idea have call-wall resistance nearby at 104.",
+   "SLV: Investors looking to trade the idea have call-wall resistance nearby at 104.",
+   "GLD: Investors looking to trade the idea have call-wall resistance nearby at 104.",
+   "UUP: Investors looking to trade the idea have call-wall resistance nearby at 104."
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
   "nothingSilentlyDropped": true
  },
  "compose:gate.force-carry": {
@@ -1426,6 +1842,28 @@
    "UUP"
   ],
   "excluded": [],
+  "wallSentences": [
+   "IBIT: Investors looking to trade the idea have call-wall resistance nearby at 104.",
+   "SLV: Investors looking to trade the idea have call-wall resistance nearby at 104.",
+   "GLD: Investors looking to trade the idea have call-wall resistance nearby at 104.",
+   "UUP: Investors looking to trade the idea have call-wall resistance nearby at 104."
+  ],
+  "drafterEtfKeys": [
+   "averageDailyMovePct",
+   "callWall",
+   "impliedVersusRealised",
+   "impliedVol",
+   "oneMonthRange",
+   "positionInThreeMonthRange",
+   "putWall",
+   "rangeBasis",
+   "realisedVol",
+   "threeMonthCloseRange",
+   "ticker",
+   "wall",
+   "wallSentence"
+  ],
+  "drafterLeaks": [],
   "nothingSilentlyDropped": true
  }
 }

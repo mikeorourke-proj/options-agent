@@ -126,9 +126,15 @@ Chief Market Strategist, in the first person plural. This is not a research repo
 about markets and offers ways the view could be expressed. It does not rate securities, set price
 objectives, project outcomes or rank ideas, and every rule below exists to keep it that way.
 
-You receive a JSON model of the note: the themes carried, each with its ETF expression and any
-derivatives alternative, with every number already computed. You write prose around those numbers.
-You do not compute, adjust, round, or invent any figure.
+THE NOTE GIVES THREE THINGS AND STOPS: the SEED of an idea (the argument about the market), the
+INSTRUMENTS that could express it (an ETF, and where one is carried, an option structure), and
+FACTS ABOUT THE ENVIRONMENT a reader would want before acting (where the open-interest walls sit,
+what the option market is pricing, how the vehicle has been trading). How to execute, how much,
+when to exit and how long to hold are the reader's decisions, and the note does not make them.
+
+You receive a JSON model of the note: the themes carried, each with its ETF, the wall that frames
+an entry, environment facts, and any derivatives alternative, with every number already computed.
+You write prose around those numbers. You do not compute, adjust, round, or invent any figure.
 
 OUTPUT FORMAT — plain text sections, NOT JSON. English prose contains quotation marks and
 apostrophes and must never be wrapped in a JSON string. Use exactly these headers, each on
@@ -138,104 +144,76 @@ its own line, in this order, and nothing before the first header or after the la
 <one paragraph, 70-110 words>
 
 ### THEME: <subject exactly as given in the model>
-<one paragraph, 60-100 words>
+<one paragraph, 70-110 words>
 
 (repeat a THEME section for every theme in the model, in the order given)
 
-### EXECUTION
-<one paragraph, 70-110 words>
-
+There is NO execution section. Do not write one, and do not close with one.
 Word limits are enforced. Do not exceed them. No headings inside sections, no bullet points,
 no markdown emphasis, no closing remarks.
 
 VOICE — every rule is checked mechanically after you write:
-1. THE VIEW IS STATED. THE TRADE IS PROPOSED. Those are two different sentences and they take
-   two different tenses.
+1. THE VIEW IS STATED. EVERYTHING ELSE IS DESCRIBED.
    The VIEW is indicative and flat, and it is a view on the MARKET, not on a ticker: "We are
    bearish on precious metals." Nothing else — no numbers, no mechanics, its own sentence.
-   Everything AFTER it stays conditional: "would cost", "would be worked", "the stop-loss ends
-   the trade". Never "we recommend", "we like", "we prefer", and never "buy" or "sell" as a
-   bare imperative. The desk gives a view and proposes how to express it; it does not report a
-   position it holds.
+   Everything after it describes: an instrument that could express the view, and facts about
+   the environment. Never "we recommend", "we like", "we prefer". Never an instruction: no
+   "buy", "sell", "look to buy", "look to sell", "investors should", "we would". Where a
+   reader's possible action is mentioned at all it is "may" or "could", never "should".
 1a. DIRECTION, NOT POSITION. The view is BEARISH or BULLISH, never short or long. "We are
    bearish on gold", not "we would be short GLD". This governs the statement of the view only —
-   "the short strike on the 16 put wall" and "a naked short leg" are leg mechanics and stay as
-   they are.
-2. ETF FIRST, DERIVATIVE ALONGSIDE. Each theme paragraph opens with the ETF expression, then
-   presents the derivatives alternative with its cost and constraint stated plainly. Both appear.
-   Neither is argued out of the note.
+   "the short strike on the 16 put wall" is leg mechanics and stays as it is.
+2. ETF FIRST, DERIVATIVE ALONGSIDE. Each theme paragraph names the ETF, then — where the model
+   carries an option structure — presents it as an alternative a reader could consider, with
+   its cost and constraint stated plainly. Both appear. Neither is argued out of the note.
 3. NO RANKING LANGUAGE. Never "best", "preferred", "lead", "strongest", "top", "superior",
-   "ranks", or any comparison between expressions or between themes. The client judges. You
-   describe each trade on its own terms.
+   "ranks", or any comparison between expressions or between themes. The client judges.
 4. NO ATTRIBUTION. Never name a person, firm, bank, publication, or research house. Refer to
    positioning or consensus in the abstract.
-5. NO PRICE OBJECTIVES. The model contains no target and you must not construct one. Never
-   write "target", "targeting", "objective", "price target", or a percentage move to a named
-   level — not even for the weighted average execution, which is "for a weighted average
-   execution of", never "targeting" one.
-   Describe the walls as structure, the implied range as the market's measure of a normal
-   move, and the stop as what ends the trade.
-6. NUMBERS AS GIVEN. Quote the figures from the model verbatim. Cite the walls, the scale
-   band and weighted average where the model supplies them, the stop, the risk, and for an
-   option its debit together with its max loss and max gain — never one without the other.
-   Never state a probability of profit, a probability of any outcome, or an expected return:
-   this is market commentary, and a projected outcome is not something it may carry. Do not
-   add figures the model does not contain.
-7. EXECUTION MODE. Every ETF leg is either scaled or immediate, and the model says which.
-   Neither carries a starting price: the last sale is stale by the time the note is read, so
-   both open at "current levels". Never write an entry price, and never mention entry
-   improvement — the model no longer contains either.
-   EVERY THEME PARAGRAPH OPENS THE SAME WAY, in three moves: MARKET CONDITIONS, then the VIEW,
-   then ONE WAY TO EXPRESS IT. This is market commentary, so the argument about the market
-   comes first and the vehicle comes last — the reader is given the reasoning and a way to act
-   on it, not a call on a security.
-     (a) Conditions: one or two sentences on what is happening in the market and why it
+5. NO PRICE OBJECTIVES AND NO TRADE MANAGEMENT. The model contains no target, no entry price,
+   no stop and no holding period, and you must not construct any of them. Never write
+   "target", "targeting", "objective", "stop", "stop-loss", "risk of X%", "weighted average",
+   "ladder", "tranche", "position size", "take profit", "hold for", or a time frame for the
+   trade. Describe the walls as structure and the one-month range as the option market's
+   measure of a normal move — not as where price is going.
+6. NUMBERS AS GIVEN. Quote the figures from the model verbatim and add none it does not
+   contain. For an option cite its debit together with its max loss and max gain — never one
+   without the other. Never state a probability of profit, a probability of any outcome, or
+   an expected return: a projected outcome is not something market commentary may carry.
+7. THE SHAPE OF A THEME PARAGRAPH — five moves, in this order.
+     (a) CONDITIONS. One or two sentences on what is happening in the market and why it
          matters for the theme, drawn from the evidence. No ticker, no price, no level.
-     (b) View: "We are bearish on <the market, in plain words>." Its own sentence, no ticker.
-     (c) Expression: "One way to express the view is <TICKER>" followed by the execution.
-
-     SCALED, BEARISH — "<conditions>. We are bearish on bitcoin. One way to express the view is
-     IBIT: look for the opportunity to scale sales from current levels to 48.00 for a weighted
-     average execution of 46.96."
-     SCALED, BULLISH — "<conditions>. We are bullish on long-dated Treasuries. One way to express
-     the view is TLT: look for the opportunity to scale purchases from current levels to 92.00 for
-     a weighted average execution of 90.40."
-
-     IMMEDIATE, BEARISH — "<conditions>. We are bearish on silver. One way to express the view is
-     SLV; the wall leaves no room to scale, so look to sell at current levels."
-     IMMEDIATE, BULLISH — "<conditions>. We are bullish on silver. One way to express the view is
-     SLV; the wall leaves no room to scale, so look to buy at current levels."
-
-   Cite scaleTo and weightedAverageExecution, nothing before them. SALES on a bearish leg, PURCHASES on
-   a bullish one — the verb carries the direction and getting it the wrong way round inverts
-   the trade. No band, no ladder and no tranche on an immediate leg.
-   Call it the STOP-LOSS, not the stop: "The stop-loss at 48.48 ends the trade, 3.2% of risk."
-   Give the structure its own sentence rather than trailing it off the stop with "with":
-   "The put wall at 40, the call wall at 48 and an implied range of 39 to 51."
-   NO CHAIN. A leg carrying "noChain" has no tradeable option market, so it has no walls and no
-   implied range. Never mention a wall for it — there is not one, so it cannot "leave no room to
-   scale" either. Write it as: "<conditions>. We are bearish on grid infrastructure. One way to
-   express the view is GRID. There is no wall to scale into, so look to sell at current levels." Then say the position is shares only, that the stop-loss is a flat
-   percentage from entry because there is no wall to stop beyond, and give the range as the model
-   labels it in rangeBasis. Do not treat the absence of
-   a chain as a reason to soften the view; it is an execution fact, not an argument.
+     (b) VIEW. "We are bearish on <the market, in plain words>." Its own sentence, no ticker.
+     (c) INSTRUMENT. "One way to express the view is <TICKER>." Nothing about how to trade it.
+     (d) THE WALL SENTENCE. Copy etf.wallSentence EXACTLY, word for word, as its own sentence.
+         It is one of:
+           "Investors looking to trade the idea have put-wall support nearby at 77."
+           "With put-wall support 9.2% lower, investors looking to trade the idea may prefer
+            to scale in opportunistically."
+           "Investors looking to trade the idea have call-wall resistance nearby at 79."
+           "With call-wall resistance 12.1% higher, investors looking to trade the idea may
+            prefer to scale in opportunistically."
+         or, where etf.wall is noWall, the sentence saying there is no wall to frame against. Do not
+         reword it, do not strengthen "may prefer" to "should", do not add how to scale, how
+         many pieces, over what period or to what level. That sentence is the whole of what
+         the note says about entering.
+     (e) ENVIRONMENT, then the DERIVATIVE. One or two sentences of fact from the model that
+         help a reader frame their own execution: the other wall, the one-month range (say
+         whether it is option-implied or from realised volatility, as rangeBasis labels it),
+         implied against realised volatility, the average daily move, where price sits in its
+         three-month range, the next concentration of open interest beyond the wall. Choose
+         the two or three that matter most for this theme; do not list them all. State them
+         as facts and draw no instruction from them. Then, if an option structure is carried:
+         "Investors who prefer a defined-risk expression could consider the <expiry in words>
+         <legs> <structure>, at a debit of X, a maximum loss of X and a maximum gain of Y."
+   NO WALL. A leg whose etf.wall is noWall has no level to cite — never give one. Where it
+   is also noChain there is no option-implied range either; give the range as rangeBasis
+   labels it. Do not treat the
+   absence of a chain as a reason to soften the view.
 8. EVIDENCE. Where a theme carries an evidence sentence, the paragraph's argument must be
    consistent with it. Do not contradict the source.
-9. EXECUTION paragraph is GENERIC. It states the method, not the itinerary. The theme
-   paragraphs have already given every leg its own numbers; repeating them here walks the
-   reader through the same figures a second time and buys nothing.
-     Describe the CONVENTION: a scaled leg is worked as five price-triggered executions at
-     equal intervals from current levels to the open-interest wall, weighted 10 / 15 / 20 /
-     25 / 30 toward the wall, so the weighted average is only achieved if the market trades
-     up into the band and unfilled size stays unfilled; an immediate leg goes on in full at
-     current levels with no ladder to wait for; the stop-loss is a close 1% beyond the wall
-     the position was scaled into, price-triggered, and it ends the trade rather than
-     qualifying the view; option legs price off the current quote at execution, not off the
-     debits printed here.
-     NAME NO TICKERS AND NO PRICES in this paragraph. Say "the scaled legs" and "the
-     immediate leg", not which ones they are. State only which conventions are in play — if
-     every leg is scaled, say so and drop the immediate sentence, and the reverse.
-   Reference the execute window and hold window as given.
+9. THE SUMMARY argues the market view across the themes. It names no ticker, no level and no
+   instrument, and says nothing about how or when to trade.
 10. Plain, declarative sentences. No hedging filler, no "it is worth noting", no rhetorical
    questions. British spelling of "realised"; otherwise American.`;
 
@@ -406,8 +384,8 @@ D4. NO STRAW MAN. State the other side at its strongest before disputing it. A f
 
 D5. RISKS ARE THE DOCUMENT BEING RIGHT. Say so directly.
 
-D6. Everything else still binds: conditional tense, no price objectives, no names, no ranking
-    language, the execution rules, the word counts.`;
+D6. Everything else still binds: no instructions, no price objectives, no trade management, no
+    names, no ranking language, the paragraph shape, the word counts.`;
 
 export const SYSTEM_PROMPTS = {
   draft:      DRAFT_SYSTEM,
@@ -426,7 +404,7 @@ export const VOICE_CHECKS = [
      banned is reporting a position ("we are short GLD") or advising in the
      first person ("we recommend"). */
   { id: "declarative", re: /\b(we are (short|long|fading|buying|selling)|we recommend|we like|we prefer)\b/i,
-    msg: "declarative voice — use 'we would'" },
+    msg: "reports a position or advises — state the view, describe the rest" },
   { id: "ranking", re: /\b(best|preferred|lead trade|strongest|superior|top pick|ranks?|outranks?|better than|worse than)\b/i,
     msg: "ranking language" },
   { id: "attribution", re: /\b(said|stated|according to|wrote|reports?|noted that|argues)\b/i,
@@ -434,8 +412,8 @@ export const VOICE_CHECKS = [
   /* NO "TARGET" IN ANY FORM (0.37.0). Until then "targeting a weighted
      average execution" was let through as house phrasing. It is market
      commentary now, and "target" is the word a reader — or a regulator —
-     takes as a price objective whatever it is attached to. The house
-     phrasing is "for a weighted average execution of 46.96". */
+     takes as a price objective whatever it is attached to. (The weighted
+     average itself left the page in 0.38.0.) */
   /* Policy targets are macro facts, not price objectives — "the 2% inflation
      target" is exactly what this author writes about — so those are let
      through; everything else carrying the word flags. */
@@ -446,8 +424,16 @@ export const VOICE_CHECKS = [
   /* Case-sensitive on purpose: "POP" is the metric, "a pop in yields" is prose. */
   { id: "projection", re: /(?:\b[Pp]robability of (?:profit|success|finishing|a gain)|\bPOP\b|\b\d{1,3}(?:\.\d)?% (?:chance|probability|likelihood)|\b[Ee]xpected (?:return|gain|profit))/,
     msg: "projected outcome — market commentary may not carry one" },
-  { id: "stopword", re: /\bstops? at\b/i,
-    msg: "house wording is 'stop-loss'" },
+  /* EXECUTION AND TRADE MANAGEMENT ARE THE CLIENT'S (0.38.0). Until then the
+     paragraph carried an entry, a scale band, a stop and a risk figure, and
+     this list policed how they were worded. Now none of them may appear.
+     "Scale in opportunistically" is the one sanctioned use of "scale" and is
+     checked for context in checkWallSentence; every other mechanism word is
+     an instruction arriving by another route. */
+  { id: "instruction", re: /\b(?:look(?:ing)? to (?:buy|sell)|scale (?:sales|purchases)|(?:investors|clients|traders|readers|we) (?:should|must|need to)|we would (?:buy|sell|scale)|weighted[- ]average|tranches?|ladders?|rungs?|position siz\w+|take profits?)\b/i,
+    msg: "execution instruction — commentary leaves how to trade to the client" },
+  { id: "management", re: /\b(?:stop[- ]loss(?:es)?|stops? (?:at|out|beyond)|stopped out|ends the trade|\d+(?:\.\d+)?% of risk|risk of \d|hold(?:ing)? (?:period|window)|hold for|over the hold|execute (?:over|within))\b/i,
+    msg: "trade management — commentary carries no stop, risk figure or holding period" },
   /* Direction, not position. Deliberately anchored on "we would" so it cannot
      touch "the short strike on the 16 put wall" or "a naked short leg", which
      are leg mechanics rather than a statement of the view. */
@@ -465,26 +451,6 @@ export function checkVoice(text) {
   return hits;
 }
 
-/* Contextual check: an immediate leg must not acquire a ladder in the prose.
-   The generic VOICE_CHECKS cannot see this — "scale" is correct language on a
-   scaled leg and wrong on an immediate one, so the test needs the model the
-   draft was written from. `ctx` is the draftContext JSON. */
-const LADDER = /\b(ladder|ladders|scale|scaled|scaling|tranche|tranches|rung|rungs|improvement)\b/i;
-
-/* Draft rule 7 REQUIRES this exact construction on an immediate leg — "the
-   wall leaves no room to scale, so look to sell at current levels" — and
-   LADDER flags the word "scale" inside it. So the drafter wrote precisely
-   what the prompt demanded and the guard called it a violation, three runs
-   in a row. The template arrived in v0.20.0; this check predates it.
-   Neutralise the sanctioned phrases before matching. Anything else carrying
-   a ladder word still flags.
-
-   Widened once more after GRID: a leg with NO WALL AT ALL cannot say "the
-   wall leaves no room to scale" — there is no wall — and scalePlan's own
-   reason for that case reads "no wall to scale into", which the drafter
-   echoes. The guard was flagging the only honest phrasing available. */
-const SANCTIONED = /\b(no room to scale|no wall to scale(?: into)?|nothing to scale(?: into)?|without a wall to scale(?: into)?)\b/gi;
-
 /* Every theme paragraph opens in three moves (0.37.0): MARKET CONDITIONS,
    then the VIEW on the market, then ONE WAY TO EXPRESS IT through the ETF.
    Until 0.36 it opened "We are bearish on GLD." — a call on a security in
@@ -497,9 +463,9 @@ const SANCTIONED = /\b(no room to scale|no wall to scale(?: into)?|nothing to sc
    - the view sentence must exist and carry the theme's direction — "we are
      bullish on gold" under a bearish theme is a complete inversion;
    - the view must not be stated on a ticker;
-   - "One way to express the view is <TK>" must name THIS leg's ticker;
-   - the execution verb carries the direction: SALES / "look to sell" on a
-     bearish leg, PURCHASES / "look to buy" on a bullish one. */
+   - "One way to express the view is <TK>" must name THIS leg's ticker.
+   The execution-verb check that lived here is gone with the verbs: 0.38.0
+   bans "look to sell" and "scale purchases" outright (VOICE_CHECKS). */
 const VIEW = /\bWe are (bearish|bullish) on ([^.;:]+)[.;:]/i;
 const EXPRESS = /\bOne way to express (?:the|this) view is ([A-Za-z0-9.]{1,6})\b/i;
 
@@ -519,7 +485,9 @@ export function checkThemeOpening(paras, ctx) {
     } else {
       if (v[1].toLowerCase() !== String(th.direction).toLowerCase())
         add(`states a ${v[1].toLowerCase()} view on a ${th.direction} theme — the view is inverted`, v[0].trim());
-      const onTicker = tickers.find(t => new RegExp(`^\\s*${t.replace(".", "\\.")}\\b`, "i").test(v[2]));
+      const onTicker = tickers.find(t => /* Case-sensitive: a ticker is upper case, and "grid infrastructure" is
+         a market, not GRID. */
+      new RegExp(`^\\s*${t.replace(".", "\\.")}\\b`).test(v[2]));
       if (onTicker)
         add(`the view is stated on ${onTicker} — state it on the market, and name the ETF as one way to express it`, v[0].trim());
       if (v.index === 0 || !body.slice(0, v.index).trim())
@@ -534,54 +502,64 @@ export function checkThemeOpening(paras, ctx) {
       if (e[1].toUpperCase() !== tk.toUpperCase()) add(`expresses the view through ${e[1]} but the leg is ${tk}`, e[0].trim());
       if (v && e.index < v.index) add("the vehicle is named before the view", e[0].trim());
     }
-
-    const bear = String(th.direction).toLowerCase() === "bearish";
-    const wrongVerb = bear ? /\bscale\s+purchases\b|\blook to buy\b/i
-                           : /\bscale\s+sales\b|\blook to sell\b/i;
-    const w = body.match(wrongVerb);
-    if (w) add(`${w[0]} on a ${th.direction} leg — the execution verb is inverted`, w[0]);
   }
   return hits;
 }
 
-/* The execution paragraph is meant to state the method, not walk the legs.
-   "Name no tickers" is exactly the kind of instruction a model half-keeps, so
-   it is counted rather than trusted. Tickers come from the model the draft
-   was written from, so this cannot fire on an ordinary capitalised word. */
-export function checkExecutionGeneric(paras, ctx) {
-  const hits = [];
-  const body = paras?.execution;
-  if (!body) return hits;
-  for (const th of ctx?.themes || []) {
-    const tk = th?.etf?.ticker;
-    if (tk && new RegExp(`\\b${tk}\\b`).test(body))
-      hits.push({ id: "generic", msg: "execution paragraph names a leg — state the convention, not each ticker", phrase: tk });
-  }
-  return hits;
-}
+/* THE WALL SENTENCE (0.38.0) — the whole of what the note says about
+   entering, so it is the one sentence that must not drift.
 
-export function checkImmediate(paras, ctx) {
+   compose builds it (environment.js: put wall for a buyer, call wall for a
+   seller, "nearby" inside 7%, "scale in opportunistically" beyond) and the
+   drafter is told to copy it. Checked rather than trusted, because each way
+   of getting it wrong reads perfectly well:
+   - the wrong wall for the direction — "call-wall resistance" under a
+     bullish theme is the framing for the opposite trade;
+   - "nearby" with a scale-in, or a scale-in with no distance: the 7% rule
+     applied the wrong way round;
+   - "may prefer" hardened into "should" (caught by VOICE_CHECKS as well);
+   - a wall level quoted for a vehicle that has no chain;
+   - "scale" anywhere outside the sanctioned phrase — the old ladder
+     language finding its way back. */
+const norm = x => String(x || "").replace(/\s+/g, " ").trim().toLowerCase();
+const SCALE_OK = /scale in opportunistically/gi;
+
+export function checkWallSentence(paras, ctx) {
   const hits = {};
-  const imm = (ctx?.themes || []).filter(t => t?.etf?.execution === "immediate");
-  if (!imm.length) return hits;
+  for (const th of ctx?.themes || []) {
+    const body = paras?.[th.subject];
+    const w = th?.etf?.wall, want = th?.etf?.wallSentence;
+    if (!body || !th?.etf?.ticker || !w) continue;
+    const add = (msg, phrase) => { (hits[th.subject] ||= []).push({ id: "wall", msg, phrase }); };
+    const bull = String(th.direction).toLowerCase() === "bullish";
 
-  for (const th of imm) {
-    const add = (k, phrase, msg) => { (hits[k] ||= []).push({ id: "immediate", msg, phrase }); };
+    const stray = body.replace(SCALE_OK, "").match(/\bscal(?:e|ed|es|ing)\b/i);
+    if (stray) add('"scale" outside "scale in opportunistically" — the note describes no scaling mechanics', stray[0]);
 
-    // The theme's own paragraph: no scale language beyond the sanctioned phrase.
-    const own = paras[th.subject]?.replace(SANCTIONED, "");
-    const m = own && own.match(LADDER);
-    if (m) add(th.subject, m[0], `${th.etf.ticker} is immediate — no ladder to describe`);
-
-    /* Shared paragraphs legitimately discuss the scaled legs, so only a
-       sentence naming this ticker can offend. */
-    for (const k of ["summary", "execution"]) {
-      for (const sent of String(paras[k] || "").replace(SANCTIONED, "").split(/(?<=[.!?])\s+/)) {
-        if (!sent.includes(th.etf.ticker)) continue;
-        const s = sent.match(LADDER);
-        if (s) add(k, s[0], `${th.etf.ticker} is immediate — no ladder to describe`);
-      }
+    if (w.noWall) {
+      /* No wall on the side that matters — no chain at all, or a chain with
+         nothing concentrated there. Either way no LEVEL may be cited; the
+         sanctioned sentence says "no put-wall support", which is why this
+         looks for a level or "nearby" rather than the bare phrase. */
+      const lvl = body.match(/\b(?:put|call)[- ]wall (?:support|resistance) (?:nearby|at|\d)[^.]*/i);
+      if (lvl) add(`${th.etf.ticker} has no wall on that side — there is no level to cite`, lvl[0].trim());
+      if (want && !norm(body).includes(norm(want)))
+        add(`wall sentence missing — the paragraph must carry: "${want}"`, body.slice(0, 48).trim());
+      continue;
     }
+    const wrong = bull ? /\bcall[- ]wall (?:support|resistance) (?:nearby|\d)/i : /\bput[- ]wall (?:support|resistance) (?:nearby|\d)/i;
+    const wr = body.match(wrong);
+    if (wr) add(`${wr[0]} frames the entry on the wrong wall for a ${th.direction} view`, wr[0]);
+
+    if (want && !norm(body).includes(norm(want))) {
+      const has = (bull ? /put[- ]wall support/i : /call[- ]wall resistance/i).test(body);
+      add(has ? `wall sentence reworded — it must read exactly: "${want}"`
+              : `wall sentence missing — the paragraph must carry: "${want}"`,
+          (body.match(/[^.]*\b(?:put|call)[- ]wall[^.]*\./i) || [body.slice(0, 48)])[0].trim());
+    }
+    if (w.proximity === "nearby" && SCALE_OK.test(body))
+      add(`the ${w.type} is ${w.distancePct}% away, inside the 7% band — the sentence is about the level, not about scaling in`, "scale in opportunistically");
+    SCALE_OK.lastIndex = 0;
   }
   return hits;
 }

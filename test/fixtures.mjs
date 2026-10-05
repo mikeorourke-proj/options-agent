@@ -281,73 +281,128 @@ export const EXPIRY_CASES = [
    every real violation must still fire.
    ═══════════════════════════════════════════════════════════════════ */
 export const VOICE_CTX = { themes: [
-  { subject: "Gold",   direction: "bearish", etf: { ticker: "GLD", execution: "immediate" } },
-  { subject: "Silver", direction: "bearish", etf: { ticker: "SLV", execution: "scaled" } },
-  { subject: "Rates",  direction: "bullish", etf: { ticker: "TLT", execution: "scaled" } },
+  { subject: "Gold",   direction: "bearish", etf: { ticker: "GLD",
+      wall: { type: "call wall", role: "resistance", level: 405, distancePct: 1.7, direction: "higher", proximity: "nearby" },
+      wallSentence: "Investors looking to trade the idea have call-wall resistance nearby at 405." } },
+  { subject: "Silver", direction: "bearish", etf: { ticker: "SLV",
+      wall: { type: "call wall", role: "resistance", level: 65, distancePct: 12.1, direction: "higher", proximity: "away" },
+      wallSentence: "With call-wall resistance 12.1% higher, investors looking to trade the idea may prefer to scale in opportunistically." } },
+  { subject: "Rates",  direction: "bullish", etf: { ticker: "TLT",
+      wall: { type: "put wall", role: "support", level: 77, distancePct: 0.7, direction: "lower", proximity: "nearby" },
+      wallSentence: "Investors looking to trade the idea have put-wall support nearby at 77." } },
+  { subject: "Grid",   direction: "bearish", etf: { ticker: "GRID", wall: { noWall: true, noChain: true },
+      wallSentence: "GRID has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against." } },
 ]};
 
 export const VOICE_CASES = [
-  /* 0.37.0 — MARKET COMMENTARY. Every theme paragraph now opens on the
-     market conditions, then the view on the MARKET, then "One way to express
-     the view is <TK>". The old opening, "We are bearish on GLD.", was a call
-     on a security in the first five words and now flags. "Targeting" flags in
-     every form, including on the weighted average. */
-  { id: "immediate.house-phrasing", subject: "Gold", expect: "clean",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels. The stop-loss at 404.30 ends the trade, 3.3% of risk." },
-  { id: "immediate.real-ladder", subject: "Gold", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD: look for the opportunity to scale sales from current levels to 400.00 for a weighted average execution of 396.10." },
-  /* GRID, 16 Sep: a leg with NO WALL AT ALL cannot say "the wall leaves no
-     room to scale" — there is no wall — so it must say "no wall to scale
-     into", which the guard was flagging. Both phrasings are sanctioned. */
-  { id: "immediate.no-chain-phrasing", subject: "Gold", expect: "clean",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. There is no wall to scale into, so look to sell at current levels. The stop-loss is a flat 5% from entry." },
-  { id: "immediate.nothing-to-scale", subject: "Gold", expect: "clean",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD; with nothing to scale into, the position goes on at current levels." },
-  { id: "immediate.tranche-elsewhere", subject: "Gold", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD at current levels; the tranches would fill only on strength." },
-  { id: "scaled.house-phrasing", subject: "Silver", expect: "clean",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
-  { id: "scaled.old-conditional", subject: "Silver", expect: "flag",
-    body: "We would be short SLV, scaling from current levels to 60.00 targeting a weighted average execution of 58.40." },
-  { id: "bullish.house-phrasing", subject: "Rates", expect: "clean",
-    body: "Policy credibility is being restored, and the 2% inflation target is back in reach. We are bullish on long-dated Treasuries. One way to express the view is TLT: look for the opportunity to scale purchases from current levels to 83.00 for a weighted average execution of 81.20." },
-  { id: "bullish.inverted-verb", subject: "Rates", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bullish on long-dated Treasuries. One way to express the view is TLT: look for the opportunity to scale sales from current levels to 83.00 for a weighted average execution of 81.20." },
+  /* 0.38.0 — SEED, INSTRUMENT, ENVIRONMENT. The paragraph is: market
+     conditions, the view on the market, "One way to express the view is
+     <TK>.", the wall sentence copied verbatim, then facts. No entry, no
+     scale band, no stop, no risk figure, no holding period. Every phrase
+     the 0.37 house style REQUIRED — "look to sell", "scale sales", "for a
+     weighted average execution of", "the stop-loss ends the trade" — now
+     flags, and those cases are kept below as the regression. */
+  { id: "near.bearish-house", subject: "Gold", expect: "clean",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. The put wall sits at 380, and the one-month option-implied range is 369 to 417." },
+  { id: "away.bearish-house", subject: "Silver", expect: "clean",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV. With call-wall resistance 12.1% higher, investors looking to trade the idea may prefer to scale in opportunistically. Implied volatility is running above realised, and the average daily move has been 1.9%." },
+  { id: "near.bullish-house", subject: "Rates", expect: "clean",
+    body: "Policy credibility is being restored, and the 2% inflation target is back in reach. We are bullish on long-dated Treasuries. One way to express the view is TLT. Investors looking to trade the idea have put-wall support nearby at 77. Investors who prefer a defined-risk expression could consider the November 20th 78/81 call spread, at a debit of 0.90, a maximum loss of 0.90 and a maximum gain of 2.10." },
+  { id: "nochain.house", subject: "Grid", expect: "clean",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on grid infrastructure. One way to express the view is GRID. GRID has no listed-options market deep enough to show open-interest walls, so there is no wall to frame an entry against. The one-month range from realised volatility is 118 to 131." },
+
+  /* The wall sentence — the one line that must not drift. */
+  { id: "wall.missing", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. The one-month option-implied range is 369 to 417." },
+  { id: "wall.reworded", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. There is call-wall resistance just overhead at 405, which helps sellers." },
+  { id: "wall.hardened-to-should", subject: "Silver", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV. With call-wall resistance 12.1% higher, investors looking to trade the idea should scale in opportunistically." },
+  { id: "wall.wrong-side", subject: "Rates", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bullish on long-dated Treasuries. One way to express the view is TLT. Investors looking to trade the idea have call-wall resistance nearby at 83." },
+  { id: "wall.near-but-scales", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. Investors may prefer to scale in opportunistically." },
+  { id: "wall.cited-on-no-chain", subject: "Grid", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on grid infrastructure. One way to express the view is GRID. Investors looking to trade the idea have call-wall resistance nearby at 130." },
+  { id: "wall.scaling-mechanics", subject: "Silver", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV. With call-wall resistance 12.1% higher, investors looking to trade the idea may prefer to scale in opportunistically. Scaling in five pieces toward 65 would average the entry higher." },
+
+  /* Opening shape, unchanged from 0.37. */
   { id: "opening.direction-inverted", subject: "Gold", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bullish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
+    body: "Haven demand is unwinding as real yields rise. We are bullish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
   { id: "opening.wrong-ticker", subject: "Gold", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is IAU; the wall leaves no room to scale, so look to sell at current levels." },
-  /* The 0.36 house opening — now the thing the check exists to stop. */
-  { id: "opening.old-house-opening", subject: "Gold", expect: "flag",
-    body: "We are bearish on GLD. The wall leaves no room to scale, so look to sell at current levels." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is IAU. Investors looking to trade the idea have call-wall resistance nearby at 405." },
+  { id: "opening.view-on-ticker", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on GLD. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
   { id: "opening.view-first", subject: "Gold", expect: "flag",
-    body: "We are bearish on gold. Haven demand is unwinding as real yields rise. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
+    body: "We are bearish on gold. Haven demand is unwinding as real yields rise. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
   { id: "opening.ticker-before-view", subject: "Gold", expect: "flag",
-    body: "GLD has lost its haven bid as real yields rise. We are bearish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
+    body: "GLD has lost its haven bid as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
   { id: "opening.no-expression", subject: "Gold", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. The wall leaves no room to scale, so look to sell at current levels." },
-  { id: "voice.position-wording", subject: "Silver", expect: "flag",
-    body: "We would be long SLV into the decision, scaling from current levels to 60.00." },
-  { id: "voice.stop-wording", subject: "Silver", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00. The stop at 63.63 ends the trade." },
-  { id: "voice.targeting-weighted-average", subject: "Silver", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 targeting a weighted average execution of 58.40." },
-  { id: "voice.real-price-objective", subject: "Silver", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00, targeting 52 over the hold." },
-  { id: "voice.policy-target-allowed", subject: "Silver", expect: "clean",
-    body: "The Fed has raised rates to defend its inflation target, and the metals have lost their bid. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
-  { id: "voice.pop-cited", subject: "Silver", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40. The put spread carries a POP of 41%." },
-  { id: "voice.probability-cited", subject: "Silver", expect: "flag",
-    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40, with a 62% chance of finishing lower." },
-  { id: "voice.pop-as-prose", subject: "Silver", expect: "clean",
-    body: "A pop in real yields has taken the haven bid out of the metals. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
-  /* Execution paragraph — a different section with a different rule: state
-     the convention, name no tickers. */
-  { id: "execution.generic", section: "execution", expect: "clean",
-    body: "The scaled legs are worked as five price-triggered executions at equal intervals from current levels to the open-interest wall, weighted 10/15/20/25/30. The immediate leg goes on in full at current levels. The stop-loss is a close 1% beyond the wall scaled into." },
-  { id: "execution.names-legs", section: "execution", expect: "flag",
-    body: "Each ladder runs from current levels to its wall, GLD to 400.00 and SLV to 60.00, with tranches price-triggered." },
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. Investors looking to trade the idea have call-wall resistance nearby at 405." },
+
+  /* REGRESSION — the 0.36 and 0.37 house phrasings. All were required
+     once; all are instructions or trade management now. */
+  { id: "retired.look-to-sell", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD; the wall leaves no room to scale, so look to sell at current levels." },
+  { id: "retired.scale-sales-weighted-average", subject: "Silver", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on silver. One way to express the view is SLV: look for the opportunity to scale sales from current levels to 60.00 for a weighted average execution of 58.40." },
+  { id: "retired.stop-loss", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. The stop-loss at 409.05 ends the trade, 3.3% of risk." },
+  { id: "retired.hold-window", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. The holding period is three to four weeks." },
+  { id: "retired.old-conditional", subject: "Silver", expect: "flag",
+    body: "We would be short SLV, scaling from current levels to 60.00 targeting a weighted average execution of 58.40." },
+  { id: "voice.investors-should", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. Investors should size the position modestly." },
+  { id: "voice.real-price-objective", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. We are targeting 380 over the coming month." },
+  { id: "voice.policy-target-allowed", subject: "Gold", expect: "clean",
+    body: "The Fed has raised rates to defend its inflation target, and the metals have lost their bid. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
+  { id: "voice.pop-cited", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. The put spread carries a POP of 41%." },
+  { id: "voice.probability-cited", subject: "Gold", expect: "flag",
+    body: "Haven demand is unwinding as real yields rise. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405. There is a 62% chance of finishing lower." },
+  { id: "voice.pop-as-prose", subject: "Gold", expect: "clean",
+    body: "A pop in real yields has taken the haven bid out of the metals. We are bearish on gold. One way to express the view is GLD. Investors looking to trade the idea have call-wall resistance nearby at 405." },
+  /* A summary names no instrument and gives no instruction. */
+  { id: "summary.clean", section: "summary", expect: "clean",
+    body: "A rate hike that restores policy credibility steadies Treasuries and removes the case for their substitutes. The havens that gained from doubt about the dollar lose most as that doubt recedes." },
+  { id: "summary.instructs", section: "summary", expect: "flag",
+    body: "The havens lose their bid as policy credibility returns, and investors should look to sell strength across the metals with a stop-loss above the highs." },
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   The wall that frames an entry, and the environment facts (0.38.0).
+
+   wallContext decides the one sentence the note carries about entering:
+   which wall, how far, and whether it is "nearby" (inside 7%) or far
+   enough that the sentence is about scaling in. Each case below is a way
+   that decision can go wrong without looking wrong.
+   ═══════════════════════════════════════════════════════════════════ */
+const ramp = (from, to, n) => Array.from({ length: n }, (_, i) => +(from + (to - from) * i / (n - 1)).toFixed(2));
+export const WALL_CASES = [
+  { id: "bullish.near-put-wall", spot: 77.53, direction: "bullish", vol: { putWall: 77, callWall: 83, iv30: 16.3, rv30: 13 } },
+  { id: "bullish.far-put-wall", spot: 100, direction: "bullish", vol: { putWall: 90, callWall: 104, iv30: 30, rv30: 30 } },
+  { id: "bearish.near-call-wall", spot: 76.91, direction: "bearish", vol: { putWall: 75, callWall: 79, iv30: 8.1, rv30: 6 } },
+  { id: "bearish.far-call-wall", spot: 620, direction: "bearish", vol: { putWall: 555, callWall: 700, iv30: 35.5, rv30: 40 } },
+  /* Exactly on the boundary: 7.0% is nearby, 7.1% is not. */
+  { id: "boundary.exactly-7pct", spot: 100, direction: "bearish", vol: { putWall: 90, callWall: 107, iv30: 20 } },
+  { id: "boundary.just-over", spot: 100, direction: "bearish", vol: { putWall: 90, callWall: 107.1, iv30: 20 } },
+  /* The relevant wall is missing even though the other one exists. */
+  { id: "bullish.no-put-wall", spot: 100, direction: "bullish", vol: { putWall: null, callWall: 105, iv30: 20 } },
+  /* A wall on the WRONG SIDE must not be described as support below. */
+  { id: "bullish.put-wall-above-spot", spot: 100, direction: "bullish", vol: { putWall: 102, callWall: 105, iv30: 20 } },
+  { id: "no-chain.realised-only", spot: 124.5, direction: "bearish", vol: { iv30: null, rv30: 18, rvWindow: 23 } },
+  /* The next concentration beyond the wall, from the ladder. */
+  { id: "ladder.next-level", spot: 100, direction: "bearish",
+    vol: { putWall: 95, callWall: 105, iv30: 20, callWallOI: 5000,
+           callWalls: [{ strike: 105, oi: 5000 }, { strike: 102, oi: 4000 }, { strike: 110, oi: 3000 }] } },
+  /* Environment from closes: a steady decline ending at the low. */
+  { id: "env.at-three-month-low", spot: 90, direction: "bearish", vol: { putWall: 85, callWall: 95, iv30: 22, rv30: 16 },
+    closes: ramp(110, 90, 80) },
+  { id: "env.short-history", spot: 50, direction: "bullish", vol: { putWall: 48, callWall: 55, iv30: 25, rv30: 25 },
+    closes: ramp(49, 50, 12) },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -611,8 +666,11 @@ export const CLAIM_CASES = [
 const composeLeg = (id, tk, { execution = "scaled", score, ev, evOnRisk, direction = "bearish" }) => ({
   id, subject: tk, direction, basis: "stated", evidence: "", rationale: "",
   execution, stopMode: "wall", secondary: [], levered: [], structures: [],
-  vol: { iv30: 30, rv30: 30, callWall: null, putWall: null },
-  primary: { t: tk, price: 100, liq: "A",
+  /* Walls and closes so the composed note carries a wall sentence and
+     environment facts (0.38.0): the call wall is 4% above, inside the 7%
+     band, so a bearish leg reads "resistance nearby at 104". */
+  vol: { iv30: 30, rv30: 30, callWall: 104, putWall: 90 },
+  primary: { t: tk, price: 100, liq: "A", closes: Array.from({ length: 70 }, (_, i) => 95 + (i % 10)),
     plan: { execution, spot: 100, entry: 100, stop: 105, riskPct: 5, rungs: [{ px: 100, w: 1 }] },
     tgt: { dn: 90, up: 110, struct: 95 },
     shareScore: { score, expectancy: ev, evOnRisk, riskPct: 5, pStopped: 20, pop: 60 } },

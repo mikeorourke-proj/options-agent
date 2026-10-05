@@ -3,9 +3,12 @@ import NoteView from "../src/note/NoteView.jsx";
 
 const theme = (id, tk, withOpt, lev) => ({
   id, subject: tk, direction: "bearish", basis: "stated",
-  etf: { tk, plan: { execution: "scaled", spot: 100, entry: 102, stop: 105, riskPct: 3, rungs: [{ px: 100, w: 1 }], wall: 104 },
+  wall: { side: "call", role: "resistance", rel: "higher", level: 104, distancePct: 4, proximity: "nearby" },
+  env: { rangeBasis: "implied", rangeLo: 92, rangeHi: 108, rangePct: 8.1, putWallDistPct: -10, callWallDistPct: 4,
+         iv30: 30, rv30: 25, ivOverRv: 1.2, avgDailyMovePct: 1.4, closeLo: 88, closeHi: 112, rangePosition: 50, ma50: 99, vsMa50Pct: 1 },
+  etf: { tk, price: 100, plan: { execution: "scaled", spot: 100, entry: 102, stop: 105, riskPct: 3, rungs: [{ px: 100, w: 1 }], wall: 104 },
          tgt: { dn: 90, up: 110 }, share: { riskPct: 5, expectancy: 3 } },
-  vol: { iv30: 30, rr25: -2, termSlope: 1, putWall: 90, callWall: 104 },
+  vol: { iv30: 30, rv30: 25, rr25: -2, termSlope: 1, putWall: 90, callWall: 104 },
   screening: { considered: [], whyNot: "" }, levered: lev ? [{ tk: "GLL", lev: -2, gamma: 6 }] : [],
   leveredCarried: [], alternatives: [], liq: "A", contracts: 500,
   options: withOpt ? [{ id: "put_spread", name: "Put spread", expiry: "2026-10-30", legText: "+1 95P / -1 90P",
@@ -31,7 +34,7 @@ const note = (withOpt, lev) => {
    ═══════════════════════════════════════════════════════════════════ */
 const EXPECT = {
   "options + levered":       ["Positioning Map", "ETF Expression", "Derivatives Expression", "Structure Notes",
-                              "Vehicle Screening", "Levered and Inverse Alternatives", "Option Leg Detail"],
+                              "Vehicle Screening", "Levered and Inverse Alternatives"],
   "shares only, levered":    ["Positioning Map", "ETF Expression", "Vehicle Screening", "Levered and Inverse Alternatives"],
   "shares only, no levered": ["Positioning Map", "ETF Expression", "Vehicle Screening"],
 };
@@ -47,6 +50,14 @@ for (const [label, o, l] of [["options + levered", true, true], ["shares only, l
      headers — both visual defects that no data-level test can see. */
   const spots = (html.match(/class="spot"/g) || []).length === 2;
   const heads = !o || html.includes('<th class="c">Expiry</th>');
+  /* 0.38.0 — EXECUTION AND MANAGEMENT ARE THE CLIENT'S. The page carries
+     levels and environment, and none of the words that describe an order:
+     no entry average, no scale band, no stop, no risk figure, no execute or
+     hold window, no execution paragraph, no order-ticket leg table. */
+  const orderWords = [/Stop[- ]loss/i, /Stop out/i, /Scale[- ]in/i, /Scale band/i, /\bRisk<\/th>/, /Execute /, /\bHold /,
+                      /Execution strategy/i, /Execution Mode/i, /Option Leg Detail/, /weighted average/i, /class="rung"/, /class="avg"/]
+    .filter(re => re.test(html)).map(String);
+  const envOk = /One-month range/.test(html) && /3-month closes/.test(html) && />Last</.test(html) && /RV30/.test(html);
   /* MARKET COMMENTARY (0.37.0). What keeps the note on the commentary side
      of Rule 2241 is as much what it leaves off the page as what it says, so
      the absences are asserted: no POP or probability, no "target" in any
@@ -64,7 +75,9 @@ for (const [label, o, l] of [["options + levered", true, true], ["shares only, l
     ["max loss", !o || ((html.match(/>Max loss</g) || []).length === 2 && (text.match(/Max gain/g) || []).length === 2)],
     ["appendix", /Market Commentary:/.test(text) && /Conflicts:/.test(text) && /theocc\.com/.test(text)],
   ].filter(([, v]) => !v).map(([k]) => k);
-  const ok = numbersOk && namesOk && railDate && spots && heads && !banned.length && !present.length;
+  const ok = numbersOk && namesOk && railDate && spots && heads && !banned.length && !present.length && !orderWords.length && envOk;
+  if (orderWords.length) console.log(`     ${label}: order language printed ${orderWords.join(", ")}`);
+  if (!envOk) console.log(`     ${label}: environment columns missing`);
   if (banned.length) console.log(`     ${label}: printed ${banned.join(", ")}`);
   if (present.length) console.log(`     ${label}: missing ${present.join(", ")}`);
   if (!ok) bad++;

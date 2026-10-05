@@ -63,12 +63,15 @@ export const APPENDIX = ({ author, title }) => [
        "securities and derivatives mentioned, including in a manner that is contrary to the views expressed here and " +
        "before or after this material is distributed." },
   { h: "Figures and Levels:",
-    p: "Prices are indicative as of the time shown and are not a guarantee of execution. Open-interest walls, scale " +
-       "bands, weighted-average executions, stop-loss levels and risk figures are mechanical descriptions of how an " +
-       "expression could be worked; they are not price objectives. The option-implied range is derived from current " +
-       "option prices and represents the market’s own measure of a one-standard-deviation move over the holding " +
-       "period; it is not a forecast. Information is from sources believed to be reliable but JTIS does not " +
-       "guarantee that it is accurate, complete or timely. Past performance is not indicative of future results." },
+    p: "Prices are indicative as of the date shown and are not a guarantee of execution. Open-interest walls, " +
+       "distances to them, trading ranges, moving averages and volatility measures describe the market as it " +
+       "stood; they are not price objectives and are not statements of where a security will trade. The " +
+       "one-month range is one standard deviation derived from current option prices, or from realised " +
+       "volatility where no option chain exists; it is not a forecast. This material does not provide entry or " +
+       "exit levels, position sizes, stop levels or holding periods: whether and how to act on any idea, " +
+       "including execution and risk management, is solely the decision of the recipient. Information is from " +
+       "sources believed to be reliable but JTIS does not guarantee that it is accurate, complete or timely. " +
+       "Past performance is not indicative of future results." },
   { h: "Options Risk Disclosure:",
     p: "Options involve risk and are not suitable for all investors. Prior to buying or selling an option, a person " +
        "must receive a copy of Characteristics and Risks of Standardized Options, available from your JTIS " +

@@ -213,3 +213,6 @@ table.x th.c { text-align: center; }
            border-radius: 5px; padding: 6px 10px; margin: 0 0 8px; }
 .fitnote.pending { background: #FFF6E0; border-color: #E8C872; }
 @media print { .fitnote, .screen-only { display: none !important; } }
+
+/* 0.38.0 — distance to a wall, printed small beside the level in the rail. */
+.rail table.etfr i.d { font-style: normal; font-size: 5.9pt; color: var(--n-muted); }

@@ -10,7 +10,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 import { getStore } from "@netlify/blobs";
 import { srvLog } from "./_runlog.mjs";
-import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkImmediate, checkExecutionGeneric, checkThemeOpening, checkSourcedClaims } from "./_prompts.mjs";
+import { systemFor, MODELS, MAX_TOKENS, enforce, checkVoice, checkWallSentence, checkThemeOpening, checkSourcedClaims } from "./_prompts.mjs";
 
 const API = "https://api.anthropic.com/v1/messages";
 
@@ -114,17 +114,19 @@ export default async (request) => {
         for (const m of secs) {
           const body = m[3].trim().replace(/\s*\n\s*/g, " ");
           if (/^SUMMARY/i.test(m[1])) parsed.summary = body;
-          else if (/^EXECUTION/i.test(m[1])) parsed.execution = body;
+          /* Still RECOGNISED so a model that writes one anyway cannot have it
+             swallowed into the last theme — but never kept. The note has had
+             no execution paragraph since 0.38.0. */
+          else if (/^EXECUTION/i.test(m[1])) L.warn("draft.execution.discarded", { words: body.split(/\s+/).length });
           else if (m[2]) parsed.themes[m[2].trim()] = body;
         }
         const wc = t => (t || "").split(/\s+/).filter(Boolean).length;
-        L.info("draft.sections", { summary: wc(parsed.summary), execution: wc(parsed.execution),
+        L.info("draft.sections", { summary: wc(parsed.summary),
                                    themes: Object.fromEntries(Object.entries(parsed.themes).map(([k, v]) => [k, wc(v)])) });
         /* A truncated draft still has complete sections before the cut.
            Keep them and say which are missing rather than discarding the lot. */
         const missing = [];
         if (!parsed.summary) missing.push("summary");
-        if (!parsed.execution) missing.push("execution");
         if (missing.length) {
           L.warn("draft.partial", { missing, got: Object.keys(parsed.themes), truncated });
           parsed.partial = missing;
@@ -178,15 +180,15 @@ export default async (request) => {
     let voice = null;
     if (parsed && task === "draft") {
       voice = {};
-      const paras = { summary: parsed.summary, execution: parsed.execution, ...(parsed.themes || {}) };
+      /* No execution paragraph since 0.38.0. If a model writes one anyway
+         it is dropped at parse and never reaches the note. */
+      const paras = { summary: parsed.summary, ...(parsed.themes || {}) };
       for (const [k, v] of Object.entries(paras)) { const h = checkVoice(v); if (h.length) voice[k] = h; }
       /* Whether "scale" is a violation depends on the leg, so this check needs
          the model the draft was written from, not just the paragraph. */
       try {
         const ctx = JSON.parse(text);
-        for (const [k, h] of Object.entries(checkImmediate(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
-        const gen = checkExecutionGeneric(paras, ctx);
-        if (gen.length) voice.execution = [...(voice.execution || []), ...gen];
+        for (const [k, h] of Object.entries(checkWallSentence(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
         for (const [k, h] of Object.entries(checkThemeOpening(paras, ctx))) voice[k] = [...(voice[k] || []), ...h];
         /* The only check that asks whether a CLAIM came from the source
            rather than how it was phrased. Needs the source text, which the
